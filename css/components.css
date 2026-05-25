@@ -8076,6 +8076,55 @@ button:focus-visible {
   letter-spacing: 0.1px;
 }
 
+.settings-text-dialog {
+  width: min(720px, calc(100vw - 96px));
+  max-width: min(720px, calc(100vw - 96px));
+  max-height: min(560px, calc(100vh - 96px));
+}
+
+.settings-text-dialog-field {
+  width: 100%;
+  border: 2px solid #333333;
+  border-radius: 20px;
+  background: #101010;
+  color: #ffffff;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 26px;
+  line-height: 1.35;
+  outline: none;
+}
+
+.settings-text-dialog-input {
+  min-height: 72px;
+  padding: 0 22px;
+}
+
+.settings-text-dialog-textarea {
+  min-height: 220px;
+  padding: 18px 22px;
+  resize: none;
+  white-space: pre-wrap;
+}
+
+.settings-text-dialog-field.focused,
+.settings-text-dialog-field:focus {
+  border-color: #f5f5f5;
+  background: #ffffff;
+  color: #111111;
+}
+
+.settings-text-dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-text-dialog-button {
+  justify-content: center;
+  text-align: center;
+}
+
 .settings-language-dialog {
   max-width: 37.5vw;
   max-height: min(43vw, calc(100vh - 96px));
@@ -8908,6 +8957,45 @@ button:focus-visible {
   overflow: hidden;
 }
 
+#player {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+.tizen-tv #player {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+}
+
+#videoPlayer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  display: block;
+  object-fit: fill;
+  background: #000;
+}
+
+.tizen-tv #videoPlayer,
+.tizen-tv .player-ui-root {
+  right: auto;
+  bottom: auto;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  transform: none;
+}
+
 #playerUiRoot {
   --player-secondary: var(--secondary-color);
   --player-on-secondary: var(--on-secondary);
@@ -8954,6 +9042,10 @@ button:focus-visible {
   pointer-events: none;
 }
 
+.player-loading-overlay.seek-only .player-loading-backdrop,
+.player-loading-overlay.seek-only .player-loading-gradient,
+.player-loading-overlay.seek-only .player-loading-title,
+.player-loading-overlay.seek-only .player-loading-subtitle,
 .player-loading-overlay.logo-only .player-loading-backdrop,
 .player-loading-overlay.logo-only .player-loading-gradient,
 .player-loading-overlay.logo-only .player-loading-title,
@@ -8961,10 +9053,12 @@ button:focus-visible {
   display: none;
 }
 
+.player-loading-overlay.seek-only .player-loading-center,
 .player-loading-overlay.logo-only .player-loading-center {
   width: auto;
 }
 
+.player-loading-overlay.seek-only .player-loading-logo,
 .player-loading-overlay.logo-only .player-loading-logo {
   margin-bottom: 0;
 }
@@ -8993,6 +9087,22 @@ button:focus-visible {
   text-align: center;
 }
 
+.player-loading-identity {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: center center;
+  opacity: 0;
+  animation:
+    playerLoadingIdentityFade 700ms linear 400ms forwards,
+    playerLoadingIdentityPulse 2000ms linear 400ms infinite alternate;
+  will-change: opacity, transform;
+}
+
+.player-loading-overlay.hidden .player-loading-identity {
+  animation: none;
+}
+
 .player-loading-logo {
   max-width: 420px;
   max-height: 170px;
@@ -9013,6 +9123,24 @@ button:focus-visible {
   margin-top: 10px;
   font-size: clamp(24px, 1.5vw, 30px);
   color: rgba(242, 247, 254, 0.9);
+}
+
+@keyframes playerLoadingIdentityFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes playerLoadingIdentityPulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.04);
+  }
 }
 
 .player-controls-overlay {
@@ -12516,6 +12644,16 @@ button:focus-visible {
   animation-iteration-count: 1 !important;
   transition-duration: 140ms !important;
   transition-delay: 0ms !important;
+}
+
+.performance-constrained .player-loading-identity {
+  animation:
+    playerLoadingIdentityFade 700ms linear 400ms forwards,
+    playerLoadingIdentityPulse 2000ms linear 400ms infinite alternate !important;
+}
+
+.performance-constrained .player-loading-overlay.hidden .player-loading-identity {
+  animation: none !important;
 }
 
 .performance-constrained .home-route-content-enter,

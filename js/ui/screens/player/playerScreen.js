@@ -1096,9 +1096,9 @@ export const PlayerScreen = {
     this.externalFrameUrl = String(params.externalFrameUrl || "").trim();
 
     this.aspectModes = [
-      { objectFit: "contain", label: "Fit" },
-      { objectFit: "cover", label: "Fill" },
-      { objectFit: "fill", label: "Stretch" }
+      { objectFit: "contain", label: t("player_aspect_fit", {}, "Fit") },
+      { objectFit: "cover", label: t("player_aspect_fill", {}, "Fill") },
+      { objectFit: "fill", label: t("player_aspect_stretch", {}, "Stretch") }
     ];
 
     this.streamCandidates = this.normalizeStreamCandidates(Array.isArray(params.streamCandidates) ? params.streamCandidates : []);
