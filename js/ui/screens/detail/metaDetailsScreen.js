@@ -4876,7 +4876,7 @@ export const MetaDetailsScreen = {
       const leftPad = Math.max(0, Number.parseFloat(styles?.paddingLeft || "0") || 0);
       return Math.max(0, Math.min(maxScrollLeft, target.offsetLeft - leftPad));
     }
-    if (horizontalTrack.classList.contains("detail-morelike-track")) {
+    if (horizontalTrack.classList.contains("detail-morelike-track") || horizontalTrack.classList.contains("detail-comments-track")) {
       const styles = globalThis.getComputedStyle ? globalThis.getComputedStyle(horizontalTrack) : null;
       const leftPad = Math.max(0, Number.parseFloat(styles?.paddingLeft || "0") || 0);
       return Math.max(0, Math.min(maxScrollLeft, target.offsetLeft - leftPad));
@@ -5068,6 +5068,15 @@ export const MetaDetailsScreen = {
         } else {
           const maxScrollTop = Math.max(0, detailContent.scrollHeight - detailContent.clientHeight);
           detailContent.scrollTop = Math.max(0, Math.min(maxScrollTop, Math.round(nextScrollTop)));
+        }
+      }
+    } else if (target.closest?.(".series-detail-actions")) {
+      const detailContent = this.getDetailContentScroller();
+      if (!preserveVerticalScroll && detailContent) {
+        if (animated) {
+          this.animateScroll(detailContent, "y", 0, 280);
+        } else {
+          detailContent.scrollTop = 0;
         }
       }
     } else if (typeof target.scrollIntoView === "function") {

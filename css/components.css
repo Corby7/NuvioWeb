@@ -11801,13 +11801,13 @@ button:focus-visible {
 }
 
 .series-circle-btn.is-library-selected {
-  background: #7cff9b;
-  color: #000000;
+  background: var(--detail-bg-card);
+  color: var(--detail-text-primary);
 }
 
 .series-circle-btn.is-selected {
-  background: #7cff9b;
-  color: #000000;
+  background: var(--detail-bg-card);
+  color: var(--detail-text-primary);
 }
 
 .series-primary-btn.focused,
