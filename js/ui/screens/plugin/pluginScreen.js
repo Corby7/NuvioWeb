@@ -142,6 +142,13 @@ export const PluginScreen = {
 
   bindContentEvents() {
     this.container.querySelectorAll(".addons-focusable[data-action-id]").forEach((node) => {
+      node.addEventListener("keydown", (event) => {
+        const code = Number(event?.keyCode || 0);
+        if (code === 32) {
+          event.preventDefault();
+        }
+      });
+
       node.addEventListener("click", async () => {
         this.focusZone = "content";
         this.contentRow = Number(node.dataset.row || 0);
@@ -149,10 +156,6 @@ export const PluginScreen = {
         this.applyFocus();
         await this.activateFocused();
       });
-    });
-
-    this.container.querySelector(".addons-qr-close")?.addEventListener("click", async () => {
-      await this.closeQrOverlay();
     });
   },
 
@@ -188,13 +191,13 @@ export const PluginScreen = {
                 Manage addons and home catalogs from your phone.
               </p>
               <p class="addons-meta">${escapeHtml(`${this.model.addonCount} addon${this.model.addonCount === 1 ? "" : "s"} currently linked`)}</p>
-              <button type="button"
-                      class="addons-large-row addons-large-row-centered addons-focusable"
-                      data-zone="content"
-                      data-row="0"
-                      data-col="0"
-                      data-action-id="manage_from_phone"
-                      tabindex="-1">
+              <div role="button"
+                   class="addons-large-row addons-large-row-centered addons-focusable"
+                   data-zone="content"
+                   data-row="0"
+                   data-col="0"
+                   data-action-id="manage_from_phone"
+                   tabindex="-1">
                 <span class="addons-large-row-icon material-icons" aria-hidden="true">qr_code_2</span>
                 <span class="addons-large-row-copy">
                   <strong>Manage from phone</strong>
@@ -203,7 +206,7 @@ export const PluginScreen = {
                 <span class="addons-large-row-tail-group">
                   <span class="addons-large-row-tail material-icons" aria-hidden="true">phone_android</span>
                 </span>
-              </button>
+              </div>
             </section>
           </div>
         </main>
@@ -213,10 +216,10 @@ export const PluginScreen = {
               <p class="addons-qr-instruction">Scan with your phone to manage addons, catalogs, and collections</p>
               <canvas class="addons-qr-canvas" width="440" height="440" aria-label="QR code"></canvas>
               <p class="addons-qr-url">${escapeHtml(this.model.phoneManagerUrl)}</p>
-              <button type="button" class="addons-qr-close addons-focusable focused" data-action-id="close_qr_overlay">
+              <div role="button" class="addons-qr-close addons-focusable focused" data-action-id="close_qr_overlay" tabindex="-1">
                 <span class="material-icons" aria-hidden="true">close</span>
                 <span>Close</span>
-              </button>
+              </div>
             </div>
           </div>
         ` : ""}

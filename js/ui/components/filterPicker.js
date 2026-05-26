@@ -57,15 +57,19 @@ export function renderFilterPicker({
 
   return `
     <div class="${wrapperClassName}">
-      <button class="${anchorClassName}"
-              data-action="${escapeHtml(anchorAction)}"
-              data-picker="${escapeHtml(picker)}">
+      <div class="${anchorClassName}"
+           data-action="${escapeHtml(anchorAction)}"
+           data-picker="${escapeHtml(picker)}"
+           role="button"
+           aria-haspopup="listbox"
+           aria-expanded="${open ? "true" : "false"}"
+           tabindex="-1">
         <span class="${classPrefix}-copy">
           <span class="${classPrefix}-title">${escapeHtml(title)}</span>
           <span class="${classPrefix}-value">${escapeHtml(value)}</span>
         </span>
         <span class="${classPrefix}-icon">${chevronSvg(open, chevronClassName)}</span>
-      </button>
+      </div>
       ${open ? `
         <div class="${menuClassName}" role="listbox" aria-label="${escapeHtml(title)}">
           ${options.map((option, index) => {
@@ -78,14 +82,15 @@ export function renderFilterPicker({
               index === normalizedSelectedIndex ? selectedOptionClass : ""
             );
             return `
-              <button class="${optionClassName}"
-                      data-action="${escapeHtml(optionAction)}"
-                      data-picker="${escapeHtml(picker)}"
-                      data-option-index="${index}"
-                      role="option"
-                      aria-selected="${index === normalizedSelectedIndex ? "true" : "false"}">
+              <div class="${optionClassName}"
+                   data-action="${escapeHtml(optionAction)}"
+                   data-picker="${escapeHtml(picker)}"
+                   data-option-index="${index}"
+                   role="option"
+                   aria-selected="${index === normalizedSelectedIndex ? "true" : "false"}"
+                   tabindex="-1">
                 ${escapeHtml(option?.label ?? option?.value ?? "")}
-              </button>
+              </div>
             `;
           }).join("")}
         </div>
