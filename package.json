@@ -2,7 +2,7 @@
   "name": "nuvio-tv-web",
   "private": true,
   "type": "module",
-  "version": "2.0.0",
+  "version": "0.2.0",
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "build:on-release": "node ./scripts/release-build-poller.mjs",
