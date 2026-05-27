@@ -20,6 +20,11 @@
           "name": "tracks",
           "description": "Resolve embedded track metadata for a media URL",
           "public": true
+        },
+        {
+          "name": "debridRequest",
+          "description": "Proxy allowed Debrid API requests for webOS CORS compatibility",
+          "public": true
         }
       ]
     }

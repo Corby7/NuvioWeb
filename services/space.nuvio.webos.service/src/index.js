@@ -1,4 +1,6 @@
 var path = require("path");
+var https = require("https");
+var url = require("url");
 
 var serverHost = require("./serverHost");
 var SERVICE_ID = serverHost.SERVICE_ID;
@@ -7,6 +9,26 @@ var probeLocalServer = serverHost.probeLocalServer;
 var requestActiveServerPath = serverHost.requestActiveServerPath;
 
 var RUNTIME_PATH = path.resolve(__dirname, "..", "runtime", "media-http.cjs");
+var DEBRID_REQUEST_TIMEOUT_MS = 15000;
+var DEBRID_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+var DEBRID_ALLOWED_HOSTS = {
+  "api.torbox.app": true,
+  "www.premiumize.me": true,
+  "api.real-debrid.com": true
+};
+var DEBRID_ALLOWED_HEADERS = {
+  "authorization": true,
+  "content-type": true,
+  "accept": true
+};
+var DEBRID_ALLOWED_METHODS = {
+  "GET": true,
+  "POST": true,
+  "PUT": true,
+  "PATCH": true,
+  "DELETE": true,
+  "HEAD": true
+};
 
 function createService() {
   try {
@@ -83,6 +105,184 @@ function getMessagePayload(message) {
   return {};
 }
 
+function bufferFrom(value) {
+  if (Buffer.from) {
+    return Buffer.from(String(value == null ? "" : value), "utf8");
+  }
+  return new Buffer(String(value == null ? "" : value), "utf8");
+}
+
+function normalizeHeaderName(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function sanitizeDebridHeaders(headers) {
+  var sanitized = {};
+  var source = headers && typeof headers === "object" ? headers : {};
+
+  Object.keys(source).forEach(function(name) {
+    var normalized = normalizeHeaderName(name);
+    var value = source[name];
+    if (!DEBRID_ALLOWED_HEADERS[normalized] || value == null) {
+      return;
+    }
+
+    if (normalized === "authorization") {
+      sanitized.Authorization = String(value);
+    } else if (normalized === "content-type") {
+      sanitized["Content-Type"] = String(value);
+    } else if (normalized === "accept") {
+      sanitized.Accept = String(value);
+    }
+  });
+
+  if (!sanitized.Accept) {
+    sanitized.Accept = "application/json, text/plain, */*";
+  }
+
+  return sanitized;
+}
+
+function buildDebridTarget(payload) {
+  var baseUrl = String(payload.baseUrl || "").trim();
+  var requestPath = String(payload.path || "").trim();
+  if (!baseUrl) {
+    throw new Error("Missing required parameter: baseUrl");
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(requestPath) || /^\/\//.test(requestPath)) {
+    throw new Error("Debrid proxy path must be relative");
+  }
+
+  var targetUrl = baseUrl.replace(/\/+$/, "") + "/" + requestPath.replace(/^\/+/, "");
+  var parsed = url.parse(targetUrl);
+  var hostname = String(parsed.hostname || "").toLowerCase();
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("Debrid proxy only supports HTTPS endpoints");
+  }
+  if (!DEBRID_ALLOWED_HOSTS[hostname]) {
+    throw new Error("Debrid proxy host is not allowed");
+  }
+
+  return parsed;
+}
+
+function escapeMultipartName(value) {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/[\r\n]/g, " ");
+}
+
+function buildMultipartBody(formData, headers) {
+  var boundary = "----NuvioDebrid" + Date.now() + Math.floor(Math.random() * 1000000);
+  var parts = [];
+  var entries = Array.isArray(formData) ? formData : [];
+
+  entries.forEach(function(entry) {
+    if (!Array.isArray(entry) || entry.length < 2) {
+      return;
+    }
+    parts.push(bufferFrom("--" + boundary + "\r\n"));
+    parts.push(bufferFrom("Content-Disposition: form-data; name=\"" + escapeMultipartName(entry[0]) + "\"\r\n\r\n"));
+    parts.push(bufferFrom(entry[1]));
+    parts.push(bufferFrom("\r\n"));
+  });
+
+  parts.push(bufferFrom("--" + boundary + "--\r\n"));
+  headers["Content-Type"] = "multipart/form-data; boundary=" + boundary;
+  return Buffer.concat(parts);
+}
+
+function buildDebridRequestBody(payload, headers) {
+  if (String(payload.bodyType || "") === "formData") {
+    return buildMultipartBody(payload.formData, headers);
+  }
+
+  if (payload.bodyText == null || String(payload.bodyText) === "") {
+    return null;
+  }
+
+  return bufferFrom(payload.bodyText);
+}
+
+function parseResponseBody(text) {
+  if (!String(text || "").trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return text;
+  }
+}
+
+function requestDebridEndpoint(payload, callback) {
+  var parsed = buildDebridTarget(payload);
+  var method = String(payload.method || "GET").trim().toUpperCase();
+  if (!DEBRID_ALLOWED_METHODS[method]) {
+    throw new Error("Debrid proxy method is not allowed");
+  }
+
+  var headers = sanitizeDebridHeaders(payload.headers);
+  var body = buildDebridRequestBody(payload, headers);
+  if (body && body.length) {
+    headers["Content-Length"] = body.length;
+  }
+
+  var options = {
+    protocol: "https:",
+    hostname: parsed.hostname,
+    port: parsed.port || 443,
+    path: (parsed.pathname || "/") + (parsed.search || ""),
+    method: method,
+    headers: headers
+  };
+  var finished = false;
+  var request = https.request(options, function(response) {
+    var chunks = [];
+    var receivedBytes = 0;
+
+    response.on("data", function(chunk) {
+      receivedBytes += chunk.length;
+      if (receivedBytes > DEBRID_MAX_RESPONSE_BYTES) {
+        request.destroy(new Error("Debrid response exceeded " + DEBRID_MAX_RESPONSE_BYTES + " bytes"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    response.on("end", function() {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      var text = Buffer.concat(chunks).toString("utf8");
+      callback(null, {
+        ok: response.statusCode >= 200 && response.statusCode < 300,
+        status: response.statusCode || 0,
+        headers: response.headers || {},
+        text: text,
+        data: parseResponseBody(text)
+      });
+    });
+  });
+
+  request.setTimeout(DEBRID_REQUEST_TIMEOUT_MS, function() {
+    request.destroy(new Error("Debrid request timed out after " + DEBRID_REQUEST_TIMEOUT_MS + "ms"));
+  });
+
+  request.on("error", function(error) {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    callback(error);
+  });
+
+  if (body && body.length) {
+    request.write(body);
+  }
+  request.end();
+}
+
 function registerCommand(commandName, includeBody) {
   service.register(commandName, function(message) {
     ensureRuntimeStarted();
@@ -94,6 +294,34 @@ function registerCommand(commandName, includeBody) {
         settingsBody: includeBody && status ? status.body : null
       }));
     });
+  });
+}
+
+function registerDebridRequestCommand() {
+  service.register("debridRequest", function(message) {
+    try {
+      requestDebridEndpoint(getMessagePayload(message), function(error, result) {
+        if (error) {
+          respond(message, buildErrorPayload(error, {
+            status: 0
+          }));
+          return;
+        }
+
+        respond(message, Object.assign(buildBasePayload(), {
+          returnValue: true,
+          ok: Boolean(result.ok),
+          status: result.status,
+          headers: result.headers,
+          text: result.text,
+          data: result.data
+        }));
+      });
+    } catch (error) {
+      respond(message, buildErrorPayload(error, {
+        status: 0
+      }));
+    }
   });
 }
 
@@ -153,4 +381,5 @@ function registerTracksCommand() {
 ensureRuntimeStarted();
 registerCommand("ping", false);
 registerCommand("status", true);
+registerDebridRequestCommand();
 registerTracksCommand();
