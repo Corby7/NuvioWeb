@@ -11398,14 +11398,14 @@ button:focus-visible {
   inset: 0;
   width: 100%;
   height: 100%;
-  background: var(--detail-bg) center center / cover no-repeat;
-  transform: scale(1.02);
+  background: var(--detail-bg) right top / cover no-repeat;
   opacity: 1;
-  transition: opacity 300ms ease;
+  transition: opacity 800ms ease;
 }
 
 .series-detail-shell.detail-scrolled .series-detail-backdrop {
   opacity: 0.15;
+  transition-duration: 300ms;
 }
 
 .detail-trailer-layer {
@@ -11643,10 +11643,8 @@ button:focus-visible {
   left: 0;
   inset: 0;
   z-index: 0;
-  background:
-    linear-gradient(90deg, rgba(13, 13, 13, 1) 0%, rgba(13, 13, 13, 0.92) 10%, rgba(13, 13, 13, 0.78) 22%, rgba(13, 13, 13, 0.58) 36%, rgba(13, 13, 13, 0.38) 52%, rgba(13, 13, 13, 0.22) 66%, rgba(13, 13, 13, 0.1) 78%, rgba(13, 13, 13, 0.03) 90%, rgba(13, 13, 13, 0) 100%),
-    linear-gradient(180deg, rgba(13, 13, 13, 0) 0%, rgba(13, 13, 13, 0.03) 10%, rgba(13, 13, 13, 0.1) 22%, rgba(13, 13, 13, 0.24) 36%, rgba(13, 13, 13, 0.44) 52%, rgba(13, 13, 13, 0.68) 66%, rgba(13, 13, 13, 0.86) 78%, rgba(13, 13, 13, 0.96) 90%, rgba(13, 13, 13, 1) 100%);
-  transition: opacity 600ms ease;
+  background: linear-gradient(90deg, rgba(13, 13, 13, 1) 0%, rgba(13, 13, 13, 0.95) 10%, rgba(13, 13, 13, 0.84) 22%, rgba(13, 13, 13, 0.7) 36%, rgba(13, 13, 13, 0.52) 52%, rgba(13, 13, 13, 0.34) 66%, rgba(13, 13, 13, 0.18) 78%, rgba(13, 13, 13, 0.07) 90%, rgba(13, 13, 13, 0) 100%);
+  transition: opacity 800ms ease;
 }
 
 .detail-trailer-active .series-detail-vignette {
@@ -11654,6 +11652,7 @@ button:focus-visible {
 }
 
 .series-detail-shell.detail-scrolled .series-detail-vignette {
+  transition-duration: 300ms;
   opacity: 0;
 }
 
@@ -11671,7 +11670,7 @@ button:focus-visible {
 }
 
 .series-detail-shell.detail-scrolled .detail-bottom-shadow {
-  opacity: 1;
+  opacity: 0;
 }
 
 .series-detail-content {

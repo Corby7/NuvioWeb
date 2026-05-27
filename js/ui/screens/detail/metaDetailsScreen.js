@@ -3631,7 +3631,7 @@ export const MetaDetailsScreen = {
       if (!shell) {
         return;
       }
-      shell.classList.toggle("detail-scrolled", content.scrollTop > 160);
+      shell.classList.toggle("detail-scrolled", content.scrollTop > 200);
     };
     content.addEventListener("scroll", this.detailScrollHandler, { passive: true });
     if (this.detailFocusHandler) {
