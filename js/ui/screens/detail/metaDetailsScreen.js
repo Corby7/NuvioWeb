@@ -20,13 +20,10 @@ import { Environment } from "../../../platform/environment.js";
 import { Platform } from "../../../platform/index.js";
 import { TRAKT_API_URL, TRAKT_CLIENT_ID, YOUTUBE_PROXY_URL } from "../../../config.js";
 import { I18n } from "../../../i18n/index.js";
-import { renderHoldMenuMarkup } from "../../components/holdMenu.js";
+import { NuvioDialog } from "../../components/nuvioDialog.js";
 import {
-  activatePosterOption,
-  createPosterOptionsState,
-  getPosterOptions,
   posterItemFromNode,
-  renderPosterOptionsMenu
+  PosterOptionsDialogController
 } from "../../components/posterOptionsMenu.js";
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
@@ -443,6 +440,10 @@ function renderLibraryGlyph(isSaved = false) {
   return isSaved
     ? `<svg class="series-btn-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17Z" fill="currentColor"/></svg>`
     : `<svg class="series-btn-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12H20M12 4V20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function renderWatchedBadgeGlyph(className = "series-watched-badge-svg") {
+  return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17Z" fill="currentColor"/></svg>`;
 }
 
 function renderWatchedGlyph(isWatched = false) {
@@ -1061,9 +1062,12 @@ export const MetaDetailsScreen = {
     this.pendingEpisodeSelection = null;
     this.pendingMovieSelection = null;
     this.episodeHoldMenu = null;
-    this.posterOptionsMenu = null;
+    this.seasonHoldMenu = null;
     this.heroPlayMenu = null;
     this.libraryListMenu = null;
+    this.detailHoldDialog = null;
+    this.posterOptionsController = null;
+    this.posterOptionsFocusRestore = null;
     this.pendingPosterHoldTarget = null;
     this.pendingPosterHoldTimer = null;
     this.pendingHeroHoldTarget = null;
@@ -2019,11 +2023,6 @@ export const MetaDetailsScreen = {
 
         <div id="episodeStreamChooserMount"></div>
       </div>
-      ${this.renderEpisodeHoldMenu()}
-      ${this.renderSeasonHoldMenu()}
-      ${renderPosterOptionsMenu(this.posterOptionsMenu)}
-      ${this.renderHeroPlayMenu()}
-      ${this.renderLibraryListMenu()}
     `;
 
     ScreenUtils.indexFocusables(this.container);
@@ -2031,18 +2030,6 @@ export const MetaDetailsScreen = {
       ScreenUtils.setInitialFocus(this.container);
     }
     this.bindDetailChrome();
-    if (this.episodeHoldMenu) {
-      this.applyEpisodeHoldMenuFocus();
-    }
-    if (this.seasonHoldMenu) {
-      this.applySeasonHoldMenuFocus();
-    }
-    if (this.posterOptionsMenu) {
-      this.applyPosterOptionsFocus();
-    }
-    if (this.heroPlayMenu || this.libraryListMenu) {
-      this.applyHeroOptionsFocus();
-    }
   },
   renderHeroSection({ meta, playLabel, creditLine = "", creditPrefix = "", showWatchedButton = false }) {
     const logoOrTitle = meta.logo
@@ -2251,9 +2238,6 @@ export const MetaDetailsScreen = {
         </div>
         <div id="movieStreamChooserMount"></div>
       </div>
-      ${renderPosterOptionsMenu(this.posterOptionsMenu)}
-      ${this.renderHeroPlayMenu()}
-      ${this.renderLibraryListMenu()}
     `;
 
     ScreenUtils.indexFocusables(this.container);
@@ -2261,12 +2245,6 @@ export const MetaDetailsScreen = {
       ScreenUtils.setInitialFocus(this.container, ".movie-detail-content .focusable");
     }
     this.bindDetailChrome();
-    if (this.posterOptionsMenu) {
-      this.applyPosterOptionsFocus();
-    }
-    if (this.heroPlayMenu || this.libraryListMenu) {
-      this.applyHeroOptionsFocus();
-    }
   },
 
   captureRenderedChromeState() {
@@ -2519,7 +2497,7 @@ export const MetaDetailsScreen = {
              data-video-id="${episode.id}">
           <div class="series-episode-thumb"${episode.thumbnail ? ` style="background-image:url('${episode.thumbnail.replace(/'/g, "%27")}')"` : ""}>
             <div class="series-episode-overlay"></div>
-            ${isWatched ? `<div class="series-episode-status complete">&#10003;</div>` : progressRatio < 0.02 ? `<div class="series-episode-status idle"></div>` : ""}
+            ${isWatched ? `<div class="series-episode-status complete">${renderWatchedBadgeGlyph()}</div>` : progressRatio < 0.02 ? `<div class="series-episode-status idle"></div>` : ""}
             ${isUnavailable ? `<div class="series-episode-unavailable">${escapeHtml(t("episodes_unavailable", {}, "Unavailable").toUpperCase())}</div>` : ""}
             <div class="series-episode-copy">
               <div class="series-episode-badge">${escapeHtml(t("episodes_episode", {}, "Episode").toUpperCase())} ${Number(episode.episode || 0)}</div>
@@ -2583,21 +2561,6 @@ export const MetaDetailsScreen = {
     return options;
   },
 
-  renderEpisodeHoldMenu() {
-    const episode = this.getEpisodeHoldMenuEpisode();
-    if (!episode) {
-      return "";
-    }
-    const subtitle = [`S${Number(episode.season || 0)}E${Number(episode.episode || 0)}`, episode.title || ""].filter(Boolean).join(" - ");
-    return renderHoldMenuMarkup({
-      kicker: t("detail.episodeOptions", {}, "Episode Options"),
-      title: this.meta?.name || this.params?.fallbackTitle || this.params?.itemId || "Untitled",
-      subtitle,
-      focusedIndex: Number(this.episodeHoldMenu?.optionIndex || 0),
-      options: this.getEpisodeHoldMenuOptions()
-    });
-  },
-
   getSeasonHoldMenuSeason() {
     const season = Number(this.seasonHoldMenu?.season || 0);
     return Number.isFinite(season) && season > 0 ? season : null;
@@ -2617,35 +2580,6 @@ export const MetaDetailsScreen = {
           : t("episodes_mark_season_watched", {}, "Mark season as watched")
       }
     ];
-  },
-
-  renderSeasonHoldMenu() {
-    const season = this.getSeasonHoldMenuSeason();
-    if (!season) {
-      return "";
-    }
-    return renderHoldMenuMarkup({
-      kicker: "",
-      title: t("detail.seasonLabel", { season }, "Season {{season}}"),
-      subtitle: t("episodes_season_actions", {}, "Season actions"),
-      focusedIndex: Number(this.seasonHoldMenu?.optionIndex || 0),
-      options: this.getSeasonHoldMenuOptions()
-    });
-  },
-
-  renderHeroPlayMenu() {
-    if (!this.heroPlayMenu) {
-      return "";
-    }
-    return renderHoldMenuMarkup({
-      kicker: "",
-      title: this.meta?.name || this.params?.fallbackTitle || "Untitled",
-      subtitle: t("detail.playOptions", {}, "Play options"),
-      focusedIndex: Number(this.heroPlayMenu.optionIndex || 0),
-      options: [
-        { action: "playManually", label: t("play_manually", {}, "Play manually") }
-      ]
-    });
   },
 
   getCurrentLibraryItem() {
@@ -2671,105 +2605,153 @@ export const MetaDetailsScreen = {
     return [
       ...tabs.map((tab) => ({
         action: `toggleLibraryList:${tab.key}`,
-        label: `${membership[tab.key] ? "[x]" : "[ ]"} ${tab.title || tab.key}`
+        label: tab.title || tab.key,
+        selected: membership[tab.key] === true,
+        className: "poster-list-picker-list-button"
       })),
-      { action: "saveLibraryLists", label: t("action_save", {}, "Save") }
+      { action: "saveLibraryLists", label: t("action_save", {}, "Save"), className: "poster-list-picker-save-button" }
     ];
   },
 
-  renderLibraryListMenu() {
-    if (!this.libraryListMenu) {
-      return "";
+  destroyDetailHoldDialog() {
+    if (this.detailHoldDialog) {
+      this.detailHoldDialog.destroy();
+      this.detailHoldDialog = null;
     }
-    const subtitle = this.libraryListMenu.error
-      || t("detail_lists_subtitle", {}, "Choose which lists should include this title");
-    return renderHoldMenuMarkup({
-      kicker: "",
-      title: this.meta?.name || this.params?.fallbackTitle || "Untitled",
-      subtitle,
-      focusedIndex: Number(this.libraryListMenu.optionIndex || 0),
-      options: this.getLibraryListMenuOptions()
+  },
+
+  focusDetailDescriptor(descriptor) {
+    if (!descriptor?.selector || !this.container) {
+      return false;
+    }
+    const target = this.container.querySelector(descriptor.selector);
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    return this.focusInList([target], 0, {
+      animated: false,
+      preserveVerticalScroll: Boolean(descriptor.preserveVerticalScroll)
     });
   },
 
-  applyEpisodeHoldMenuFocus() {
-    const buttons = Array.from(this.container?.querySelectorAll(".hold-menu-button.focusable") || []);
-    if (!buttons.length) {
-      return false;
-    }
-    const index = Math.max(0, Math.min(buttons.length - 1, Number(this.episodeHoldMenu?.optionIndex || 0)));
-    buttons.forEach((node, buttonIndex) => node.classList.toggle("focused", buttonIndex === index));
-    const target = buttons[index] || buttons[0] || null;
-    if (!target) {
-      return false;
-    }
-    target.classList.add("focused");
-    target.focus();
-    return true;
-  },
-
-  applySeasonHoldMenuFocus() {
-    const buttons = Array.from(this.container?.querySelectorAll(".hold-menu-button.focusable") || []);
-    if (!buttons.length) {
-      return false;
-    }
-    const index = Math.max(0, Math.min(buttons.length - 1, Number(this.seasonHoldMenu?.optionIndex || 0)));
-    buttons.forEach((node, buttonIndex) => node.classList.toggle("focused", buttonIndex === index));
-    const target = buttons[index] || buttons[0] || null;
-    if (!target) {
-      return false;
-    }
-    target.classList.add("focused");
-    target.focus({ preventScroll: true });
-    return true;
-  },
-
-  applyHeroOptionsFocus() {
-    const buttons = Array.from(this.container?.querySelectorAll(".hold-menu-button.focusable") || []);
-    if (!buttons.length) {
-      return false;
-    }
-    const source = this.libraryListMenu || this.heroPlayMenu || {};
-    const index = Math.max(0, Math.min(buttons.length - 1, Number(source.optionIndex || 0)));
-    buttons.forEach((node, buttonIndex) => node.classList.toggle("focused", buttonIndex === index));
-    const target = buttons[index] || buttons[0] || null;
-    if (!target) {
-      return false;
-    }
-    target.classList.add("focused");
-    target.focus();
-    return true;
-  },
-
-  moveHeroOptionsFocus(delta) {
-    const menu = this.libraryListMenu || this.heroPlayMenu;
-    if (!menu) {
-      return false;
-    }
-    const options = this.libraryListMenu
-      ? this.getLibraryListMenuOptions()
-      : [{ action: "playManually", label: t("play_manually", {}, "Play manually") }];
-    if (!options.length) {
-      return false;
-    }
-    menu.optionIndex = Math.max(0, Math.min(options.length - 1, Number(menu.optionIndex || 0) + delta));
-    this.render(this.meta, this.captureDetailFocus());
-    return this.applyHeroOptionsFocus();
-  },
-
-  moveEpisodeHoldMenuFocus(delta) {
-    if (!this.episodeHoldMenu) {
+  mountEpisodeHoldDialog() {
+    const episode = this.getEpisodeHoldMenuEpisode();
+    if (!episode) {
       return false;
     }
     const options = this.getEpisodeHoldMenuOptions();
-    if (!options.length) {
+    const focusRestore = this.getEpisodeFocusDescriptor(episode.id);
+    this.destroyDetailHoldDialog();
+    this.detailHoldDialog = new NuvioDialog({
+      title: this.meta?.name || this.params?.fallbackTitle || this.params?.itemId || "Untitled",
+      subtitle: [`S${Number(episode.season || 0)}E${Number(episode.episode || 0)}`, episode.title || ""].filter(Boolean).join(" - "),
+      widthVw: 37.5,
+      suppressEnterUntilKeyUp: true,
+      buttons: options.map((option, index) => ({
+        label: option.label,
+        key: option.action,
+        onAction: () => {
+          this.episodeHoldMenu = {
+            ...(this.episodeHoldMenu || {}),
+            optionIndex: index
+          };
+          void this.activateEpisodeHoldMenuOption();
+        }
+      })),
+      onDismiss: () => {
+        this.detailHoldDialog = null;
+        this.episodeHoldMenu = null;
+        this.focusDetailDescriptor(focusRestore);
+      }
+    }).mount(document.body);
+    return true;
+  },
+
+  mountSeasonHoldDialog() {
+    const season = this.getSeasonHoldMenuSeason();
+    if (!season) {
       return false;
     }
-    this.episodeHoldMenu = {
-      ...this.episodeHoldMenu,
-      optionIndex: Math.max(0, Math.min(options.length - 1, Number(this.episodeHoldMenu.optionIndex || 0) + delta))
-    };
-    return this.applyEpisodeHoldMenuFocus();
+    const focusRestore = { selector: `.series-season-btn[data-season="${season}"]` };
+    this.destroyDetailHoldDialog();
+    this.detailHoldDialog = new NuvioDialog({
+      title: t("detail.seasonLabel", { season }, "Season {{season}}"),
+      subtitle: t("episodes_season_actions", {}, "Season actions"),
+      widthVw: 37.5,
+      suppressEnterUntilKeyUp: true,
+      buttons: this.getSeasonHoldMenuOptions().map((option, index) => ({
+        label: option.label,
+        key: option.action,
+        onAction: () => {
+          this.seasonHoldMenu = {
+            ...(this.seasonHoldMenu || {}),
+            optionIndex: index
+          };
+          void this.activateSeasonHoldMenuOption();
+        }
+      })),
+      onDismiss: () => {
+        this.detailHoldDialog = null;
+        this.seasonHoldMenu = null;
+        this.focusDetailDescriptor(focusRestore);
+      }
+    }).mount(document.body);
+    return true;
+  },
+
+  mountHeroPlayDialog() {
+    this.destroyDetailHoldDialog();
+    this.detailHoldDialog = new NuvioDialog({
+      title: this.meta?.name || this.params?.fallbackTitle || "Untitled",
+      subtitle: t("detail.playOptions", {}, "Play options"),
+      widthVw: 37.5,
+      suppressEnterUntilKeyUp: true,
+      buttons: [{
+        label: t("play_manually", {}, "Play manually"),
+        key: "playManually",
+        onAction: () => {
+          void this.activateHeroOptionsMenu();
+        }
+      }],
+      onDismiss: () => {
+        this.detailHoldDialog = null;
+        this.heroPlayMenu = null;
+        this.focusDetailDescriptor({ selector: ".series-detail-actions [data-action='playDefault']" });
+      }
+    }).mount(document.body);
+    return true;
+  },
+
+  mountLibraryListDialog() {
+    if (!this.libraryListMenu) {
+      return false;
+    }
+    const focusRestore = { selector: ".series-detail-actions [data-action='toggleLibrary']" };
+    this.destroyDetailHoldDialog();
+    this.detailHoldDialog = new NuvioDialog({
+      title: this.meta?.name || this.params?.fallbackTitle || "Untitled",
+      subtitle: t("detail_lists_subtitle", {}, "Choose which lists should include this title"),
+      error: this.libraryListMenu.error || null,
+      widthVw: 52,
+      suppressEnterUntilKeyUp: true,
+      buttons: this.getLibraryListMenuOptions().map((option) => ({
+        label: option.label,
+        key: option.action,
+        selected: option.selected,
+        className: option.className,
+        onAction: () => {
+          void this.activateHeroOptionsMenu(option.action);
+        }
+      })),
+      panelClassName: "poster-list-picker-dialog-panel",
+      actionsClassName: "poster-list-picker-actions",
+      onDismiss: () => {
+        this.detailHoldDialog = null;
+        this.libraryListMenu = null;
+        this.focusDetailDescriptor(focusRestore);
+      }
+    }).mount(document.body);
+    return true;
   },
 
   isEpisodeHoldTarget(node) {
@@ -2864,22 +2846,22 @@ export const MetaDetailsScreen = {
   openHeroPlayMenu() {
     this.heroPlayMenu = { optionIndex: 0 };
     this.libraryListMenu = null;
-    this.suppressHoldMenuEnterUntilKeyUp = true;
-    this.render(this.meta, { selector: ".series-detail-actions [data-action='playDefault']" });
-    this.applyHeroOptionsFocus();
-    return true;
+    return this.mountHeroPlayDialog();
   },
 
-  closeHeroMenus() {
+  closeHeroMenus({ restoreFocus = true } = {}) {
     if (!this.heroPlayMenu && !this.libraryListMenu) {
       return false;
     }
-    const focusSelector = this.libraryListMenu
-      ? ".series-detail-actions [data-action='toggleLibrary']"
-      : ".series-detail-actions [data-action='playDefault']";
+    const focusDescriptor = this.libraryListMenu
+      ? { selector: ".series-detail-actions [data-action='toggleLibrary']" }
+      : { selector: ".series-detail-actions [data-action='playDefault']" };
     this.heroPlayMenu = null;
     this.libraryListMenu = null;
-    this.render(this.meta, { selector: focusSelector });
+    this.destroyDetailHoldDialog();
+    if (restoreFocus) {
+      this.focusDetailDescriptor(focusDescriptor);
+    }
     return true;
   },
 
@@ -2897,14 +2879,10 @@ export const MetaDetailsScreen = {
       item,
       tabs: resolvedTabs,
       membership: Object.fromEntries(resolvedTabs.map((tab) => [tab.key, Boolean(snapshot?.listMembership?.[tab.key])])),
-      optionIndex: 0,
       error: ""
     };
     this.heroPlayMenu = null;
-    this.suppressHoldMenuEnterUntilKeyUp = true;
-    this.render(this.meta, { selector: ".series-detail-actions [data-action='toggleLibrary']" });
-    this.applyHeroOptionsFocus();
-    return true;
+    return this.mountLibraryListDialog();
   },
 
   async playDefaultFromHero() {
@@ -2979,53 +2957,37 @@ export const MetaDetailsScreen = {
     if (!item?.id) {
       return false;
     }
-    this.posterOptionsMenu = await createPosterOptionsState(item);
-    this.pendingFocusRestore = this.getPosterFocusDescriptor(item.id);
-    this.suppressHoldMenuEnterUntilKeyUp = true;
-    this.render(this.meta, this.pendingFocusRestore);
-    this.applyPosterOptionsFocus();
-    return true;
+    const focusRestore = this.getPosterFocusDescriptor(item.id);
+    this.posterOptionsFocusRestore = focusRestore;
+    if (!this.posterOptionsController) {
+      this.posterOptionsController = new PosterOptionsDialogController({
+        onDetails: (target) => {
+          Router.navigate("detail", {
+            itemId: target.id,
+            itemType: target.type || "movie",
+            fallbackTitle: target.title || "Untitled"
+          });
+        },
+        onDismiss: () => {
+          const descriptor = this.posterOptionsFocusRestore;
+          this.posterOptionsFocusRestore = null;
+          this.focusDetailDescriptor(descriptor);
+        },
+        onChanged: () => {
+          this.render(this.meta, this.posterOptionsFocusRestore || null);
+        }
+      });
+    }
+    return this.posterOptionsController.open(item);
   },
 
   closePosterOptionsMenu() {
-    if (!this.posterOptionsMenu) {
+    if (!this.posterOptionsController?.dialog) {
       return false;
     }
-    const itemId = String(this.posterOptionsMenu.item?.id || "");
-    this.posterOptionsMenu = null;
-    this.render(this.meta, this.getPosterFocusDescriptor(itemId));
+    this.posterOptionsController.destroy();
+    this.posterOptionsFocusRestore = null;
     return true;
-  },
-
-  applyPosterOptionsFocus() {
-    const buttons = Array.from(this.container?.querySelectorAll(".hold-menu-button.focusable") || []);
-    if (!buttons.length || !this.posterOptionsMenu) {
-      return false;
-    }
-    const index = Math.max(0, Math.min(buttons.length - 1, Number(this.posterOptionsMenu.optionIndex || 0)));
-    buttons.forEach((node, buttonIndex) => node.classList.toggle("focused", buttonIndex === index));
-    const target = buttons[index] || buttons[0] || null;
-    if (!target) {
-      return false;
-    }
-    target.classList.add("focused");
-    target.focus();
-    return true;
-  },
-
-  movePosterOptionsFocus(delta) {
-    if (!this.posterOptionsMenu) {
-      return false;
-    }
-    const options = getPosterOptions(this.posterOptionsMenu);
-    if (!options.length) {
-      return false;
-    }
-    this.posterOptionsMenu = {
-      ...this.posterOptionsMenu,
-      optionIndex: Math.max(0, Math.min(options.length - 1, Number(this.posterOptionsMenu.optionIndex || 0) + delta))
-    };
-    return this.applyPosterOptionsFocus();
   },
 
   getPosterFocusDescriptor(itemId) {
@@ -3176,15 +3138,12 @@ export const MetaDetailsScreen = {
     if (!episode) {
       return false;
     }
-    this.pendingFocusRestore = this.getEpisodeFocusDescriptor(episode.id);
     this.episodeHoldMenu = {
       videoId: String(episode.id || ""),
       optionIndex: 0,
       episode: { ...episode }
     };
-    this.suppressHoldMenuEnterUntilKeyUp = true;
-    this.render(this.meta, this.pendingFocusRestore);
-    return true;
+    return this.mountEpisodeHoldDialog();
   },
 
   openSeasonHoldMenu(node) {
@@ -3196,28 +3155,32 @@ export const MetaDetailsScreen = {
       season,
       optionIndex: 0
     };
-    this.suppressHoldMenuEnterUntilKeyUp = true;
-    this.render(this.meta, { selector: `.series-season-btn[data-season="${season}"]` });
-    return true;
+    return this.mountSeasonHoldDialog();
   },
 
-  closeEpisodeHoldMenu() {
+  closeEpisodeHoldMenu({ restoreFocus = true } = {}) {
     if (!this.episodeHoldMenu) {
       return false;
     }
     const focusRestore = this.getEpisodeFocusDescriptor(this.episodeHoldMenu.videoId);
     this.episodeHoldMenu = null;
-    this.render(this.meta, focusRestore);
+    this.destroyDetailHoldDialog();
+    if (restoreFocus) {
+      this.focusDetailDescriptor(focusRestore);
+    }
     return true;
   },
 
-  closeSeasonHoldMenu() {
+  closeSeasonHoldMenu({ restoreFocus = true } = {}) {
     if (!this.seasonHoldMenu) {
       return false;
     }
     const season = Number(this.seasonHoldMenu.season || this.selectedSeason || 1);
     this.seasonHoldMenu = null;
-    this.render(this.meta, { selector: `.series-season-btn[data-season="${season}"]` });
+    this.destroyDetailHoldDialog();
+    if (restoreFocus) {
+      this.focusDetailDescriptor({ selector: `.series-season-btn[data-season="${season}"]` });
+    }
     return true;
   },
 
@@ -3375,15 +3338,19 @@ export const MetaDetailsScreen = {
       return false;
     }
     if (option.action === "play") {
+      this.closeEpisodeHoldMenu({ restoreFocus: false });
       return this.startEpisodeFromHoldMenu(episode);
     }
     if (option.action === "toggleWatched") {
+      this.closeEpisodeHoldMenu({ restoreFocus: false });
       return this.setEpisodeWatchedState(episode, !this.isEpisodeMarkedWatched(episode));
     }
     if (option.action === "markSeasonWatched" || option.action === "markSeasonUnwatched") {
+      this.closeEpisodeHoldMenu({ restoreFocus: false });
       return this.setSeasonWatchedState(episode.season, option.action === "markSeasonWatched");
     }
     if (option.action === "markPreviousWatched") {
+      this.closeEpisodeHoldMenu({ restoreFocus: false });
       return this.markPreviousEpisodesWatched(episode);
     }
     return false;
@@ -3397,59 +3364,29 @@ export const MetaDetailsScreen = {
       return false;
     }
     if (option.action === "markSeasonWatched" || option.action === "markSeasonUnwatched") {
+      this.closeSeasonHoldMenu({ restoreFocus: false });
       return this.setSeasonWatchedState(season, option.action === "markSeasonWatched");
     }
     return false;
   },
 
-  async activatePosterOptionsMenu() {
-    if (!this.posterOptionsMenu) {
-      return false;
-    }
-    const options = getPosterOptions(this.posterOptionsMenu);
-    const option = options[Math.max(0, Math.min(options.length - 1, Number(this.posterOptionsMenu.optionIndex || 0)))];
-    if (!option) {
-      return false;
-    }
-    const result = await activatePosterOption(this.posterOptionsMenu, option.action);
-    if (result?.type === "details") {
-      Router.navigate("detail", {
-        itemId: result.item.id,
-        itemType: result.item.type || "movie",
-        fallbackTitle: result.item.title || "Untitled"
-      });
-      return true;
-    }
-    if (result?.type === "updated") {
-      this.posterOptionsMenu = result.state;
-      this.render(this.meta, this.getPosterFocusDescriptor(result.state?.item?.id));
-      this.applyPosterOptionsFocus();
-      return true;
-    }
-    return false;
-  },
-
-  async activateHeroOptionsMenu() {
+  async activateHeroOptionsMenu(actionOverride = "") {
     if (this.heroPlayMenu) {
-      this.heroPlayMenu = null;
-      this.render(this.meta, { selector: ".series-detail-actions [data-action='playDefault']" });
+      this.closeHeroMenus({ restoreFocus: false });
       await this.playDefaultFromHero();
       return true;
     }
     if (!this.libraryListMenu) {
       return false;
     }
-    const options = this.getLibraryListMenuOptions();
-    const option = options[Math.max(0, Math.min(options.length - 1, Number(this.libraryListMenu.optionIndex || 0)))];
-    const action = String(option?.action || "");
+    const action = String(actionOverride || "");
     if (action.startsWith("toggleLibraryList:")) {
       const key = action.slice("toggleLibraryList:".length);
       this.libraryListMenu.membership = {
         ...(this.libraryListMenu.membership || {}),
         [key]: !this.libraryListMenu.membership?.[key]
       };
-      this.render(this.meta, { selector: ".series-detail-actions [data-action='toggleLibrary']" });
-      this.applyHeroOptionsFocus();
+      this.detailHoldDialog?.setButtonSelected?.(action, Boolean(this.libraryListMenu.membership[key]));
       return true;
     }
     if (action === "saveLibraryLists") {
@@ -3458,14 +3395,12 @@ export const MetaDetailsScreen = {
           desiredMembership: this.libraryListMenu.membership || {}
         });
         this.isSavedInLibrary = Object.values(this.libraryListMenu.membership || {}).some(Boolean);
-        this.libraryListMenu = null;
-        this.render(this.meta, { selector: ".series-detail-actions [data-action='toggleLibrary']" });
+        this.closeHeroMenus({ restoreFocus: false });
         this.syncDetailActionButtons();
       } catch (error) {
         console.warn("Failed to update library lists", error);
         this.libraryListMenu.error = t("detail_lists_save_failed", {}, "Could not save list changes.");
-        this.render(this.meta, { selector: ".series-detail-actions [data-action='toggleLibrary']" });
-        this.applyHeroOptionsFocus();
+        this.mountLibraryListDialog();
       }
       return true;
     }
@@ -3799,31 +3734,28 @@ export const MetaDetailsScreen = {
   },
 
   captureDetailFocus() {
+    if (this.episodeHoldMenu) {
+      return this.getEpisodeFocusDescriptor(this.episodeHoldMenu?.videoId);
+    }
+    if (this.seasonHoldMenu) {
+      const season = Number(this.seasonHoldMenu.season || this.selectedSeason || 1);
+      return { selector: `.series-season-btn[data-season="${season}"]` };
+    }
+    if (this.posterOptionsController?.dialog) {
+      return this.posterOptionsFocusRestore || null;
+    }
+    if (this.libraryListMenu) {
+      return { selector: ".series-detail-actions [data-action='toggleLibrary']" };
+    }
+    if (this.heroPlayMenu) {
+      return { selector: ".series-detail-actions [data-action='playDefault']" };
+    }
     if (!this.container) {
       return null;
     }
     const current = this.container.querySelector(".focusable.focused");
     const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const target = current || (active && this.container.contains(active) ? active : null);
-    if (target?.matches?.(".hold-menu-button.focusable")) {
-      if (this.episodeHoldMenu) {
-        return this.getEpisodeFocusDescriptor(this.episodeHoldMenu?.videoId);
-      }
-      if (this.seasonHoldMenu) {
-        const season = Number(this.seasonHoldMenu.season || this.selectedSeason || 1);
-        return { selector: `.series-season-btn[data-season="${season}"]` };
-      }
-      if (this.posterOptionsMenu) {
-        return this.getPosterFocusDescriptor(this.posterOptionsMenu?.item?.id);
-      }
-      if (this.libraryListMenu) {
-        return { selector: ".series-detail-actions [data-action='toggleLibrary']" };
-      }
-      if (this.heroPlayMenu) {
-        return { selector: ".series-detail-actions [data-action='playDefault']" };
-      }
-      return null;
-    }
     if (!(target instanceof HTMLElement) || !target.closest(".series-detail-content")) {
       return null;
     }
@@ -3881,17 +3813,7 @@ export const MetaDetailsScreen = {
   restorePendingFocus() {
     const descriptor = this.pendingFocusRestore;
     this.pendingFocusRestore = null;
-    if (!descriptor?.selector || !this.container) {
-      return false;
-    }
-    const target = this.container.querySelector(descriptor.selector);
-    if (!(target instanceof HTMLElement)) {
-      return false;
-    }
-    return this.focusInList([target], 0, {
-      animated: false,
-      preserveVerticalScroll: Boolean(descriptor.preserveVerticalScroll)
-    });
+    return this.focusDetailDescriptor(descriptor);
   },
 
   isPerformanceConstrained() {
@@ -4773,7 +4695,7 @@ export const MetaDetailsScreen = {
       this.closeEpisodeHoldMenu();
       return true;
     }
-    if (this.posterOptionsMenu) {
+    if (this.posterOptionsController?.dialog) {
       this.closePosterOptionsMenu();
       return true;
     }
@@ -5910,50 +5832,6 @@ export const MetaDetailsScreen = {
       this.cancelPendingHeroHold();
     }
 
-    if (this.episodeHoldMenu || this.seasonHoldMenu || this.posterOptionsMenu || this.heroPlayMenu || this.libraryListMenu) {
-      if (isBackEvent(event)) {
-        event?.preventDefault?.();
-        if (this.heroPlayMenu || this.libraryListMenu) {
-          this.closeHeroMenus();
-        } else if (this.posterOptionsMenu) {
-          this.closePosterOptionsMenu();
-        } else if (this.seasonHoldMenu) {
-          this.closeSeasonHoldMenu();
-        } else {
-          this.closeEpisodeHoldMenu();
-        }
-        return;
-      }
-      if (code === 38 || code === 40) {
-        event?.preventDefault?.();
-        if (this.heroPlayMenu || this.libraryListMenu) {
-          this.moveHeroOptionsFocus(code === 38 ? -1 : 1);
-        } else if (this.posterOptionsMenu) {
-          this.movePosterOptionsFocus(code === 38 ? -1 : 1);
-        } else if (this.episodeHoldMenu) {
-          this.moveEpisodeHoldMenuFocus(code === 38 ? -1 : 1);
-        }
-        return;
-      }
-      if (code === 13) {
-        event?.preventDefault?.();
-        if (this.suppressHoldMenuEnterUntilKeyUp) {
-          return;
-        }
-        if (this.heroPlayMenu || this.libraryListMenu) {
-          await this.activateHeroOptionsMenu();
-        } else if (this.posterOptionsMenu) {
-          await this.activatePosterOptionsMenu();
-        } else if (this.seasonHoldMenu) {
-          await this.activateSeasonHoldMenuOption();
-        } else {
-          await this.activateEpisodeHoldMenuOption();
-        }
-        return;
-      }
-      return;
-    }
-
     if (isBackEvent(event)) {
       if (typeof event.preventDefault === "function") {
         event.preventDefault();
@@ -6256,13 +6134,6 @@ export const MetaDetailsScreen = {
   },
 
   async onKeyUp(event) {
-    if (this.suppressHoldMenuEnterUntilKeyUp) {
-      this.suppressHoldMenuEnterUntilKeyUp = false;
-      if (Number(event?.keyCode || 0) === 13) {
-        event?.preventDefault?.();
-        return;
-      }
-    }
     if (Number(event?.keyCode || 0) !== 13) {
       return;
     }
@@ -6293,12 +6164,14 @@ export const MetaDetailsScreen = {
     this.cancelPendingSeasonHold();
     this.cancelPendingPosterHold();
     this.cancelPendingHeroHold();
+    this.posterOptionsController?.destroy?.({ restoreFocus: false });
+    this.posterOptionsController = null;
+    this.posterOptionsFocusRestore = null;
+    this.destroyDetailHoldDialog();
     this.episodeHoldMenu = null;
     this.seasonHoldMenu = null;
-    this.posterOptionsMenu = null;
     this.heroPlayMenu = null;
     this.libraryListMenu = null;
-    this.suppressHoldMenuEnterUntilKeyUp = false;
     this.stopTrailerPlayback({ keepDom: false, restartAutoplay: false });
     if (this.detailScrollHandler && this.container) {
       const content = this.container.querySelector(".series-detail-content");

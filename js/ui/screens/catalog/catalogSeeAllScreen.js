@@ -6,11 +6,8 @@ import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { I18n } from "../../../i18n/index.js";
 import { focusWithoutAutoScroll } from "../../components/sidebarNavigation.js";
 import {
-  activatePosterOption,
-  createPosterOptionsState,
-  getPosterOptions,
   posterItemFromNode,
-  renderPosterOptionsMenu
+  PosterOptionsDialogController
 } from "../../components/posterOptionsMenu.js";
 
 const POSTER_HOLD_DELAY_MS = 650;
@@ -178,7 +175,8 @@ export const CatalogSeeAllScreen = {
     this.preserveViewportOnNextRender = false;
     this.savedScrollTop = 0;
     this.loadToken = (this.loadToken || 0) + 1;
-    this.posterOptionsMenu = null;
+    this.posterOptionsController = null;
+    this.posterOptionsFocusKey = "";
     this.pendingPosterHoldTarget = null;
     this.pendingPosterHoldTimer = null;
 
@@ -488,53 +486,40 @@ export const CatalogSeeAllScreen = {
       return false;
     }
     this.captureViewState();
-    this.posterOptionsMenu = await createPosterOptionsState(item, {
-      focusKey: node.dataset.focusKey || "",
+    this.posterOptionsFocusKey = String(node.dataset.focusKey || this.lastFocusedKey || "");
+    if (!this.posterOptionsController) {
+      this.posterOptionsController = new PosterOptionsDialogController({
+        onDetails: (target) => {
+          Router.navigate("detail", {
+            itemId: target.id,
+            itemType: target.type || "movie",
+            fallbackTitle: target.title || "Untitled"
+          });
+        },
+        onDismiss: () => {
+          this.lastFocusedKey = this.posterOptionsFocusKey || this.lastFocusedKey;
+          this.posterOptionsFocusKey = "";
+          this.pendingRestoreFocus = true;
+          this.preserveViewportOnNextRender = true;
+          this.render();
+        },
+        onChanged: () => {
+          this.render();
+        }
+      });
+    }
+    return this.posterOptionsController.open(item, {
+      focusKey: this.posterOptionsFocusKey,
       itemIndex: Number(node.dataset.itemIndex || -1)
     });
-    this.suppressHoldMenuEnterUntilKeyUp = true;
-    this.render();
-    return true;
   },
 
   closePosterOptionsMenu() {
-    if (!this.posterOptionsMenu) {
+    if (!this.posterOptionsController?.dialog) {
       return false;
     }
-    this.lastFocusedKey = this.posterOptionsMenu.focusKey || this.lastFocusedKey;
-    this.posterOptionsMenu = null;
-    this.pendingRestoreFocus = true;
-    this.preserveViewportOnNextRender = true;
-    this.render();
-    return true;
-  },
-
-  applyPosterOptionsFocus() {
-    const buttons = Array.from(this.container?.querySelectorAll(".hold-menu-button.focusable") || []);
-    if (!buttons.length) {
-      return false;
-    }
-    const index = Math.max(0, Math.min(buttons.length - 1, Number(this.posterOptionsMenu?.optionIndex || 0)));
-    buttons.forEach((node, buttonIndex) => node.classList.toggle("focused", buttonIndex === index));
-    const target = buttons[index] || buttons[0] || null;
-    if (!target) {
-      return false;
-    }
-    target.classList.add("focused");
-    focusWithoutAutoScroll(target);
-    return true;
-  },
-
-  movePosterOptionsFocus(delta) {
-    if (!this.posterOptionsMenu) {
-      return false;
-    }
-    const options = getPosterOptions(this.posterOptionsMenu);
-    this.posterOptionsMenu = {
-      ...this.posterOptionsMenu,
-      optionIndex: Math.max(0, Math.min(options.length - 1, Number(this.posterOptionsMenu.optionIndex || 0) + delta))
-    };
-    this.applyPosterOptionsFocus();
+    this.posterOptionsController.destroy();
+    this.posterOptionsFocusKey = "";
     return true;
   },
 
@@ -548,27 +533,6 @@ export const CatalogSeeAllScreen = {
       fallbackTitle: node.dataset.itemTitle || "Untitled"
     });
     return true;
-  },
-
-  async activatePosterOptionsMenu() {
-    const options = getPosterOptions(this.posterOptionsMenu);
-    const option = options[Math.max(0, Math.min(options.length - 1, Number(this.posterOptionsMenu?.optionIndex || 0)))];
-    const result = await activatePosterOption(this.posterOptionsMenu, option?.action);
-    if (result.type === "details") {
-      this.posterOptionsMenu = null;
-      Router.navigate("detail", {
-        itemId: result.item.id,
-        itemType: result.item.type || "movie",
-        fallbackTitle: result.item.title || "Untitled"
-      });
-      return true;
-    }
-    if (result.type === "updated") {
-      this.posterOptionsMenu = result.state;
-      this.render();
-      return true;
-    }
-    return false;
   },
 
   render() {
@@ -611,17 +575,12 @@ export const CatalogSeeAllScreen = {
         </section>
         ${this.loading ? `<div class="seeall-loading">${escapeHtml(t("discover_loading", {}, "Loading..."))}</div>` : ""}
       </div>
-      ${renderPosterOptionsMenu(this.posterOptionsMenu)}
     `;
 
     ScreenUtils.indexFocusables(this.container);
     this.buildNavigationModel();
     this.bindCardEvents();
     this.bindShellEvents();
-    if (this.posterOptionsMenu) {
-      this.applyPosterOptionsFocus();
-      return;
-    }
     if (this.pendingRestoreFocus) {
       const scrollMode = this.preserveViewportOnNextRender ? "none" : "center";
       this.pendingRestoreFocus = false;
@@ -671,22 +630,6 @@ export const CatalogSeeAllScreen = {
     }
     const code = Number(event?.keyCode || 0);
     const focusedBeforeDpad = this.container?.querySelector(".focusable.focused") || null;
-    if (this.posterOptionsMenu) {
-      if (code === 38 || code === 40) {
-        event?.preventDefault?.();
-        this.movePosterOptionsFocus(code === 38 ? -1 : 1);
-        return;
-      }
-      if (code === 13) {
-        event?.preventDefault?.();
-        if (this.suppressHoldMenuEnterUntilKeyUp) {
-          return;
-        }
-        await this.activatePosterOptionsMenu();
-        return;
-      }
-      return;
-    }
     if (code === 13 && this.isPosterHoldTarget(focusedBeforeDpad)) {
       event?.preventDefault?.();
       if (!event?.repeat && !this.hasPendingPosterHold(focusedBeforeDpad)) {
@@ -711,13 +654,6 @@ export const CatalogSeeAllScreen = {
   },
 
   onKeyUp(event) {
-    if (this.suppressHoldMenuEnterUntilKeyUp) {
-      this.suppressHoldMenuEnterUntilKeyUp = false;
-      if (Number(event?.keyCode || 0) === 13) {
-        event?.preventDefault?.();
-        return;
-      }
-    }
     if (Number(event?.keyCode || 0) !== 13) {
       return;
     }
@@ -734,8 +670,9 @@ export const CatalogSeeAllScreen = {
   cleanup() {
     this.loadToken = (this.loadToken || 0) + 1;
     this.cancelPendingPosterHold();
-    this.posterOptionsMenu = null;
-    this.suppressHoldMenuEnterUntilKeyUp = false;
+    this.posterOptionsController?.destroy?.({ restoreFocus: false });
+    this.posterOptionsController = null;
+    this.posterOptionsFocusKey = "";
     ScreenUtils.hide(this.container);
   }
 

@@ -4,11 +4,8 @@ import { TmdbSettingsStore } from "../../../data/local/tmdbSettingsStore.js";
 import { Environment } from "../../../platform/environment.js";
 import { I18n } from "../../../i18n/index.js";
 import {
-  activatePosterOption,
-  createPosterOptionsState,
-  getPosterOptions,
   posterItemFromNode,
-  renderPosterOptionsMenu
+  PosterOptionsDialogController
 } from "../../components/posterOptionsMenu.js";
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
@@ -54,7 +51,8 @@ export const CastDetailScreen = {
     this.loadToken = (this.loadToken || 0) + 1;
     this.person = null;
     this.credits = [];
-    this.posterOptionsMenu = null;
+    this.posterOptionsController = null;
+    this.posterOptionsFocusRestore = null;
     this.pendingPosterHoldTarget = null;
     this.pendingPosterHoldTimer = null;
 
@@ -198,13 +196,10 @@ export const CastDetailScreen = {
           <div class="cast-credit-track">${creditsHtml}</div>
         </section>
       </div>
-      ${renderPosterOptionsMenu(this.posterOptionsMenu)}
     `;
 
     ScreenUtils.indexFocusables(this.container);
-    if (!this.applyPosterOptionsFocus()) {
-      ScreenUtils.setInitialFocus(this.container);
-    }
+    ScreenUtils.setInitialFocus(this.container);
   },
 
   isPosterHoldTarget(node) {
@@ -259,56 +254,42 @@ export const CastDetailScreen = {
     if (!item?.id) {
       return false;
     }
-    this.posterOptionsMenu = await createPosterOptionsState(item);
-    this.suppressHoldMenuEnterUntilKeyUp = true;
-    this.render();
-    this.applyPosterOptionsFocus();
-    return true;
+    this.posterOptionsFocusRestore = String(item.id || "").trim();
+    if (!this.posterOptionsController) {
+      this.posterOptionsController = new PosterOptionsDialogController({
+        onDetails: (target) => {
+          Router.navigate("detail", {
+            itemId: target.id,
+            itemType: target.type || "movie",
+            fallbackTitle: target.title || "Untitled"
+          });
+        },
+        onDismiss: () => {
+          const itemId = this.posterOptionsFocusRestore;
+          this.posterOptionsFocusRestore = null;
+          const target = itemId
+            ? this.container?.querySelector(`.cast-credit-card.focusable[data-item-id="${String(itemId).replace(/["\\]/g, "\\$&")}"]`)
+            : null;
+          if (!target) {
+            return;
+          }
+          this.container.querySelectorAll(".focusable.focused").forEach((current) => {
+            if (current !== target) current.classList.remove("focused");
+          });
+          target.classList.add("focused");
+          target.focus?.({ preventScroll: true });
+        }
+      });
+    }
+    return this.posterOptionsController.open(item);
   },
 
   closePosterOptionsMenu() {
-    if (!this.posterOptionsMenu) {
+    if (!this.posterOptionsController?.dialog) {
       return false;
     }
-    const itemId = String(this.posterOptionsMenu.item?.id || "");
-    this.posterOptionsMenu = null;
-    this.render();
-    const target = itemId
-      ? this.container?.querySelector(`.cast-credit-card.focusable[data-item-id="${String(itemId).replace(/["\\]/g, "\\$&")}"]`)
-      : null;
-    if (target) {
-      this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
-      target.classList.add("focused");
-      target.focus?.({ preventScroll: true });
-    }
-    return true;
-  },
-
-  applyPosterOptionsFocus() {
-    const button = this.container?.querySelector(".hold-menu-button.focusable");
-    if (!button) {
-      return false;
-    }
-    this.container.querySelectorAll(".focusable.focused").forEach((node) => {
-      if (node !== button) node.classList.remove("focused");
-    });
-    button.classList.add("focused");
-    button.focus?.({ preventScroll: true });
-    return true;
-  },
-
-  movePosterOptionsFocus(delta) {
-    if (!this.posterOptionsMenu) {
-      return false;
-    }
-    const options = getPosterOptions(this.posterOptionsMenu);
-    if (!options.length) {
-      return false;
-    }
-    const currentIndex = Number(this.posterOptionsMenu.optionIndex || 0);
-    this.posterOptionsMenu.optionIndex = Math.max(0, Math.min(options.length - 1, currentIndex + delta));
-    this.render();
-    this.applyPosterOptionsFocus();
+    this.posterOptionsController.destroy();
+    this.posterOptionsFocusRestore = null;
     return true;
   },
 
@@ -320,61 +301,12 @@ export const CastDetailScreen = {
     });
   },
 
-  async activatePosterOptionsMenu() {
-    if (!this.posterOptionsMenu) {
-      return false;
-    }
-    const options = getPosterOptions(this.posterOptionsMenu);
-    const option = options[Math.max(0, Math.min(options.length - 1, Number(this.posterOptionsMenu.optionIndex || 0)))];
-    if (!option) {
-      return false;
-    }
-    const result = await activatePosterOption(this.posterOptionsMenu, option.action);
-    if (result?.type === "details") {
-      Router.navigate("detail", {
-        itemId: result.item.id,
-        itemType: result.item.type || "movie",
-        fallbackTitle: result.item.title || "Untitled"
-      });
-      return true;
-    }
-    if (result?.type === "updated") {
-      this.posterOptionsMenu = result.state;
-      this.render();
-      this.applyPosterOptionsFocus();
-      return true;
-    }
-    return false;
-  },
-
   async onKeyDown(event) {
     const code = Number(event?.keyCode || 0);
     const current = this.container?.querySelector(".focusable.focused") || null;
     const isPosterHoldTarget = this.isPosterHoldTarget(current);
     if (!isPosterHoldTarget || code !== 13) {
       this.cancelPendingPosterHold();
-    }
-
-    if (this.posterOptionsMenu) {
-      if (isBackEvent(event)) {
-        event?.preventDefault?.();
-        this.closePosterOptionsMenu();
-        return;
-      }
-      if (code === 38 || code === 40) {
-        event?.preventDefault?.();
-        this.movePosterOptionsFocus(code === 38 ? -1 : 1);
-        return;
-      }
-      if (code === 13) {
-        event?.preventDefault?.();
-        if (this.suppressHoldMenuEnterUntilKeyUp) {
-          return;
-        }
-        await this.activatePosterOptionsMenu();
-        return;
-      }
-      return;
     }
 
     if (isBackEvent(event)) {
@@ -409,13 +341,6 @@ export const CastDetailScreen = {
   },
 
   onKeyUp(event) {
-    if (this.suppressHoldMenuEnterUntilKeyUp) {
-      this.suppressHoldMenuEnterUntilKeyUp = false;
-      if (Number(event?.keyCode || 0) === 13) {
-        event?.preventDefault?.();
-        return;
-      }
-    }
     if (Number(event?.keyCode || 0) !== 13) {
       return;
     }
@@ -432,8 +357,9 @@ export const CastDetailScreen = {
   cleanup() {
     this.loadToken = (this.loadToken || 0) + 1;
     this.cancelPendingPosterHold();
-    this.posterOptionsMenu = null;
-    this.suppressHoldMenuEnterUntilKeyUp = false;
+    this.posterOptionsController?.destroy?.({ restoreFocus: false });
+    this.posterOptionsController = null;
+    this.posterOptionsFocusRestore = null;
     ScreenUtils.hide(this.container);
   }
 

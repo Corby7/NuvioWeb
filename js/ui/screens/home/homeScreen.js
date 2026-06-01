@@ -3293,80 +3293,6 @@ export const HomeScreen = {
     return "";
   },
 
-  applyContinueWatchingMenuFocus() {
-    const buttons = Array.from(this.container?.querySelectorAll(".hold-menu-button.focusable") || []);
-    if (!buttons.length) {
-      return false;
-    }
-    this.container?.querySelectorAll(".focusable.focused").forEach((node) => {
-      if (!node.classList.contains("hold-menu-button")) {
-        node.classList.remove("focused");
-      }
-    });
-    const currentIndex = Math.max(0, Math.min(buttons.length - 1, Number(this.continueWatchingMenu?.optionIndex || 0)));
-    buttons.forEach((node, index) => node.classList.toggle("focused", index === currentIndex));
-    const target = buttons[currentIndex] || buttons[0] || null;
-    if (!target) {
-      return false;
-    }
-    target.classList.add("focused");
-    this.focusWithoutAutoScroll(target);
-    return true;
-  },
-
-  moveContinueWatchingMenuFocus(delta) {
-    if (!this.continueWatchingMenu) {
-      return false;
-    }
-    const options = this.getContinueWatchingMenuOptions();
-    if (!options.length) {
-      return false;
-    }
-    this.continueWatchingMenu = {
-      ...this.continueWatchingMenu,
-      optionIndex: Math.max(0, Math.min(options.length - 1, Number(this.continueWatchingMenu.optionIndex || 0) + delta))
-    };
-    this.applyContinueWatchingMenuFocus();
-    return true;
-  },
-
-  applyPosterHoldMenuFocus() {
-    const buttons = Array.from(this.container?.querySelectorAll(".hold-menu-button.focusable") || []);
-    if (!buttons.length) {
-      return false;
-    }
-    this.container?.querySelectorAll(".focusable.focused").forEach((node) => {
-      if (!node.classList.contains("hold-menu-button")) {
-        node.classList.remove("focused");
-      }
-    });
-    const currentIndex = Math.max(0, Math.min(buttons.length - 1, Number(this.posterHoldMenu?.optionIndex || 0)));
-    buttons.forEach((node, index) => node.classList.toggle("focused", index === currentIndex));
-    const target = buttons[currentIndex] || buttons[0] || null;
-    if (!target) {
-      return false;
-    }
-    target.classList.add("focused");
-    this.focusWithoutAutoScroll(target);
-    return true;
-  },
-
-  movePosterHoldMenuFocus(delta) {
-    if (!this.posterHoldMenu) {
-      return false;
-    }
-    const options = this.getPosterHoldMenuOptions();
-    if (!options.length) {
-      return false;
-    }
-    this.posterHoldMenu = {
-      ...this.posterHoldMenu,
-      optionIndex: Math.max(0, Math.min(options.length - 1, Number(this.posterHoldMenu.optionIndex || 0) + delta))
-    };
-    this.applyPosterHoldMenuFocus();
-    return true;
-  },
-
   destroyHomeHoldDialog() {
     if (this._homeHoldDialog) {
       this._homeHoldDialog.destroy();
@@ -5877,25 +5803,8 @@ export const HomeScreen = {
     }
     if (!this.boundHomeClickHandler) {
       this.boundHomeClickHandler = (event) => {
-        const target = event?.target?.closest?.(".home-main .focusable, .hold-menu .focusable");
+        const target = event?.target?.closest?.(".home-main .focusable");
         if (!target || !this.container?.contains(target)) {
-          return;
-        }
-        if (target.closest(".hold-menu")) {
-          const optionIndex = Number(target.dataset.holdIndex || 0);
-          if (this.continueWatchingMenu) {
-            this.continueWatchingMenu = {
-              ...(this.continueWatchingMenu || {}),
-              optionIndex
-            };
-            void this.activateContinueWatchingMenuOption();
-          } else if (this.posterHoldMenu) {
-            this.posterHoldMenu = {
-              ...(this.posterHoldMenu || {}),
-              optionIndex
-            };
-            void this.activatePosterHoldMenuOption();
-          }
           return;
         }
         const action = String(target.dataset.action || "");
@@ -6687,11 +6596,7 @@ export const HomeScreen = {
     }
     const canAttemptRestore = Boolean(retainedFocusState);
     let restoredFocus = false;
-    if (this.continueWatchingMenu) {
-      restoredFocus = this.applyContinueWatchingMenuFocus();
-    } else if (this.posterHoldMenu) {
-      restoredFocus = this.applyPosterHoldMenuFocus();
-    } else if (Number.isFinite(this.pendingContinueWatchingFocusIndex)) {
+    if (Number.isFinite(this.pendingContinueWatchingFocusIndex)) {
       const cards = Array.from(this.container?.querySelectorAll(".home-row-continue .home-content-card.focusable") || []);
       const target = cards[Math.max(0, Math.min(cards.length - 1, Number(this.pendingContinueWatchingFocusIndex || 0)))]
         || cards[cards.length - 1]
@@ -7348,33 +7253,6 @@ export const HomeScreen = {
       this.cancelPendingContinueWatchingHold();
     }
     if (this.continueWatchingMenu || this.posterHoldMenu) {
-      if (Platform.isBackEvent(event)) {
-        event.preventDefault?.();
-        if (this.continueWatchingMenu) {
-          this.closeContinueWatchingMenu();
-        } else {
-          this.closePosterHoldMenu();
-        }
-        return;
-      }
-      if (code === 38 || code === 40) {
-        event.preventDefault?.();
-        if (this.continueWatchingMenu) {
-          this.moveContinueWatchingMenuFocus(code === 38 ? -1 : 1);
-        } else {
-          this.movePosterHoldMenuFocus(code === 38 ? -1 : 1);
-        }
-        return;
-      }
-      if (code === 13) {
-        event.preventDefault?.();
-        if (this.continueWatchingMenu) {
-          void this.activateContinueWatchingMenuOption();
-        } else {
-          void this.activatePosterHoldMenuOption();
-        }
-        return;
-      }
       return;
     }
     if (Platform.isBackEvent(event)) {

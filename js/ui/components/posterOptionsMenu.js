@@ -3,7 +3,6 @@ import { savedLibraryRepository } from "../../data/repository/savedLibraryReposi
 import { libraryRepository, LibrarySourceMode } from "../../data/repository/libraryRepository.js";
 import { watchedItemsRepository } from "../../data/repository/watchedItemsRepository.js";
 import { watchProgressRepository } from "../../data/repository/watchProgressRepository.js";
-import { renderHoldMenuMarkup } from "./holdMenu.js";
 import { NuvioDialog } from "./nuvioDialog.js";
 
 function t(key, params = {}, fallback = key) {
@@ -102,20 +101,6 @@ export function getPosterOptions(state, options = {}) {
     });
   }
   return actions;
-}
-
-export function renderPosterOptionsMenu(state, options = {}) {
-  const item = state?.item || null;
-  if (!item?.id) {
-    return "";
-  }
-  return renderHoldMenuMarkup({
-    kicker: "",
-    title: item.title || item.name || item.id || "Untitled",
-    subtitle: t("home_poster_dialog_subtitle", {}, "Title actions"),
-    focusedIndex: Number(state.optionIndex || 0),
-    options: getPosterOptions(state, options)
-  });
 }
 
 export async function activatePosterOption(state, action, options = {}) {
