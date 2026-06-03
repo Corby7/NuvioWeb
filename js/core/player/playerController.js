@@ -1769,6 +1769,7 @@ export const PlayerController = {
     const forwardedHeaders = this.normalizePlaybackHeaders(requestHeaders);
     const isWebOs = Platform.isWebOS();
     return {
+      autoStartLoad: false,
       enableWorker: !isWebOs,
       lowLatencyMode: false,
       backBufferLength: isWebOs ? 30 : 90,
@@ -1802,6 +1803,40 @@ export const PlayerController = {
         });
       }
     };
+  },
+
+  pickInitialHlsLevel(levels = []) {
+    const candidates = Array.isArray(levels) ? levels : [];
+    let selectedIndex = -1;
+    let selectedScore = -1;
+    candidates.forEach((level, index) => {
+      const height = Number(level?.height || 0);
+      const bitrate = Number(level?.bitrate || level?.attrs?.BANDWIDTH || 0);
+      const score = (height * 1000000000) + bitrate;
+      if (score > selectedScore) {
+        selectedScore = score;
+        selectedIndex = index;
+      }
+    });
+    return selectedIndex;
+  },
+
+  primeHlsInitialLevel(hls) {
+    const initialLevel = this.pickInitialHlsLevel(hls?.levels);
+    if (!Number.isFinite(initialLevel) || initialLevel < 0) {
+      return -1;
+    }
+    try {
+      hls.startLevel = initialLevel;
+    } catch (_) {
+      // Ignore unsupported hls.js builds.
+    }
+    try {
+      hls.nextAutoLevel = initialLevel;
+    } catch (_) {
+      // Keep ABR enabled even if the hint is unsupported.
+    }
+    return initialLevel;
   },
 
   playWithHlsJs(url, requestHeaders = {}) {
@@ -1894,6 +1929,12 @@ export const PlayerController = {
     });
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      this.primeHlsInitialLevel(hls);
+      try {
+        hls.startLoad();
+      } catch (_) {
+        // hls.js may already be loading on older builds.
+      }
       this.applyStartupAudioGateToVideo();
       const playPromise = this.video.play();
       this.handleNativePlayStartedUnderStartupGate(playPromise);
@@ -1910,7 +1951,10 @@ export const PlayerController = {
     [
       Hls.Events.AUDIO_TRACKS_UPDATED,
       Hls.Events.AUDIO_TRACK_SWITCHED,
-      Hls.Events.AUDIO_TRACK_LOADED
+      Hls.Events.AUDIO_TRACK_LOADED,
+      Hls.Events.SUBTITLE_TRACKS_UPDATED,
+      Hls.Events.SUBTITLE_TRACK_SWITCH,
+      Hls.Events.SUBTITLE_TRACK_LOADED
     ].filter(Boolean).forEach((eventName) => {
       hls.on(eventName, () => {
         this.emitVideoEvent("hlstrackschanged", { playbackEngine: "hls.js" });
@@ -2147,6 +2191,22 @@ export const PlayerController = {
 
   setHlsAudioTrack(index) {
     const applied = hlsJsEngine.setAudioTrack(this.hlsInstance, index);
+    if (applied) {
+      this.emitVideoEvent("hlstrackschanged", { playbackEngine: "hls.js" });
+    }
+    return applied;
+  },
+
+  getHlsSubtitleTracks() {
+    return hlsJsEngine.getSubtitleTracks(this.hlsInstance);
+  },
+
+  getSelectedHlsSubtitleTrackIndex() {
+    return hlsJsEngine.getSelectedSubtitleTrackIndex(this.hlsInstance);
+  },
+
+  setHlsSubtitleTrack(index) {
+    const applied = hlsJsEngine.setSubtitleTrack(this.hlsInstance, index);
     if (applied) {
       this.emitVideoEvent("hlstrackschanged", { playbackEngine: "hls.js" });
     }

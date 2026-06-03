@@ -21,12 +21,22 @@ function createEngine(name) {
   };
 }
 
-export const webosAvplayEngine = createEngine("webos-avplay");
 export const tizenAvplayEngine = createEngine("tizen-avplay");
+export const disabledAvplayEngine = {
+  name: "none",
+
+  isSupported() {
+    return false;
+  },
+
+  getApi() {
+    return null;
+  }
+};
 
 export function resolvePlatformAvplayEngine(platformName) {
   if (platformName === "tizen") {
     return tizenAvplayEngine;
   }
-  return webosAvplayEngine;
+  return disabledAvplayEngine;
 }

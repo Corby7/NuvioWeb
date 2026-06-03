@@ -8535,6 +8535,12 @@ button:focus-visible {
   background: var(--bg-color);
 }
 
+.settings-stream-badge-preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .settings-plugin-repo-copy {
   min-width: 0;
   display: flex;
@@ -8729,6 +8735,18 @@ button:focus-visible {
   font-size: 26px;
   line-height: 1.35;
   outline: none;
+}
+
+.settings-text-dialog-message {
+  margin-top: 12px;
+  font-size: 22px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.64);
+  min-height: 1.35em;
+}
+
+.settings-text-dialog-message.error {
+  color: #ff8e85;
 }
 
 .settings-text-dialog-input {
@@ -9877,7 +9895,7 @@ button:focus-visible {
 }
 
 .player-controls-overlay.pause-overlay-active .player-controls-bottom {
-  opacity: 0.24;
+  opacity: 0;
 }
 
 .player-controls-overlay.pause-overlay-active .player-meta,
@@ -13148,6 +13166,13 @@ button:focus-visible {
   font-size: var(--tv-body-text);
   line-height: 1.5;
   color: var(--detail-text-primary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   transition: opacity 400ms ease, transform 400ms ease;
 }
 
@@ -14030,6 +14055,10 @@ button:focus-visible {
   color: var(--text-color);
 }
 
+.stream-route-chip.selected.loading {
+  color: var(--on-secondary);
+}
+
 .stream-route-chip.error {
   border-color: rgba(231, 76, 60, 0.78);
   color: #ff8e85;
@@ -14125,6 +14154,10 @@ button:focus-visible {
 
 .performance-constrained .player-loading-overlay.hidden .player-loading-identity {
   animation: none !important;
+}
+
+.performance-constrained .stream-route-chip-spinner {
+  animation: streamRouteSpin 700ms linear infinite !important;
 }
 
 .performance-constrained .nuvio-route-slide-enter,
@@ -14931,37 +14964,53 @@ button:focus-visible {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 10px -8px 0 0;
+  gap: 6px;
+  margin: 10px 0 8px;
   max-width: 100%;
 }
 
 .stream-route-stream-badge {
-  min-height: 30px;
-  padding: 0 10px;
-  border-radius: 7px;
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-secondary);
-  font-size: 16px;
-  line-height: 20px;
-  font-weight: 800;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 500;
   white-space: nowrap;
   box-sizing: border-box;
-  margin: 0 8px 8px 0;
+  margin: 0;
 }
 
-@supports (gap: 8px) {
-  .stream-route-card-badges {
-    margin: 10px 0 8px;
-  }
+.stream-route-stream-badge.image {
+  padding: 2px 5px;
+  min-width: 38px;
+  max-width: 104px;
+  line-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
 
-  .stream-route-stream-badge {
-    margin: 0;
-  }
+.stream-route-stream-badge.image img {
+  display: block;
+  max-height: 18px;
+  max-width: 96px;
+  object-fit: contain;
+}
+
+.stream-route-stream-badge.size {
+  min-height: 22px;
+  padding: 0 7px;
+  border-color: #0a0c0c;
+  background: #0a0c0c;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .stream-route-stream-badge.quality {
@@ -14994,7 +15043,6 @@ button:focus-visible {
   color: #5eead4;
 }
 
-.stream-route-stream-badge.size,
 .stream-route-stream-badge.service {
   color: var(--text-tertiary);
 }
@@ -15637,7 +15685,7 @@ button:focus-visible {
 .detail-hero-section {
   min-height: 100vh;
   height: 100vh;
-  padding: 0 var(--detail-safe-x) 32px;
+  padding: 0 var(--detail-safe-x) 32px calc(var(--detail-safe-x) - 24px);
 }
 
 .detail-hero-brand {
@@ -15712,7 +15760,7 @@ button:focus-visible {
 
 .series-detail-support,
 .series-detail-description {
-  max-width: 60vw;
+  max-width: min(66vw, 1040px);
 }
 
 .series-detail-support {

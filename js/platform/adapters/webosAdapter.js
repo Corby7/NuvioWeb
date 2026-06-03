@@ -53,7 +53,7 @@ export const webosAdapter = {
       hlsJs: Boolean(globalThis.Hls?.isSupported?.()),
       dashJs: Boolean(globalThis.dashjs?.MediaPlayer),
       nativeVideo: true,
-      webosAvplay: Boolean(getAvplayApi()),
+      webosAvplay: false,
       tizenAvplay: false
     };
   },
