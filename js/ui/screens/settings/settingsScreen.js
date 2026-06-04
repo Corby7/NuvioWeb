@@ -91,6 +91,7 @@ const APP_LANGUAGE_NATIVE_LABELS = {
   fr: "Francais",
   he: "Hebrew",
   hi: "Hindi",
+  hu: "Magyar",
   id: "Bahasa Indonesia",
   it: "Italiano",
   ja: "Japanese",
@@ -127,12 +128,6 @@ const LANGUAGE_OPTIONS = [
       label: appLanguageOptionLabel(localeId)
     }))
     .sort((left, right) => String(left.label || "").localeCompare(String(right.label || "")))
-];
-
-const TMDB_LANGUAGE_OPTIONS = [
-  { id: "en-US", labelKey: "common.english" },
-  { id: "it-IT", labelKey: "common.italian" },
-  { id: "es-ES", labelKey: "common.spanish" }
 ];
 
 const PREFERRED_PLAYBACK_LANGUAGE_OPTIONS = [
@@ -226,6 +221,14 @@ const PREFERRED_SUBTITLE_LANGUAGE_OPTIONS = [
   { id: "off", label: "Off" },
   ...AVAILABLE_SUBTITLE_LANGUAGES
 ];
+
+const TMDB_LANGUAGE_OPTIONS = [
+  { id: "en-US", label: "English" },
+  { id: "en-AU", label: "English (Australia)" },
+  { id: "en-CA", label: "English (Canada)" },
+  { id: "en-GB", label: "English (United Kingdom)" },
+  ...AVAILABLE_SUBTITLE_LANGUAGES.filter((option) => option.id !== "en")
+].sort((left, right) => String(left.label || "").localeCompare(String(right.label || "")));
 
 const DEBRID_PREPARE_LIMIT_OPTIONS = [
   { id: 0, labelKey: "common.off", label: "Off" },
@@ -549,9 +552,10 @@ function createTraktQrDataUrl(userCode) {
 }
 
 function labelForTmdbLanguage(language) {
+  const normalized = normalizeTmdbLanguageCode(language);
   return translateOptionLabel(
-    TMDB_LANGUAGE_OPTIONS.find((item) => String(item.id) === String(language)),
-    String(language || "en-US")
+    TMDB_LANGUAGE_OPTIONS.find((item) => String(item.id) === normalized),
+    String(language || normalized || "en-US")
   );
 }
 
@@ -619,6 +623,33 @@ function normalizeSelectableSubtitleLanguageCode(language) {
       return "off";
     default:
       return code;
+  }
+}
+
+function normalizeTmdbLanguageCode(language) {
+  const code = String(language ?? "").trim().replace(/_/g, "-");
+  if (!code) {
+    return "en-US";
+  }
+
+  switch (code.toLowerCase()) {
+    case "en":
+    case "en-us":
+      return "en-US";
+    case "en-au":
+      return "en-AU";
+    case "en-ca":
+      return "en-CA";
+    case "en-gb":
+      return "en-GB";
+    case "it-it":
+      return "it";
+    case "es-es":
+      return "es";
+    case "pt-pt":
+      return "pt";
+    default:
+      return code.toLowerCase();
   }
 }
 
@@ -2710,7 +2741,7 @@ export const SettingsScreen = {
         this.openOptionDialog({
           title: t("settings.dialogs.selectTmdbLanguage"),
           options: TMDB_LANGUAGE_OPTIONS,
-          selectedId: TmdbSettingsStore.get().language,
+          selectedId: normalizeTmdbLanguageCode(TmdbSettingsStore.get().language),
           returnFocusKey: "integration:tmdb:language",
           onSelect: (option) => {
             TmdbSettingsStore.set({ language: option.id });

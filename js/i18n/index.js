@@ -13,6 +13,7 @@ const SUPPORTED_LOCALES = [
   "fr",
   "he",
   "hi",
+  "hu",
   "id",
   "it",
   "ja",

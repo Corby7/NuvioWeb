@@ -400,18 +400,29 @@ function normalizeTmdbLanguageForAndroid(value) {
 }
 
 function normalizeTmdbLanguageForWeb(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  switch (normalized) {
-    case "it":
-    case "it-it":
-      return "it-IT";
-    case "es":
-    case "es-es":
-      return "es-ES";
+  const normalized = String(value || "").trim().replace(/_/g, "-");
+  if (!normalized) {
+    return "en-US";
+  }
+
+  switch (normalized.toLowerCase()) {
     case "en":
     case "en-us":
-    default:
       return "en-US";
+    case "en-au":
+      return "en-AU";
+    case "en-ca":
+      return "en-CA";
+    case "en-gb":
+      return "en-GB";
+    case "it-it":
+      return "it";
+    case "es-es":
+      return "es";
+    case "pt-pt":
+      return "pt";
+    default:
+      return normalized.toLowerCase();
   }
 }
 
