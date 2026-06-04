@@ -37,7 +37,7 @@ async function readResponseBody(response) {
   }
 }
 
-async function requestJson(path, { method = "GET", body = null, authorization = null, clientId = TRAKT_CLIENT_ID } = {}) {
+export async function requestJson(path, { method = "GET", body = null, authorization = null, clientId = TRAKT_CLIENT_ID } = {}) {
   const headers = {
     "Content-Type": "application/json",
     "trakt-api-version": API_VERSION,

@@ -10,6 +10,7 @@ import { I18n } from "../../../i18n/index.js";
 import { Environment } from "../../../platform/environment.js";
 import { Router } from "../../navigation/router.js";
 import { DirectDebridResolver } from "../../../core/debrid/directDebridResolver.js";
+import { TraktScrobbleService } from "../../../data/repository/traktScrobbleService.js";
 
 const CLOCK_FORMATTER_CACHE = new Map();
 const LANGUAGE_DISPLAY_NAME_CACHE = new Map();
@@ -1567,6 +1568,26 @@ export const PlayerScreen = {
       imdbId,
       season: Number.isFinite(season) && season > 0 ? season : null,
       episode: Number.isFinite(episode) && episode > 0 ? episode : null
+    };
+  },
+
+  buildScrobbleContext() {
+    const identity = this.buildPlaybackIdentityContext();
+    const currentSec = this.getPlaybackCurrentSeconds();
+    const durationSec = this.getPlaybackDurationSeconds();
+    const progress = durationSec > 0 ? Math.min(100, (currentSec / durationSec) * 100) : 0;
+    return {
+      contentId: String(this.params?.itemId || identity.imdbId || ""),
+      contentType: identity.itemType === "series" ? "show" : "movie",
+      imdbId: identity.imdbId,
+      title: String(this.params?.title || ""),
+      year: Number(this.params?.year || 0) || null,
+      seasonNumber: identity.season,
+      episodeNumber: identity.episode,
+      episodeTitle: String(this.params?.episodeTitle || ""),
+      positionMs: Math.round(currentSec * 1000),
+      durationMs: Math.round(durationSec * 1000),
+      progressPercent: progress
     };
   },
 
@@ -4047,6 +4068,10 @@ export const PlayerScreen = {
         this.scheduleLoadingCompletionCheck(250);
         return;
       }
+      // Fire-and-forget scrobble start (debounced internally)
+      if (TraktScrobbleService.isEnabled()) {
+        TraktScrobbleService.start(this.buildScrobbleContext());
+      }
       this.lastPlaybackErrorAt = 0;
       this.sourcesError = "";
       this.hasPresentedPlaybackFrame = true;
@@ -4085,6 +4110,10 @@ export const PlayerScreen = {
         : Boolean(video.ended);
       if (ended) {
         return;
+      }
+      // Immediate scrobble pause
+      if (TraktScrobbleService.isEnabled()) {
+        TraktScrobbleService.pause(this.buildScrobbleContext());
       }
       this.clearPlaybackStallGuard();
       this.paused = true;
@@ -9824,6 +9853,10 @@ export const PlayerScreen = {
   },
 
   async handlePlaybackEnded() {
+    // Immediate scrobble stop (may trigger mark-as-watched)
+    if (TraktScrobbleService.isEnabled()) {
+      TraktScrobbleService.stop(this.buildScrobbleContext());
+    }
     this.clearPlaybackStallGuard();
     this.releaseStartupAudioGate({ resume: false });
     const autoplayEnabled = Boolean(PlayerSettingsStore.get().autoplayNextEpisode);
@@ -9855,6 +9888,7 @@ export const PlayerScreen = {
   },
 
   cleanup() {
+    TraktScrobbleService.cancel();
     this.cancelSeekPreview({ commit: false });
     this.dismissPauseOverlay();
     this.pauseOverlayMetaRequestToken = Number(this.pauseOverlayMetaRequestToken || 0) + 1;
