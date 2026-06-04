@@ -922,6 +922,7 @@
     <string name="stream_info_section_subtitle">SOTTOTITOLI</string>
     <string name="stream_info_filename">Nome file</string>
     <string name="stream_info_size">Dimensione</string>
+    <string name="streams_size">DIMENSIONE %1$s</string>
     <string name="stream_info_codec">Codec</string>
     <string name="stream_info_resolution">Risoluzione</string>
     <string name="stream_info_frame_rate">Frame Rate</string>

@@ -31,6 +31,8 @@ const SEARCH_RESULTS_PER_ROW_CONSTRAINED = 12;
 const SEARCH_DISCOVER_RESULTS_PER_ROW_DEFAULT = 14;
 const SEARCH_DISCOVER_RESULTS_PER_ROW_CONSTRAINED = 10;
 const SEARCH_CATALOG_BATCH_SIZE_CONSTRAINED = 3;
+const SEARCH_CATALOG_TIMEOUT_MS_DEFAULT = 3500;
+const SEARCH_CATALOG_TIMEOUT_MS_CONSTRAINED = 6500;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -153,6 +155,12 @@ function getSearchDiscoverResultsPerRow() {
 
 function getSearchCatalogBatchSize() {
   return isPerformanceConstrainedRuntime() ? SEARCH_CATALOG_BATCH_SIZE_CONSTRAINED : 0;
+}
+
+function getSearchCatalogTimeoutMs() {
+  return isPerformanceConstrainedRuntime()
+    ? SEARCH_CATALOG_TIMEOUT_MS_CONSTRAINED
+    : SEARCH_CATALOG_TIMEOUT_MS_DEFAULT;
 }
 
 function getInputSelectionSnapshot(input = null) {
@@ -564,7 +572,7 @@ export const SearchScreen = {
             skip: 0,
             supportsSkip: true,
           }),
-          3500,
+          getSearchCatalogTimeoutMs(),
           { status: "error", message: "timeout" },
         );
         return { ...section, result };
@@ -631,7 +639,7 @@ export const SearchScreen = {
             extraArgs: { search: query },
             supportsSkip: catalog.supportsSkip,
           }),
-          3500,
+          getSearchCatalogTimeoutMs(),
           { status: "error", message: "timeout" },
         );
         return { catalog, result };

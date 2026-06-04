@@ -9,10 +9,12 @@ import { TmdbSettingsStore } from "../../data/local/tmdbSettingsStore.js";
 import { MdbListSettingsStore } from "../../data/local/mdbListSettingsStore.js";
 import { TraktSettingsStore, normalizeTraktContinueWatchingDaysCap } from "../../data/local/traktSettingsStore.js";
 import { AnimeSkipSettingsStore } from "../../data/local/animeSkipSettingsStore.js";
+import { StreamBadgeSettingsStore } from "../../data/local/streamBadgeSettingsStore.js";
 import {
   ANDROID_DEBRID_STREAM_DESCRIPTION_TEMPLATE,
   DebridSettingsStore
 } from "../../data/local/debridSettingsStore.js";
+import { parseStreamBadgeRulesFromPayload, normalizeStreamBadgeRules } from "../../core/streams/streamBadgeRules.js";
 import { ProfileManager } from "./profileManager.js";
 import {
   clearProfileSettingsCloudSyncPending,
@@ -398,18 +400,29 @@ function normalizeTmdbLanguageForAndroid(value) {
 }
 
 function normalizeTmdbLanguageForWeb(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  switch (normalized) {
-    case "it":
-    case "it-it":
-      return "it-IT";
-    case "es":
-    case "es-es":
-      return "es-ES";
+  const normalized = String(value || "").trim().replace(/_/g, "-");
+  if (!normalized) {
+    return "en-US";
+  }
+
+  switch (normalized.toLowerCase()) {
     case "en":
     case "en-us":
-    default:
       return "en-US";
+    case "en-au":
+      return "en-AU";
+    case "en-ca":
+      return "en-CA";
+    case "en-gb":
+      return "en-GB";
+    case "it-it":
+      return "it";
+    case "es-es":
+      return "es";
+    case "pt-pt":
+      return "pt";
+    default:
+      return normalized.toLowerCase();
   }
 }
 
@@ -1048,6 +1061,39 @@ const FEATURE_ADAPTERS = {
         return false;
       }
       AnimeSkipSettingsStore.setForProfile(profileId, partial, { silentSync: true });
+      return true;
+    }
+  },
+  stream_badge_settings: {
+    export(profileId) {
+      const settings = StreamBadgeSettingsStore.getForProfile(profileId);
+      const rules = normalizeStreamBadgeRules(settings.rules);
+      return {
+        stream_badge_rules: rules.imports.length ? JSON.stringify(rules) : "",
+        show_file_size_badges: settings.showFileSizeBadges !== false
+      };
+    },
+    project(rawFeature = {}) {
+      const raw = normalizeFeaturePayload(rawFeature);
+      const projected = {};
+      projected.stream_badge_rules = String(raw.stream_badge_rules || "").trim();
+      projected.show_file_size_badges = booleanFromAnyKey(raw, ["show_file_size_badges"]) ?? true;
+      return projected;
+    },
+    import(profileId, rawFeature = {}) {
+      const raw = normalizeFeaturePayload(rawFeature);
+      const partial = {};
+      if (raw.stream_badge_rules != null) {
+        const normalizedRules = parseStreamBadgeRulesFromPayload(raw.stream_badge_rules, "Pasted badge rules");
+        partial.rules = normalizedRules || { imports: [] };
+      }
+      if (booleanOrNull(raw.show_file_size_badges) != null) {
+        partial.showFileSizeBadges = Boolean(raw.show_file_size_badges);
+      }
+      if (!Object.keys(partial).length) {
+        return false;
+      }
+      StreamBadgeSettingsStore.setForProfile(profileId, partial, { silentSync: true });
       return true;
     }
   },

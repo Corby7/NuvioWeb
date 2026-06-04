@@ -69,7 +69,9 @@ export function renderModernHomeLayout({
     }
 
     const maxItems = Math.max(1, Number(rowItemLimit || 15));
-    const visibleItems = rowItems.slice(0, maxItems);
+    const visibleItems = isCollectionRow
+      ? rowItems
+      : rowItems.slice(0, maxItems);
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
       : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);

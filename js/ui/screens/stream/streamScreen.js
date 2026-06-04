@@ -4,9 +4,14 @@ import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { DirectDebridResolver } from "../../../core/debrid/directDebridResolver.js";
 import { DirectDebridStreamPreparer } from "../../../core/debrid/directDebridStreamPreparer.js";
 import { DebridSettingsStore } from "../../../data/local/debridSettingsStore.js";
+import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSettingsStore.js";
 import { LocalStore } from "../../../core/storage/localStore.js";
 import { Environment } from "../../../platform/environment.js";
 import { I18n } from "../../../i18n/index.js";
+import {
+  matchStreamBadges,
+  normalizeStreamBadgeChipColor
+} from "../../../core/streams/streamBadgeRules.js";
 
 const failedAddonLogoUrls = new Set();
 const addonLogoCache = new Map();
@@ -769,7 +774,7 @@ function getStreamPresentation(stream = {}) {
   };
 }
 
-function buildStreamBadges(stream = {}, enabled = true) {
+function buildLegacyStreamBadges(stream = {}, enabled = true, includeSizeBadge = true) {
   if (!enabled) {
     return [];
   }
@@ -784,15 +789,54 @@ function buildStreamBadges(stream = {}, enabled = true) {
   toBadgeArray(presentation.languageEmojis).slice(0, 4).forEach((tag) => uniquePushBadge(badges, seen, tag, "language"));
   toBadgeArray(presentation.audioTags).slice(0, 3).forEach((tag) => uniquePushBadge(badges, seen, tag, "audio"));
   toBadgeArray(presentation.audioChannels).slice(0, 1).forEach((tag) => uniquePushBadge(badges, seen, tag, "audio"));
-  uniquePushBadge(badges, seen, formatBytes(presentation.size), "size");
+  if (includeSizeBadge) {
+    uniquePushBadge(badges, seen, formatBytes(presentation.size), "size");
+  }
   if (presentation.cached === true && presentation.serviceShortName) {
     uniquePushBadge(badges, seen, presentation.serviceShortName, "service");
   }
   return badges.slice(0, STREAM_BADGE_LIMIT);
 }
 
-function renderStreamBadges(stream = {}, enabled = true) {
-  const badges = buildStreamBadges(stream, enabled);
+function renderImageBadgeChip(badge = {}) {
+  const backgroundColor = normalizeStreamBadgeChipColor(badge.tagColor);
+  const outlineColor = normalizeStreamBadgeChipColor(badge.borderColor);
+  const textColor = normalizeStreamBadgeChipColor(badge.textColor);
+  const filled = String(badge.tagStyle || "").trim().toLowerCase() === "filled";
+  const style = [
+    filled && backgroundColor ? `background:${backgroundColor};` : "",
+    outlineColor ? `border-color:${outlineColor};` : "",
+    textColor ? `color:${textColor};` : ""
+  ].join("");
+  return `
+    <span class="stream-route-stream-badge image${filled ? " filled" : ""}"${style ? ` style="${escapeHtml(style)}"` : ""}>
+      <img src="${escapeHtml(badge.imageURL)}" alt="${escapeHtml(badge.name || "")}" loading="lazy" />
+    </span>
+  `;
+}
+
+function renderImportedStreamBadgeChips(stream = {}, badges = [], showFileSizeBadges = true) {
+  const sizeBytes = stream.behaviorHints?.videoSize;
+  const chips = [];
+  if (showFileSizeBadges && sizeBytes != null) {
+    chips.push(`<span class="stream-route-stream-badge size">${escapeHtml(t("streams_size", [formatBytes(sizeBytes)], `SIZE ${formatBytes(sizeBytes)}`))}</span>`);
+  }
+  badges.slice(0, STREAM_BADGE_LIMIT).forEach((badge) => {
+    chips.push(renderImageBadgeChip(badge));
+  });
+  return chips.length
+    ? `<div class="stream-route-card-badges" aria-label="${escapeHtml(t("settings_stream_badges_section", {}, "Fusion Style"))}">${chips.join("")}</div>`
+    : "";
+}
+
+function renderStreamBadges(stream = {}, enabled = true, badgeSettings = null) {
+  const currentBadgeSettings = badgeSettings || StreamBadgeSettingsStore.snapshot();
+  const importedBadges = matchStreamBadges(stream, currentBadgeSettings.rules);
+  if (importedBadges.length) {
+    return renderImportedStreamBadgeChips(stream, importedBadges, currentBadgeSettings.showFileSizeBadges !== false);
+  }
+
+  const badges = buildLegacyStreamBadges(stream, enabled, currentBadgeSettings.showFileSizeBadges !== false);
   if (!badges.length) {
     return "";
   }
@@ -956,7 +1000,12 @@ export const StreamScreen = {
       itemId,
       itemType: normalizeType(this.params?.itemType),
       fallbackTitle: this.params?.itemTitle || this.params?.playerTitle || "Untitled",
-      returnHomeOnBack: Boolean(this.params?.continueWatchingBackHome || this.params?.returnHomeOnBack)
+      returnHomeOnBack: Boolean(
+        this.params?.continueWatchingBackHome
+        || this.params?.returnHomeOnBack
+        || this.params?.returnToDetail
+        || this.params?.fromDetailRoute
+      )
     }, {
       skipStackPush: true,
       replaceHistory: true
@@ -1342,10 +1391,10 @@ export const StreamScreen = {
     `;
   },
 
-  renderStreamCard(stream, index, streamBadgesEnabled = true) {
+  renderStreamCard(stream, index, streamBadgesEnabled = true, badgeSettings = null) {
     const headline = getStreamHeadline(stream);
     const quality = getStreamQuality(stream);
-    const badges = renderStreamBadges(stream, streamBadgesEnabled);
+    const badges = renderStreamBadges(stream, streamBadgesEnabled, badgeSettings);
     const descriptionLines = getStreamDescriptionLines(stream);
     const addonLogoUrl = normalizeAddonLogoUrl(stream.addonLogo) || resolveAddonLogo(stream.addonName, this.addonLogoLookup);
     const cachedAddonLogoUrl = getCachedAddonLogoDisplayUrl(addonLogoUrl);
@@ -1423,11 +1472,12 @@ export const StreamScreen = {
     const hasPendingForFilter = this.hasPendingSourceLoads();
     const hasAnyStreams = this.streams.length > 0;
     const streamBadgesEnabled = DebridSettingsStore.get().streamBadgesEnabled !== false;
+    const badgeSettings = StreamBadgeSettingsStore.snapshot();
 
     let body = "";
     if (filtered.length) {
       this.renderedDirectAddonLogoUrls = new Set();
-      body = filtered.map((stream, index) => this.renderStreamCard(stream, index, streamBadgesEnabled)).join("");
+      body = filtered.map((stream, index) => this.renderStreamCard(stream, index, streamBadgesEnabled, badgeSettings)).join("");
       this.renderedDirectAddonLogoUrls = null;
       if (hasPendingForFilter) {
         body += this.renderLoadingCards(1);

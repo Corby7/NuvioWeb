@@ -1117,6 +1117,17 @@ export const MetaDetailsScreen = {
     if (this.hydrateFromRouteState(navigationContext?.restoredState || null, params)) {
       this.isLoadingDetail = false;
       this.render(this.meta, this.pendingFocusRestore);
+      const refreshToken = this.detailLoadToken;
+      void this.refreshEpisodePlaybackState()
+        .then(() => {
+          if (refreshToken !== this.detailLoadToken || !this.container) {
+            return;
+          }
+          this.updateRenderedDetailSections(this.meta, this.pendingFocusRestore || null);
+        })
+        .catch((error) => {
+          console.warn("Detail playback state refresh failed", error);
+        });
       this.maybeAutoOpenContinueWatchingStream();
       return;
     }
