@@ -4623,7 +4623,18 @@ export const PlayerScreen = {
       return;
     }
 
+    const isTizenAvPlayPlayback = () => Boolean(
+      Environment.isTizen()
+      && typeof PlayerController.isUsingAvPlay === "function"
+      && PlayerController.isUsingAvPlay()
+    );
+
     const onWaiting = () => {
+      if (isTizenAvPlayPlayback() && this.hasPresentedPlaybackFrame && this.getPlaybackCurrentSeconds() > 0) {
+        this.loadingVisible = false;
+        this.updateLoadingVisibility();
+        return;
+      }
       this.dismissPauseOverlay();
       this.loadingVisible = true;
       this.updateLoadingVisibility();
@@ -4635,6 +4646,37 @@ export const PlayerScreen = {
 
     const onPlaying = () => {
       this.seekLoading = false;
+      if (isTizenAvPlayPlayback()) {
+        this.lastPlaybackErrorAt = 0;
+        this.sourcesError = "";
+        if (this.currentEngineFsStream && !this.isEngineFsStartupReady()) {
+          this.loadingVisible = true;
+          this.updateLoadingVisibility();
+          this.updateUiTick();
+          this.schedulePlaybackStallGuard({ timeoutMs: 12000 });
+          return;
+        }
+        this.hasPresentedPlaybackFrame = true;
+        this.loadingVisible = false;
+        this.markPlaybackProgress();
+        this.releaseStartupAudioGate();
+        this.clearPlaybackStallGuard();
+        this.paused = false;
+        this.seekOverlaySuppressControlsUntil = 0;
+        this.startupTrackPreferenceReady = true;
+        this.dismissPauseOverlay();
+        this.updateMediaSessionPlaybackState();
+        this.refreshTrackDialogs();
+        this.applyAudioAmplification();
+        this.applySubtitlePresentationSettings();
+        this.applyAspectMode({ showToast: false });
+        this.attemptPendingPlaybackRestore();
+        this.updateLoadingVisibility();
+        this.updateUiTick();
+        this.resetControlsAutoHide();
+        this.maybeShowParentalGuideOverlay();
+        return;
+      }
       if (this.currentEngineFsStream && !this.hasPresentedPlaybackFrame) {
         this.lastPlaybackErrorAt = 0;
         this.sourcesError = "";
@@ -4703,7 +4745,18 @@ export const PlayerScreen = {
     };
 
     const onTimeUpdate = () => {
-      if (this.currentEngineFsStream && !this.hasPresentedPlaybackFrame && this.getPlaybackCurrentSeconds() > 0.2) {
+      if (
+        isTizenAvPlayPlayback()
+        && this.loadingVisible
+        && (!this.currentEngineFsStream || this.isEngineFsStartupReady())
+      ) {
+        this.hasPresentedPlaybackFrame = true;
+        this.loadingVisible = false;
+        this.releaseStartupAudioGate();
+        this.clearPlaybackStallGuard();
+        this.updateLoadingVisibility();
+      }
+      if (this.currentEngineFsStream && !this.hasPresentedPlaybackFrame && this.isEngineFsStartupReady()) {
         this.hasPresentedPlaybackFrame = true;
         this.loadingVisible = false;
         this.releaseStartupAudioGate();
@@ -5262,6 +5315,21 @@ export const PlayerScreen = {
       return Number(PlayerController.getDurationSeconds() || 0);
     }
     return Number(PlayerController.video?.duration || 0);
+  },
+
+  hasKnownPlaybackDuration() {
+    const durationSeconds = Number(this.getPlaybackDurationSeconds() || 0);
+    return Number.isFinite(durationSeconds) && durationSeconds > 0;
+  },
+
+  isEngineFsStartupReady() {
+    if (!this.currentEngineFsStream) {
+      return true;
+    }
+    const currentSeconds = Number(this.getPlaybackCurrentSeconds() || 0);
+    return this.hasKnownPlaybackDuration()
+      && Number.isFinite(currentSeconds)
+      && currentSeconds > 0.2;
   },
 
   seekPlaybackSeconds(seconds) {
@@ -6385,8 +6453,7 @@ export const PlayerScreen = {
         ? Number(PlayerController.getPlaybackReadyState() || 0)
         : Number(PlayerController.video?.readyState || 0);
       if (startup && this.currentEngineFsStream) {
-        const currentSeconds = this.getPlaybackCurrentSeconds();
-        if (Number.isFinite(currentSeconds) && currentSeconds > 0.2) {
+        if (this.isEngineFsStartupReady()) {
           this.hasPresentedPlaybackFrame = true;
           this.loadingVisible = false;
           this.releaseStartupAudioGate();

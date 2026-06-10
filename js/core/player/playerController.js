@@ -544,6 +544,8 @@ export const PlayerController = {
     try {
       avplay.play?.();
       this.isPlaying = true;
+      this.reapplyTizenAvPlayDisplayRect();
+      this.reapplyTizenAvPlayDisplayRect(250);
       this.startAvPlayTickTimer();
       this.emitVideoEvent("playing", { playbackEngine: this.playbackEngine });
       [0, 250, 750, 1500].forEach((delayMs) => {
@@ -1143,7 +1145,10 @@ export const PlayerController = {
 
   getAvPlayViewportSize() {
     if (Platform.isTizen()) {
-      return this.getCssPlayerViewportSize();
+      return {
+        width: 1920,
+        height: 1080
+      };
     }
     const documentWidth = Number(document.documentElement?.clientWidth || 0);
     const documentHeight = Number(document.documentElement?.clientHeight || 0);
@@ -1167,7 +1172,14 @@ export const PlayerController = {
       return;
     }
     const viewport = this.getAvPlayViewportSize();
-    if (rect) {
+    if (Platform.isTizen()) {
+      this.avplayDisplayRect = {
+        x: 0,
+        y: 0,
+        width: viewport.width,
+        height: viewport.height
+      };
+    } else if (rect) {
       this.avplayDisplayRect = {
         x: Math.round(Number(rect.x || 0)),
         y: Math.round(Number(rect.y || 0)),
@@ -1194,6 +1206,22 @@ export const PlayerController = {
     } catch (_) {
       // Ignore display-method failures.
     }
+  },
+
+  reapplyTizenAvPlayDisplayRect(delayMs = 0) {
+    if (!Platform.isTizen()) {
+      return;
+    }
+    const apply = () => {
+      if (this.isUsingAvPlay()) {
+        this.setAvPlayDisplayRect();
+      }
+    };
+    if (Number(delayMs || 0) > 0) {
+      setTimeout(apply, Number(delayMs || 0));
+      return;
+    }
+    apply();
   },
 
   teardownAvPlay() {
@@ -1236,7 +1264,7 @@ export const PlayerController = {
     this.avplayDurationMs = 0;
   },
 
-  configureAvPlayForSource(requestHeaders = {}) {
+  configureAvPlayForSource(requestHeaders = {}, sourceType = null) {
     const avplay = this.getAvPlay();
     if (!avplay || typeof avplay.setStreamingProperty !== "function") {
       return;
@@ -1262,19 +1290,21 @@ export const PlayerController = {
     } catch (_) {
       // Ignore unsupported AVPlay header properties.
     }
+    const normalizedSourceType = String(sourceType || "").trim();
+    const isAdaptiveSource = this.isLikelyHlsMimeType(normalizedSourceType)
+      || this.isLikelyDashMimeType(normalizedSourceType)
+      || this.isLikelySmoothStreamingMimeType(normalizedSourceType);
+    if (!isAdaptiveSource) {
+      return;
+    }
     try {
       avplay.setStreamingProperty("ADAPTIVE_INFO", "STARTBITRATE=HIGHEST|FIXED_MAX_RESOLUTION=3840X2160");
     } catch (_) {
       // Ignore adaptive hints on older firmware.
     }
-    try {
-      avplay.setStreamingProperty("SET_MODE_4K", "TRUE");
-    } catch (_) {
-      // Deprecated on newer Tizen, but still useful on older firmware.
-    }
   },
 
-  playWithAvPlay(url, requestHeaders = {}) {
+  playWithAvPlay(url, requestHeaders = {}, sourceType = null) {
     if (!this.canUseAvPlay()) {
       return false;
     }
@@ -1294,12 +1324,16 @@ export const PlayerController = {
     this.avplayDurationMs = 0;
     this.lastPlaybackErrorCode = 0;
     this.playbackEngine = this.getPlatformAvplayEngineName();
+    const avplaySourceType = sourceType
+      || this.currentPlaybackMediaSourceType
+      || this.resolveRuntimeSourceType(this.guessMediaMimeType(url))
+      || null;
 
     this.emitVideoEvent("waiting", { playbackEngine: this.playbackEngine });
 
     try {
       avplay.open(this.avplayUrl);
-      this.configureAvPlayForSource(requestHeaders);
+      this.configureAvPlayForSource(requestHeaders, avplaySourceType);
     } catch (error) {
       this.lastPlaybackErrorCode = this.mapAvPlayErrorToMediaCode(error?.name || error?.message || error);
       this.teardownAvPlay();
@@ -1363,6 +1397,7 @@ export const PlayerController = {
       }
       this.avplayReady = true;
       this.avplayEnded = false;
+      this.reapplyTizenAvPlayDisplayRect();
       this.refreshAvPlayTimeline();
       this.syncAvPlayTrackInfo({ force: true });
       this.emitVideoEvent("loadedmetadata", { playbackEngine: this.playbackEngine });
@@ -1373,6 +1408,7 @@ export const PlayerController = {
         return;
       }
       this.startPreparedAvPlayPlayback({ syncTracks: true });
+      this.reapplyTizenAvPlayDisplayRect(250);
     };
 
     const onPrepareError = (errorValue) => {
@@ -2763,7 +2799,7 @@ export const PlayerController = {
         : "native-file";
 
     if (preferredEngine === this.getPlatformAvplayEngineName()) {
-      const avplayStarted = this.playWithAvPlay(url, requestHeaders);
+      const avplayStarted = this.playWithAvPlay(url, requestHeaders, sourceType);
       if (!avplayStarted) {
         this.applyNativeSource(url, sourceType || null, nativeFallbackEngine);
         this.attemptVideoPlay({
@@ -2774,7 +2810,7 @@ export const PlayerController = {
             if (!this.isUnsupportedSourceError(error) || !this.canUseAvPlay()) {
               return false;
             }
-            const fallbackStarted = this.playWithAvPlay(url, requestHeaders);
+            const fallbackStarted = this.playWithAvPlay(url, requestHeaders, sourceType);
             if (fallbackStarted) {
               this.isPlaying = true;
             }
@@ -2853,7 +2889,7 @@ export const PlayerController = {
           if (!this.isUnsupportedSourceError(error) || !this.canUseAvPlay() || !this.isLikelyDirectFileUrl(url)) {
             return false;
           }
-          const fallbackStarted = this.playWithAvPlay(url, requestHeaders);
+          const fallbackStarted = this.playWithAvPlay(url, requestHeaders, sourceType);
           if (fallbackStarted) {
             this.isPlaying = true;
           }

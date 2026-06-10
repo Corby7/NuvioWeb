@@ -9663,6 +9663,20 @@ button:focus-visible {
   background: #000;
 }
 
+.tizen-avplay-object {
+  display: none;
+}
+
+.tizen-tv .tizen-avplay-object {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  background: transparent;
+  pointer-events: none;
+}
+
 .tizen-tv #videoPlayer,
 .tizen-tv .player-ui-root {
   right: auto;
@@ -9672,6 +9686,10 @@ button:focus-visible {
   max-width: 100vw;
   max-height: 100vh;
   transform: none;
+}
+
+.tizen-tv #videoPlayer {
+  background: transparent !important;
 }
 
 #playerUiRoot {
@@ -9730,12 +9748,12 @@ button:focus-visible {
 }
 
 .player-loading-spinner {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
   z-index: 34;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   pointer-events: none;
   opacity: 1;
   transition: opacity 180ms ease;
@@ -9747,8 +9765,14 @@ button:focus-visible {
 }
 
 .player-loading-spinner-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  box-sizing: border-box;
   width: 72px;
   height: 72px;
+  margin-top: -36px;
+  margin-left: -36px;
   border-radius: 50%;
   border: 6px solid rgba(255, 255, 255, 0.18);
   border-top-color: rgba(255, 255, 255, 0.96);
