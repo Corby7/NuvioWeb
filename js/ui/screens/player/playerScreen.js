@@ -8096,10 +8096,14 @@ export const PlayerScreen = {
       });
     }
     const preferredTargets = this.getStartupPreferredSubtitleLanguageTargets();
+    const preferredRankCache = new Map();
     const getPreferredRank = (entry) => {
       const key = String(entry?.key || "");
       if (!key || key === SUBTITLE_LANGUAGE_OFF_KEY) {
         return Number.MAX_SAFE_INTEGER;
+      }
+      if (preferredRankCache.has(key)) {
+        return preferredRankCache.get(key);
       }
       const keyBase = key.split("-")[0];
       const rank = preferredTargets.findIndex((target) => {
@@ -8107,12 +8111,22 @@ export const PlayerScreen = {
         const targetBase = targetKey.split("-")[0];
         return key === targetKey || (keyBase && targetBase && keyBase === targetBase);
       });
-      return rank >= 0 ? rank : Number.MAX_SAFE_INTEGER;
+      const resolvedRank = rank >= 0 ? rank : Number.MAX_SAFE_INTEGER;
+      preferredRankCache.set(key, resolvedRank);
+      return resolvedRank;
     };
     const locale = typeof I18n.getLocale === "function" ? I18n.getLocale() : undefined;
     const values = Array.from(groups.values()).sort((left, right) => {
+      if (left.key === right.key) return 0;
       if (left.key === SUBTITLE_LANGUAGE_OFF_KEY) return -1;
       if (right.key === SUBTITLE_LANGUAGE_OFF_KEY) return 1;
+      // Sink the "Unknown" group below the real languages instead of letting
+      // its label sort it into the middle of the alphabetical list.
+      const leftUnknown = left.key === SUBTITLE_LANGUAGE_UNKNOWN_KEY;
+      const rightUnknown = right.key === SUBTITLE_LANGUAGE_UNKNOWN_KEY;
+      if (leftUnknown !== rightUnknown) {
+        return leftUnknown ? 1 : -1;
+      }
       const preferredDelta = getPreferredRank(left) - getPreferredRank(right);
       if (preferredDelta !== 0) {
         return preferredDelta;
@@ -8123,11 +8137,6 @@ export const PlayerScreen = {
       }
       return String(left.key || "").localeCompare(String(right.key || ""), "en", { sensitivity: "base" });
     });
-    const offIndex = values.findIndex((entry) => entry.key === SUBTITLE_LANGUAGE_OFF_KEY);
-    if (offIndex > 0) {
-      const [offEntry] = values.splice(offIndex, 1);
-      values.unshift(offEntry);
-    }
     this.trackDialogCache.subtitleLanguageRail = values;
     return values;
   },
