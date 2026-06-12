@@ -123,6 +123,8 @@ const KEY_ALIASES = {
   "settings.integration.debrid.providerDescription": "debrid_provider_description",
   "settings.integration.debrid.resolveWith.subtitle": "debrid_resolve_with_description",
   "settings.integration.debrid.resolveWith.title": "debrid_resolve_with",
+  "settings.integration.debrid.streamBadges.subtitle": "settings_stream_badges_description",
+  "settings.integration.debrid.streamBadges.title": "settings_stream_badges_section",
   "settings.integration.debrid.sort.default": "debrid_stream_sort_default",
   "settings.integration.debrid.sort.quality": "debrid_stream_sort_quality",
   "settings.integration.debrid.sort.sizeAsc": "debrid_stream_sort_size_asc",

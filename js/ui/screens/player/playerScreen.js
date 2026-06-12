@@ -1,4 +1,9 @@
 import { PlayerController } from "../../../core/player/playerController.js";
+import {
+  ensureWebOsImageProxyReady,
+  normalizeImageUrl,
+  onWebOsImageProxyReady
+} from "../../../core/media/imageProxy.js";
 import { localMediaTracksRepository } from "../../../data/repository/localMediaTracksRepository.js";
 import { subtitleRepository } from "../../../data/repository/subtitleRepository.js";
 import { streamRepository } from "../../../data/repository/streamRepository.js";
@@ -209,8 +214,8 @@ const SUBTITLE_LANGUAGE_UNKNOWN_KEY = "__unknown__";
 const SUBTITLE_TEXT_COLORS = ["#FFFFFF", "#D9D9D9", "#FFD700", "#00E5FF", "#FF5C5C", "#00FF88"];
 const SUBTITLE_OUTLINE_COLORS = ["#000000", "#FFFFFF", "#00E5FF", "#FF5C5C"];
 const SUBTITLE_DELAY_STEP_MS = 250;
-const SUBTITLE_FONT_STEP = 10;
-const SUBTITLE_VERTICAL_OFFSET_STEP = 0.01;
+const SUBTITLE_FONT_STEP = 5;
+const SUBTITLE_VERTICAL_OFFSET_STEP = 1;
 const AUDIO_AMPLIFICATION_MIN_DB = 0;
 const AUDIO_AMPLIFICATION_MAX_DB = 10;
 const PLAYER_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -910,7 +915,7 @@ function normalizeStreamBadgeChipColor(value = "") {
 }
 
 function renderPlayerImageBadgeChip(badge = {}) {
-  const imageUrl = String(badge.imageURL || "").trim();
+  const imageUrl = normalizeImageUrl(badge.imageURL);
   if (!imageUrl) {
     return "";
   }
@@ -960,12 +965,20 @@ function formatSubtitleDelay(delayMs = 0) {
   return `${seconds >= 0 ? "+" : ""}${seconds.toFixed(3)}s`;
 }
 
+function normalizeSubtitleFontSize(value = 100) {
+  const parsed = Number(value || 100);
+  if (!Number.isFinite(parsed)) {
+    return 100;
+  }
+  return clamp(Math.round(parsed), 70, 180);
+}
+
 function normalizeSubtitleVerticalOffset(value = 0) {
   const parsed = Number(value || 0);
   if (!Number.isFinite(parsed)) {
     return 0;
   }
-  const normalized = Number(clamp(parsed, -12, 12).toFixed(2));
+  const normalized = clamp(Math.round(parsed), -12, 12);
   return Object.is(normalized, -0) ? 0 : normalized;
 }
 
@@ -981,7 +994,7 @@ function splitSubtitleVerticalOffset(value = 0) {
 }
 
 function formatSubtitleVerticalOffset(value = 0) {
-  return normalizeSubtitleVerticalOffset(value).toFixed(2);
+  return String(normalizeSubtitleVerticalOffset(value));
 }
 
 function normalizeSubtitleLanguageKey(value) {
@@ -1413,6 +1426,16 @@ export const PlayerScreen = {
     this.container.style.display = "block";
     this.params = params;
     this.externalFrameUrl = String(params.externalFrameUrl || "").trim();
+    if (this.releaseImageProxyReadyListener) {
+      this.releaseImageProxyReadyListener();
+      this.releaseImageProxyReadyListener = null;
+    }
+    if (Environment.isWebOS()) {
+      this.releaseImageProxyReadyListener = onWebOsImageProxyReady(() => {
+        this.renderControlButtons();
+      });
+      void ensureWebOsImageProxyReady();
+    }
 
     this.aspectModes = [
       { objectFit: "contain", label: t("player_aspect_fit", {}, "Fit") },
@@ -1752,9 +1775,11 @@ export const PlayerScreen = {
 
   buildSubtitleLookupContext() {
     const type = normalizeItemType(this.params?.itemType || "movie");
+    const identity = this.buildPlaybackIdentityContext();
     const rawItemId = String(this.params?.itemId || "").trim();
     const baseItemId = rawItemId ? String(rawItemId.split(":")[0] || "").trim() : "";
-    const id = baseItemId || rawItemId || "";
+    const imdbItemId = normalizePlayableImdbId(identity.imdbId);
+    const id = imdbItemId || baseItemId || rawItemId || "";
     const currentStream = this.getCurrentStreamCandidate();
     const rawStream = currentStream?.raw || currentStream || {};
     const behaviorHints = rawStream?.behaviorHints || {};
@@ -4509,15 +4534,16 @@ export const PlayerScreen = {
       : "";
     const outlineShadow = style.outlineEnabled ? `0 0 2px ${outlineColor}, 0 0 4px ${outlineColor}` : "";
     const subtitleShadow = [outlineShadow, boldShadow].filter(Boolean).join(", ") || "none";
+    const subtitleFontSize = normalizeSubtitleFontSize(style.fontSize);
     uiRoot.style.setProperty("--player-subtitle-color", String(style.textColor || "#FFFFFF"));
     uiRoot.style.setProperty("--player-subtitle-outline-color", outlineColor);
-    uiRoot.style.setProperty("--player-subtitle-font-size", `${clamp(Number(style.fontSize || 100), 70, 180)}%`);
+    uiRoot.style.setProperty("--player-subtitle-font-size", `${subtitleFontSize}%`);
     uiRoot.style.setProperty("--player-subtitle-font-weight", subtitleFontWeight);
     uiRoot.style.setProperty("--player-subtitle-shadow", subtitleShadow);
     uiRoot.style.setProperty("--player-subtitle-offset", `${(verticalOffset.residualOffset * -2).toFixed(2)}vh`);
     video.style.setProperty("--player-subtitle-color", String(style.textColor || "#FFFFFF"));
     video.style.setProperty("--player-subtitle-outline-color", outlineColor);
-    video.style.setProperty("--player-subtitle-font-size", `${clamp(Number(style.fontSize || 100), 70, 180)}%`);
+    video.style.setProperty("--player-subtitle-font-size", `${subtitleFontSize}%`);
     video.style.setProperty("--player-subtitle-font-weight", subtitleFontWeight);
     video.style.setProperty("--player-subtitle-shadow", subtitleShadow);
     video.style.setProperty("--player-subtitle-offset", `${(verticalOffset.residualOffset * -2).toFixed(2)}vh`);
@@ -6051,6 +6077,7 @@ export const PlayerScreen = {
 
   resolveMediaAction(event) {
     const key = String(event?.key || "");
+    const keyName = String(event?.keyName || "");
     const code = String(event?.code || "");
     const keyCode = Number(event?.originalKeyCode || event?.keyCode || 0);
 
@@ -6069,6 +6096,9 @@ export const PlayerScreen = {
 
     if (keyMap[key]) {
       return keyMap[key];
+    }
+    if (keyMap[keyName]) {
+      return keyMap[keyName];
     }
     if (keyMap[code]) {
       return keyMap[code];
@@ -8619,7 +8649,7 @@ export const PlayerScreen = {
     const style = this.subtitleStyleSettings || {};
     return [
       { id: "delay", label: t("subtitle_tab_delay", {}, "Delay"), value: formatSubtitleDelay(this.subtitleDelayMs) },
-      { id: "fontSize", label: t("subtitle_style_font_size", {}, "Font Size"), value: `${Number(style.fontSize || 100)}%` },
+      { id: "fontSize", label: t("subtitle_style_font_size", {}, "Font Size"), value: `${normalizeSubtitleFontSize(style.fontSize)}%` },
       { id: "bold", label: t("subtitle_style_bold", {}, "Bold"), value: style.bold ? t("subtitle_style_on", {}, "On") : t("subtitle_style_off", {}, "Off") },
       { id: "textColor", label: t("subtitle_style_text_color", {}, "Text Color"), value: styleChipLabel(style.textColor || "#FFFFFF") },
       { id: "outlineEnabled", label: t("subtitle_style_outline", {}, "Outline"), value: style.outlineEnabled ? t("subtitle_style_on", {}, "On") : t("subtitle_style_off", {}, "Off") },
@@ -8634,7 +8664,7 @@ export const PlayerScreen = {
     if (controlId === "delay") {
       this.subtitleDelayMs = clamp(Number(this.subtitleDelayMs || 0) + (delta * SUBTITLE_DELAY_STEP_MS), -5000, 5000);
     } else if (controlId === "fontSize") {
-      style.fontSize = clamp(Number(style.fontSize || 100) + (delta * SUBTITLE_FONT_STEP), 70, 180);
+      style.fontSize = normalizeSubtitleFontSize(Number(style.fontSize || 100) + (delta * SUBTITLE_FONT_STEP));
     } else if (controlId === "bold" && delta !== 0) {
       style.bold = !style.bold;
     } else if (controlId === "textColor" && delta !== 0) {
@@ -10013,6 +10043,7 @@ export const PlayerScreen = {
             const badges = renderPlayerSourceBadges(stream, badgeSettings);
             const topBadges = badgePlacement === "TOP" ? badges : "";
             const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
+            const addonLogoUrl = normalizeImageUrl(stream.addonLogo);
             return `
               <article class="player-source-card focusable${focused ? " focused" : ""}${isCurrent ? " selected" : ""}" data-sources-zone="list" data-sources-index="${index}">
                 <div class="player-source-main">
@@ -10026,7 +10057,7 @@ export const PlayerScreen = {
                   </div>
                 </div>
                 <div class="player-source-side">
-                  ${stream.addonLogo ? `<img class="player-source-logo" src="${escapeAttribute(stream.addonLogo)}" alt="" decoding="async" loading="lazy" />` : ""}
+                  ${addonLogoUrl ? `<img class="player-source-logo" src="${escapeAttribute(addonLogoUrl)}" alt="" decoding="async" loading="lazy" />` : ""}
                   <div class="player-source-addon">${escapeHtml(stream.addonName || t("nav_addons", {}, "Addon"))}</div>
                   ${isCurrent ? `<div class="player-source-playing">${escapeHtml(t("sources_playing", {}, "Playing"))}</div>` : ""}
                 </div>
@@ -11479,6 +11510,10 @@ export const PlayerScreen = {
     this.trackDiscoveryDeadline = 0;
     this.subtitleLoading = false;
     this.manifestLoading = false;
+    if (this.releaseImageProxyReadyListener) {
+      this.releaseImageProxyReadyListener();
+      this.releaseImageProxyReadyListener = null;
+    }
     this.clearTrackDiscoveryTimer();
     this.clearPlaybackStallGuard();
     if (this.engineFsStartupRetryTimer) {

@@ -998,6 +998,7 @@
     <string name="debrid_formatter_reset_subtitle">Restore default source formatting.</string>
     <string name="debrid_formatter_qr_instruction">Scan this QR code on your phone to configure Debrid source settings.</string>
     <string name="settings_stream_badges_section">Fusion Style</string>
+    <string name="settings_stream_badges_description">Show quality, HDR, codec, audio, and size chips in source results.</string>
     <string name="settings_stream_size_badges_title">Size badges</string>
     <string name="settings_stream_size_badges_description">Show file size badges in stream results and player source panels.</string>
     <string name="settings_stream_badge_position_title">Badge position</string>

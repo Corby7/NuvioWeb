@@ -107,7 +107,9 @@ export const FocusEngine = {
         target: normalizedEvent.target,
         key: normalizedEvent.key,
         code: normalizedEvent.code,
+        keyName: normalizedEvent.keyName,
         keyCode: normalizedEvent.keyCode,
+        originalKeyCode: normalizedEvent.originalKeyCode,
       })
     ) {
       this.handleBack(event, normalizedEvent);

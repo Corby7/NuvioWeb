@@ -8,6 +8,12 @@ import { TizenStreamingServerResolver } from "../../../core/p2p/tizenStreamingSe
 import { DebridSettingsStore } from "../../../data/local/debridSettingsStore.js";
 import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSettingsStore.js";
 import { LocalStore } from "../../../core/storage/localStore.js";
+import {
+  ensureWebOsImageProxyReady,
+  isWebOsImageProxyUrl,
+  normalizeImageUrl,
+  onWebOsImageProxyReady
+} from "../../../core/media/imageProxy.js";
 import { Environment } from "../../../platform/environment.js";
 import { I18n } from "../../../i18n/index.js";
 import {
@@ -328,7 +334,7 @@ function getAddonBadgeLabel(name = "") {
 }
 
 function normalizeAddonLogoUrl(value = "") {
-  return String(value || "").trim();
+  return normalizeImageUrl(value);
 }
 
 export function resetAddonLogoCache() {
@@ -454,7 +460,7 @@ function requestAddonLogo(url = "", onSettled = null) {
     return cached.promise || Promise.resolve(false);
   }
 
-  if (Environment.isWebOS()) {
+  if (Environment.isWebOS() && !isWebOsImageProxyUrl(normalized)) {
     addonLogoCache.set(normalized, {
       status: "direct",
       displayUrl: normalized,
@@ -1145,6 +1151,17 @@ export const StreamScreen = {
     this.addonLogoLookup = {};
     this.addonFilter = "all";
     this.hasRenderedStreamRouteShell = false;
+    if (this.releaseImageProxyReadyListener) {
+      this.releaseImageProxyReadyListener();
+      this.releaseImageProxyReadyListener = null;
+    }
+    if (Environment.isWebOS()) {
+      this.releaseImageProxyReadyListener = onWebOsImageProxyReady(() => {
+        failedAddonLogoUrls.clear();
+        this.requestRender({ delayMs: 0 });
+      });
+      void ensureWebOsImageProxyReady();
+    }
 
     const restored = navigationContext?.restoredState && typeof navigationContext.restoredState === "object"
       ? navigationContext.restoredState
@@ -1548,7 +1565,7 @@ export const StreamScreen = {
     if (!list) {
       return;
     }
-    list.scrollTop = Number(this.listScrollTop || 0);
+    this.setListScrollTop(list, Number(this.listScrollTop || 0));
   },
 
   getHeaderMeta() {
@@ -1608,8 +1625,9 @@ export const StreamScreen = {
     const resolvingLabel = this.resolvingStreamMode === "p2p"
       ? t("stream.p2p.resolving", {}, "Resolving P2P stream")
       : t("stream.debrid.resolving", {}, "Resolving Debrid stream");
+    const addonLogoLoading = Environment.isWebOS() ? "eager" : "lazy";
     const addonBadge = displayAddonLogoUrl
-      ? `<img src="${escapeHtml(displayAddonLogoUrl)}" alt="${escapeHtml(stream.addonName || "Addon")}" data-addon-logo="${escapeHtml(addonLogoUrl)}" decoding="async" loading="lazy" referrerpolicy="no-referrer" /><span hidden>${addonBadgeLabel}</span>`
+      ? `<img src="${escapeHtml(displayAddonLogoUrl)}" alt="${escapeHtml(stream.addonName || "Addon")}" data-addon-logo="${escapeHtml(addonLogoUrl)}" decoding="async" loading="${addonLogoLoading}" referrerpolicy="no-referrer" /><span hidden>${addonBadgeLabel}</span>`
       : `<span>${addonBadgeLabel}</span>`;
 
     return `
@@ -1741,9 +1759,6 @@ export const StreamScreen = {
         }
       };
       node.addEventListener("error", applyFallback, { once: true });
-      if (node.complete && Number(node.naturalWidth || 0) <= 0) {
-        applyFallback();
-      }
     });
   },
 
@@ -2024,6 +2039,10 @@ export const StreamScreen = {
     if (this.errorChipTimer) {
       clearTimeout(this.errorChipTimer);
       this.errorChipTimer = null;
+    }
+    if (this.releaseImageProxyReadyListener) {
+      this.releaseImageProxyReadyListener();
+      this.releaseImageProxyReadyListener = null;
     }
     ScreenUtils.hide(this.container);
   }

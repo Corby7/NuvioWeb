@@ -14,9 +14,42 @@ function getKeyCodeFromName(keyName) {
   const normalized = String(keyName || "").toLowerCase();
   const keyMap = {
     back: 10009,
-    return: 10009
+    return: 10009,
+    mediaplaypause: 10252,
+    mediaplay: 415,
+    mediapause: 19,
+    mediastop: 413,
+    mediafastforward: 417,
+    mediarewind: 412,
+    mediatracknext: 176,
+    mediatrackprevious: 177
   };
   return keyMap[normalized] || 0;
+}
+
+function isMediaKeyEvent(event, normalizedCode = null) {
+  const key = String(event?.key || "").toLowerCase();
+  const keyName = String(event?.keyName || event?.detail?.keyName || "").toLowerCase();
+  const code = String(event?.code || "").toLowerCase();
+  const rawCode = Number(event?.originalKeyCode || event?.keyCode || event?.which || 0);
+  const effectiveCode = Number(normalizedCode || rawCode || 0);
+  const mediaNames = new Set([
+    "mediaplaypause",
+    "mediaplay",
+    "mediapause",
+    "mediastop",
+    "mediafastforward",
+    "mediarewind",
+    "mediatracknext",
+    "mediatrackprevious",
+    "play",
+    "pause"
+  ]);
+  if (mediaNames.has(key) || mediaNames.has(keyName) || mediaNames.has(code)) {
+    return true;
+  }
+  return [179, 10252, 415, 19, 413, 178, 417, 412, 176, 177].includes(effectiveCode)
+    || [179, 10252, 415, 19, 413, 178, 417, 412, 176, 177].includes(rawCode);
 }
 
 function isEditableTarget(target) {
@@ -87,6 +120,10 @@ export function isBackEvent(event, backCodes = [], normalizedCode = null) {
   const effectiveCode = Number(normalizedCode || rawCode || 0);
 
   if (isEditableTarget(target) && (key === "Backspace" || rawCode === 8 || key === "Delete" || rawCode === 46)) {
+    return false;
+  }
+
+  if (isMediaKeyEvent(event, effectiveCode)) {
     return false;
   }
 

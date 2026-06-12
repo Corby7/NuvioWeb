@@ -2,6 +2,7 @@ var fs = require("fs");
 var http = require("http");
 var path = require("path");
 var Module = require("module");
+var createImageProxyHandler = require("./imageProxy").createImageProxyHandler;
 
 var SERVICE_ID = "space.nuvio.webos.service";
 var PORT_CANDIDATES = require("./constants").PORT_CANDIDATES;
@@ -16,8 +17,66 @@ function loadCommonJsScript(filename) {
   return mod.exports;
 }
 
+function patchServerRequestRegistration(server, wrapRequestListener) {
+  ["on", "addListener", "once", "prependListener"].forEach(function(methodName) {
+    if (typeof server[methodName] !== "function") {
+      return;
+    }
+    var original = server[methodName];
+    server[methodName] = function(eventName, listener) {
+      if (eventName === "request" && typeof listener === "function") {
+        return original.call(this, eventName, wrapRequestListener(listener));
+      }
+      return original.apply(this, arguments);
+    };
+  });
+  return server;
+}
+
+function installImageProxyHttpHook() {
+  var originalCreateServer = http.createServer;
+  var imageProxyHandler = createImageProxyHandler();
+
+  function wrapRequestListener(listener) {
+    if (typeof listener !== "function" || listener.__nuvioImageProxyWrapped) {
+      return listener;
+    }
+
+    var wrapped = function(req, res) {
+      if (imageProxyHandler(req, res)) {
+        return;
+      }
+      return listener.apply(this, arguments);
+    };
+    wrapped.__nuvioImageProxyWrapped = true;
+    return wrapped;
+  }
+
+  http.createServer = function() {
+    var args = Array.prototype.slice.call(arguments);
+    if (typeof args[0] === "function") {
+      args[0] = wrapRequestListener(args[0]);
+    } else if (typeof args[1] === "function") {
+      args[1] = wrapRequestListener(args[1]);
+    }
+    return patchServerRequestRegistration(
+      originalCreateServer.apply(http, args),
+      wrapRequestListener
+    );
+  };
+
+  return function restoreImageProxyHttpHook() {
+    http.createServer = originalCreateServer;
+  };
+}
+
 function bootLocalRuntime(runtimePath) {
-  loadCommonJsScript(runtimePath);
+  var restoreHttpHook = installImageProxyHttpHook();
+  try {
+    loadCommonJsScript(runtimePath);
+  } finally {
+    restoreHttpHook();
+  }
 }
 
 function requestLocalHttp(port, pathname, options, callback) {
