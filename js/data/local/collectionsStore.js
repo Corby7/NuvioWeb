@@ -59,7 +59,9 @@ function normalizeTmdbFilters(value = {}) {
     withKeywords: stringOrNull(raw.withKeywords),
     withCompanies: stringOrNull(raw.withCompanies),
     withNetworks: stringOrNull(raw.withNetworks),
-    year: Number.isFinite(Number(raw.year)) ? Math.trunc(Number(raw.year)) : null
+    year: Number.isFinite(Number(raw.year)) && Number(raw.year) > 0 ? Math.trunc(Number(raw.year)) : null,
+    watchRegion: stringOrNull(raw.watchRegion),
+    withWatchProviders: stringOrNull(raw.withWatchProviders)
   };
 }
 

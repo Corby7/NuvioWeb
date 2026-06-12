@@ -339,6 +339,38 @@ function getTmdbLanguage() {
   return String(TmdbSettingsStore.get().language || "en-US").trim() || "en-US";
 }
 
+function setTmdbDiscoverParam(params, key, value) {
+  if (value == null || value === "") {
+    return;
+  }
+  params.set(key, String(value));
+}
+
+function applyTmdbDiscoverFilters(params, filters = {}, mediaType = "movie") {
+  const isTv = String(mediaType || "").toLowerCase() === "tv";
+  setTmdbDiscoverParam(params, "with_genres", filters.withGenres);
+  setTmdbDiscoverParam(params, isTv ? "first_air_date.gte" : "primary_release_date.gte", filters.releaseDateGte);
+  setTmdbDiscoverParam(params, isTv ? "first_air_date.lte" : "primary_release_date.lte", filters.releaseDateLte);
+  setTmdbDiscoverParam(params, "vote_average.gte", filters.voteAverageGte);
+  setTmdbDiscoverParam(params, "vote_average.lte", filters.voteAverageLte);
+  setTmdbDiscoverParam(params, "vote_count.gte", filters.voteCountGte);
+  setTmdbDiscoverParam(params, "with_original_language", filters.withOriginalLanguage);
+  setTmdbDiscoverParam(params, "with_origin_country", filters.withOriginCountry);
+  setTmdbDiscoverParam(params, "with_keywords", filters.withKeywords);
+  setTmdbDiscoverParam(params, "with_companies", filters.withCompanies);
+  if (isTv) {
+    setTmdbDiscoverParam(params, "with_networks", filters.withNetworks);
+  }
+  if (Number.isFinite(Number(filters.year)) && Number(filters.year) > 0) {
+    params.set(isTv ? "first_air_date_year" : "year", String(Math.trunc(Number(filters.year))));
+  }
+  if (filters.withWatchProviders) {
+    setTmdbDiscoverParam(params, "watch_region", filters.watchRegion || "US");
+    setTmdbDiscoverParam(params, "with_watch_providers", filters.withWatchProviders);
+    setTmdbDiscoverParam(params, "with_watch_monetization_types", "flatrate|free|ads|rent|buy");
+  }
+}
+
 function mapTmdbListItem(item = {}, mediaType = "movie") {
   const type = mediaType === "tv" ? "series" : "movie";
   const title = firstNonEmpty(item.title, item.name, item.original_title, item.original_name);
@@ -401,7 +433,7 @@ async function fetchTmdbSourceItems(source = {}, page = 1) {
   }
   const language = getTmdbLanguage();
   const type = String(source.tmdbSourceType || "").toUpperCase();
-  const mediaType = String(source.mediaType || "MOVIE").toUpperCase() === "TV" ? "tv" : "movie";
+  const mediaType = type === "NETWORK" || String(source.mediaType || "MOVIE").toUpperCase() === "TV" ? "tv" : "movie";
   if (type === "COLLECTION") {
     const items = await TmdbMetadataService.fetchMovieCollection({
       collectionId: source.tmdbId,
@@ -441,16 +473,14 @@ async function fetchTmdbSourceItems(source = {}, page = 1) {
     sort_by: String(source.sortBy || (mediaType === "tv" ? "first_air_date.desc" : "popularity.desc"))
   });
   const filters = source.filters && typeof source.filters === "object" ? source.filters : {};
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value != null && value !== "") {
-      params.set(key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`), String(value));
-    }
-  });
+  applyTmdbDiscoverFilters(params, filters, mediaType);
   if (type === "COMPANY" && source.tmdbId) {
     params.set("with_companies", String(source.tmdbId));
   }
   if (type === "NETWORK" && source.tmdbId) {
     params.set("with_networks", String(source.tmdbId));
+    params.set("first_air_date.lte", filters.releaseDateLte || new Date().toISOString().slice(0, 10));
+    params.set("with_status", "0|3|4");
   }
   const url = `${TMDB_API_URL}/discover/${mediaType}?${params.toString()}`;
   const { payload } = await fetchJson(url);
