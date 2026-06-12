@@ -243,6 +243,90 @@ if (!Element.prototype.closest) {
   };
 }
 
+// polyfill for Object.entries (Chrome 54+) - older webOS/Tizen browsers lack it
+// and the app touches it during bootstrap, which crashes startup there.
+if (!Object.entries) {
+  Object.entries = function entries(obj) {
+    var ownKeys = Object.keys(Object(obj));
+    var result = [];
+    for (var i = 0; i < ownKeys.length; i++) {
+      result.push([ownKeys[i], obj[ownKeys[i]]]);
+    }
+    return result;
+  };
+}
+
+// polyfill for Object.values (Chrome 54+)
+if (!Object.values) {
+  Object.values = function values(obj) {
+    var ownKeys = Object.keys(Object(obj));
+    var result = [];
+    for (var i = 0; i < ownKeys.length; i++) {
+      result.push(obj[ownKeys[i]]);
+    }
+    return result;
+  };
+}
+
+// polyfill for Array.prototype.includes (Chrome 47+)
+if (!Array.prototype.includes) {
+  Object.defineProperty(Array.prototype, "includes", {
+    value: function includes(searchElement, fromIndex) {
+      var list = Object(this);
+      var length = list.length >>> 0;
+      if (length === 0) {
+        return false;
+      }
+      var start = Number(fromIndex) || 0;
+      var index = start < 0 ? Math.max(length + start, 0) : start;
+      for (; index < length; index++) {
+        var current = list[index];
+        if (current === searchElement || (current !== current && searchElement !== searchElement)) {
+          return true;
+        }
+      }
+      return false;
+    },
+    configurable: true,
+    writable: true
+  });
+}
+
+// polyfills for String padStart/padEnd (Chrome 57+)
+function buildStringPad(padStart) {
+  return function pad(targetLength, padString) {
+    var source = String(this);
+    var target = targetLength >> 0;
+    var filler = padString === undefined ? " " : String(padString);
+    if (source.length >= target || filler === "") {
+      return source;
+    }
+    var padLength = target - source.length;
+    var padding = "";
+    while (padding.length < padLength) {
+      padding += filler;
+    }
+    padding = padding.slice(0, padLength);
+    return padStart ? padding + source : source + padding;
+  };
+}
+
+if (!String.prototype.padStart) {
+  Object.defineProperty(String.prototype, "padStart", {
+    value: buildStringPad(true),
+    configurable: true,
+    writable: true
+  });
+}
+
+if (!String.prototype.padEnd) {
+  Object.defineProperty(String.prototype, "padEnd", {
+    value: buildStringPad(false),
+    configurable: true,
+    writable: true
+  });
+}
+
 // polyfill for Object.fromEntries
 if (!Object.fromEntries) {
   Object.fromEntries = function fromEntries(entries) {
