@@ -5667,7 +5667,7 @@ button:focus-visible {
   height: var(--modern-hero-logo-max-height);
   max-height: var(--modern-hero-logo-max-height);
   object-fit: contain;
-  object-position: bottom top;
+  object-position: bottom center;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-logo {
