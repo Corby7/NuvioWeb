@@ -253,7 +253,7 @@ export function renderLegacySidebar({
         <img class="home-brand-wordmark" src="assets/brand/app_logo_wordmarksmall.png" alt="Nuvio" />
       </div>
       <div class="home-nav-list">
-        <button class="home-nav-item focusable"
+        <button class="home-nav-item profile focusable"
                 data-action="gotoAccount"
                 aria-label="${t("sidebar.switchProfile")}">
           <span class="home-profile-avatar" style="background:${profileState.activeProfileColorHex || getThemeAccentFallback()}">

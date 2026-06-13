@@ -1724,6 +1724,11 @@ button:focus-visible {
   transition: padding-left 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.home-shell.detail-shell {
+  background: transparent;
+  padding-left: 0;
+}
+
 .home-route-content {
   min-height: 100%;
 }
@@ -1895,9 +1900,18 @@ button:focus-visible {
   will-change: background-color, color;
 }
 
+.home-nav-item.profile {
+   filter: grayscale(1) brightness(1.2);
+  transition: filter 200ms ease;
+}
+
 .home-sidebar.content-expanded .home-nav-item {
   color: var(--text-secondary);
   width: var(--legacy-sidebar-item-expanded-width);
+}
+
+.home-sidebar.content-expanded .home-nav-item.profile {
+    filter: grayscale(0) brightness(1);
 }
 
 .home-sidebar.content-expanded .home-nav-label {
@@ -4133,7 +4147,7 @@ button:focus-visible {
   position: relative;
   min-height: 270px;
   border-radius: 22px;
-  padding: 22px;
+  padding: 48px 0px;
   overflow: hidden;
   background: linear-gradient(100deg, rgba(8, 11, 15, 0.95), rgba(15, 20, 28, 0.7));
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -5444,7 +5458,7 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern {
-  --home-content-start: 104px;
+  /* --home-content-start: 104px; */
   --home-row-gap: 24px;
   --home-track-end: 104px;
   --home-continue-track-end: 104px;
@@ -5466,7 +5480,7 @@ button:focus-visible {
   --modern-hero-meta-size: calc(var(--home-poster-width) * 0.1);
   --modern-hero-meta-max-width: 100%;
   --modern-hero-secondary-size: calc(var(--home-poster-width) * 0.085);
-  --modern-hero-description-size: 22px;
+  --modern-hero-description-size: 24px;
   --modern-hero-description-max-width: min(100%, 560px);
   --home-modern-portrait-poster-width: var(--home-poster-width);
   --home-modern-portrait-poster-height: calc(var(--home-modern-portrait-poster-width) * 1.5);
