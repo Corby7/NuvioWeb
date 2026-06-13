@@ -5861,7 +5861,7 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  padding: 0 0 var(--modern-rows-viewport-padding-bottom);
+  padding-left: 64px;
 }
 
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-rows-scroll {
@@ -5872,7 +5872,6 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  padding-left: 64px;
 }
 
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-catalogs {
