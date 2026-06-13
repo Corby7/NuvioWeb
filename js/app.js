@@ -11,6 +11,7 @@ import { LibrarySyncService } from "./core/profile/librarySyncService.js";
 import { StartupSyncService } from "./core/profile/startupSyncService.js";
 import { ThemeManager } from "./ui/theme/themeManager.js";
 import { renderAppShell } from "./bootstrap/renderAppShell.js";
+import { RootSidebarController } from "./ui/components/rootSidebarController.js";
 import { renderAddonRemotePage } from "./bootstrap/renderAddonRemotePage.js";
 import { warmStreamingLibs } from "./runtime/loadStreamingLibs.js";
 import { Platform } from "./platform/index.js";
@@ -186,6 +187,8 @@ async function bootstrapApp() {
   await I18n.init();
 
   Router.init();
+  RootSidebarController.init();
+  Router.onNavigate = (routeName) => RootSidebarController.update(routeName);
   PlayerController.init();
 
   FocusEngine.init();

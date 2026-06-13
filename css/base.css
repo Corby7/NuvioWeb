@@ -48,6 +48,41 @@
     --tv-subtitle-text: clamp(24px, 1.7vw, 32px);
     --tv-title-text: 48px;
     --tv-title-text: clamp(42px, 2.9vw, 60px);
+    --legacy-sidebar-rail-width: 144px;
+    --legacy-sidebar-open-width: 340px;
+    --legacy-sidebar-item-expanded-width: 292px;
+    --legacy-sidebar-item-height: 104px;
+    --legacy-sidebar-item-radius: 64px;
+    --legacy-sidebar-padding: 48px 24px;
+    --legacy-sidebar-item-gap: 12px;
+    --legacy-sidebar-leading-offset: 24px;
+    --legacy-sidebar-label-end: 24px;
+    --legacy-sidebar-profile-top-gap: 28px;
+    --legacy-sidebar-profile-bottom-gap: 12px;
+    --sidebar-leading-visual-size: 44px;
+    --sidebar-icon-size: 44px;
+    --legacy-sidebar-focus-scale: 1.1;
+    --modern-sidebar-collapsed-width: 368px;
+    --modern-sidebar-open-width: 524px;
+    --modern-sidebar-surface-width: 480px;
+    --modern-sidebar-surface-top: 32px;
+    --modern-sidebar-surface-left: 28px;
+    --modern-sidebar-surface-bottom: 24px;
+    --modern-sidebar-panel-padding-x: 24px;
+    --modern-sidebar-panel-padding-y: 28px;
+    --modern-sidebar-button-width: 92%;
+    --modern-sidebar-button-height: 108px;
+    --modern-sidebar-button-gap: 28px;
+    --modern-sidebar-button-radius: 999px;
+    --modern-sidebar-list-gap: 12px;
+    --modern-sidebar-pill-top: 32px;
+    --modern-sidebar-pill-left: 28px;
+    --modern-sidebar-pill-height: 88px;
+    --modern-sidebar-pill-chevron-width: 17px;
+    --modern-sidebar-pill-chevron-height: 32px;
+    --modern-sidebar-pill-chip-start: 10px;
+    --modern-sidebar-pill-chip-end: 24px;
+    --modern-sidebar-pill-chip-gap: 18px;
 }
 
 html,

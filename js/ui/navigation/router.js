@@ -38,6 +38,7 @@ export const Router = {
   suppressPopstateUntil: 0,
   skipConsumeNextPopstate: false,
   ignoreNextPopstate: false,
+  onNavigate: null,
 
   routes: {
     home: HomeScreen,
@@ -210,6 +211,8 @@ export const Router = {
     if (this.current !== routeName || this.currentParams !== targetParams) {
       return;
     }
+
+    this.onNavigate?.(routeName);
 
     if (window?.history && typeof window.history.pushState === "function") {
       const state = { route: this.current, params: this.currentParams };
