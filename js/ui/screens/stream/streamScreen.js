@@ -1635,8 +1635,8 @@ export const StreamScreen = {
                data-action="playStream"
                data-stream-id="${escapeHtml(stream.id)}">
         <div class="stream-route-card-copy">
-          <div class="stream-route-card-heading">${escapeHtml(headline)}</div>
           ${topBadges || ""}
+          <div class="stream-route-card-heading">${escapeHtml(headline)}</div>
           ${!badges ? `<div class="stream-route-card-quality">${escapeHtml(quality)}</div>` : ""}
           ${descriptionLines.map((line, lineIndex) => `<div class="stream-route-card-line${lineIndex > 0 ? " secondary" : ""}">${escapeHtml(line)}</div>`).join("")}
           ${bottomBadges || ""}

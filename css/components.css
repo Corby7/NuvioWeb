@@ -3030,14 +3030,13 @@ button:focus-visible {
 }
 
 .search-results-row {
-  margin-bottom: 32px;
+  margin-bottom: 64px;
   scroll-margin-top: 18px;
   scroll-margin-bottom: 28px;
 }
 
 .search-results-title {
   margin: 0;
-  padding: 0 48px;
   font-size: 48px;
   font-weight: 600;
   line-height: 1.08;
@@ -3046,7 +3045,6 @@ button:focus-visible {
 
 .search-results-subtitle {
   margin-top: 4px;
-  padding: 0 48px;
   font-size: 20px;
   color: var(--text-secondary);
 }
@@ -3057,7 +3055,6 @@ button:focus-visible {
   gap: 16px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 64px 14px 48px;
   scrollbar-width: none;
 }
 
@@ -5800,7 +5797,6 @@ button:focus-visible {
   flex: 0 1 auto;
   min-height: 0;
   margin-top: 0;
-  max-width: min(100%, var(--modern-hero-description-max-width));
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
@@ -5860,7 +5856,7 @@ button:focus-visible {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 32px;
   padding-left: 64px;
 }
 
@@ -5871,7 +5867,7 @@ button:focus-visible {
 .home-screen-shell.home-layout-modern .home-modern-catalogs {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 32px;
 }
 
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-catalogs {
@@ -5892,7 +5888,7 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-row-head {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .home-screen-shell.home-layout-modern .home-row-title {
