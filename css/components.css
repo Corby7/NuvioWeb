@@ -1798,15 +1798,15 @@ button:focus-visible {
 }
 
 .home-brand-mark {
-  width: 44px;
-  height: 44px;
+  width: 54px;
+  height: 54px;
   object-fit: contain;
   display: block;
   flex-shrink: 0;
 }
 
 .home-brand-wordmark {
-  height: 44px;
+  height: 54px;
   object-fit: contain;
   opacity: 0;
   transform: translateX(-6px);
