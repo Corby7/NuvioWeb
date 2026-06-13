@@ -2605,7 +2605,7 @@ button:focus-visible {
   grid-template-columns: repeat(2, 110px) minmax(0, 1fr);
   gap: 24px;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 64px;
   padding: 0 48px;
   scroll-margin-top: 22px;
 }
@@ -2618,7 +2618,7 @@ button:focus-visible {
 .search-voice-btn {
   width: 110px;
   height: 110px;
-  border-radius: 22px;
+  border-radius: 64px;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
   display: inline-flex;
@@ -2641,7 +2641,7 @@ button:focus-visible {
 .search-input-field {
   width: 100%;
   height: 110px;
-  border-radius: 22px;
+  border-radius: 64px;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
   padding: 0 32px;
@@ -3072,7 +3072,7 @@ button:focus-visible {
 }
 
 .search-results-row {
-  margin-bottom: 16px;
+  margin-bottom: 32px;
   scroll-margin-top: 18px;
   scroll-margin-bottom: 28px;
 }
@@ -3094,7 +3094,7 @@ button:focus-visible {
 }
 
 .search-results-track {
-  margin-top: 10px;
+  margin-top: 16px;
   display: flex;
   gap: 16px;
   overflow-x: auto;
