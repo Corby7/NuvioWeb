@@ -18,6 +18,10 @@ export const webosAdapter = {
   name: "webos",
 
   init() {
+    document.addEventListener("webOSRelaunch", () => {
+      globalThis.webOSSystem?.activate?.();
+    });
+
     if (!isWebOsCompanionServiceAvailable()) {
       return;
     }
