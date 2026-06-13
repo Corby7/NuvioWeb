@@ -26,6 +26,7 @@ import {
   MODERN_HOME_CONSTANTS,
   renderModernHomeLayout
 } from "./modernHomeLayout.js";
+import { observePosterImages, unobservePosterImages, optimizePosterUrl } from "./posterLoader.js";
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
@@ -2027,7 +2028,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
       ? `<img class="home-poster-focus-gif" data-src="${escapeAttribute(collectionItem.focusGifUrl)}" alt="" aria-hidden="true" />`
       : "";
     const contentMarkup = visualSrc
-      ? `<img class="content-poster" src="${escapeAttribute(visualSrc)}" decoding="async" loading="lazy" alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
+      ? `<img class="content-poster" data-poster-src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
       : (collectionItem.coverEmoji
         ? `<div class="home-collection-emoji" aria-hidden="true">${escapeHtml(collectionItem.coverEmoji)}</div>`
         : '<div class="content-poster placeholder"></div>');
@@ -2110,7 +2111,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
              data-logo-src="${escapeAttribute(normalized.logo || "")}"`}>
       <div class="home-poster-frame">
         ${(!isLoading && posterSrc)
-      ? `<img class="content-poster" src="${escapeAttribute(posterSrc)}" decoding="async" loading="lazy" alt="${escapeAttribute(normalized.name || "content")}" />`
+      ? `<img class="content-poster" data-poster-src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" alt="${escapeAttribute(normalized.name || "content")}" />`
       : '<div class="content-poster placeholder"></div>'}
         ${(!isLoading && expandedVisualSrc)
       ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}" decoding="async" loading="lazy" alt="" aria-hidden="true" />`
@@ -2309,17 +2310,19 @@ export const HomeScreen = {
       return false;
     }
 
+    const trackMap = new Map(
+      Array.from(this.container.querySelectorAll("[data-track-row-key]"))
+        .map((n) => [String(n.dataset.trackRowKey || ""), n])
+    );
     Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
-      const track = Array.from(this.container.querySelectorAll("[data-track-row-key]"))
-        .find((node) => String(node.dataset.trackRowKey || "") === String(rowKey || ""));
+      const track = trackMap.get(String(rowKey || ""));
       if (track) {
         track.scrollLeft = Number(scrollLeft || 0);
       }
     });
 
     const rowSection = focusState.rowKey
-      ? Array.from(this.container.querySelectorAll("[data-row-key]"))
-        .find((node) => String(node.dataset.rowKey || "") === String(focusState.rowKey || ""))
+      ? this.container.querySelector(`[data-row-key="${CSS.escape(String(focusState.rowKey))}"]`)
       : null;
     const track = rowSection?.querySelector?.(".home-track, .home-grid-track") || null;
     const nodes = Array.from(track?.querySelectorAll(".home-content-card.focusable") || []);
@@ -2386,17 +2389,19 @@ export const HomeScreen = {
       return false;
     }
 
+    const trackMap2 = new Map(
+      Array.from(this.container.querySelectorAll("[data-track-row-key]"))
+        .map((n) => [String(n.dataset.trackRowKey || ""), n])
+    );
     Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
-      const track = Array.from(this.container.querySelectorAll("[data-track-row-key]"))
-        .find((node) => String(node.dataset.trackRowKey || "") === String(rowKey || ""));
+      const track = trackMap2.get(String(rowKey || ""));
       if (track) {
         track.scrollLeft = Number(scrollLeft || 0);
       }
     });
 
     const rowSection = focusState.rowKey
-      ? Array.from(this.container.querySelectorAll("[data-row-key]"))
-        .find((node) => String(node.dataset.rowKey || "") === String(focusState.rowKey || ""))
+      ? this.container.querySelector(`[data-row-key="${CSS.escape(String(focusState.rowKey))}"]`)
       : null;
     const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
     viewport.scrollTop = Math.max(0, Math.min(maxScrollTop, Number(focusState.mainScrollTop || 0)));
@@ -2435,9 +2440,12 @@ export const HomeScreen = {
       return false;
     }
 
+    const trackMap3 = new Map(
+      Array.from(this.container.querySelectorAll("[data-track-row-key]"))
+        .map((n) => [String(n.dataset.trackRowKey || ""), n])
+    );
     Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
-      const track = Array.from(this.container.querySelectorAll("[data-track-row-key]"))
-        .find((node) => String(node.dataset.trackRowKey || "") === String(rowKey || ""));
+      const track = trackMap3.get(String(rowKey || ""));
       if (track) {
         track.scrollLeft = Number(scrollLeft || 0);
       }
@@ -2450,8 +2458,7 @@ export const HomeScreen = {
     if (focusState.focusKind === "hero") {
       target = this.container.querySelector(".home-hero-card.focusable");
     } else if (focusState.rowKey) {
-      const rowSection = Array.from(this.container.querySelectorAll("[data-row-key]"))
-        .find((node) => String(node.dataset.rowKey || "") === String(focusState.rowKey || ""));
+      const rowSection = this.container.querySelector(`[data-row-key="${CSS.escape(String(focusState.rowKey))}"]`);
       const track = rowSection?.querySelector?.(".home-track") || rowSection?.querySelector?.(".home-grid-track") || null;
       const rowNodes = Array.from(track?.querySelectorAll(".home-content-card.focusable") || []);
       target = rowNodes[focusState.itemIndex] || rowNodes[0] || null;
@@ -4837,8 +4844,9 @@ export const HomeScreen = {
       }
       node.dataset.fullText = fullText;
       node.textContent = wordTrimmed ? `${fullText}...` : fullText;
-      const fits = node.scrollWidth <= (node.clientWidth + 1)
-        && node.scrollHeight <= (node.clientHeight + 1);
+      const maxW = node.clientWidth + 1;
+      const maxH = node.clientHeight + 1;
+      const fits = node.scrollWidth <= maxW && node.scrollHeight <= maxH;
       if (fits) {
         node.classList.toggle("is-truncated", wordTrimmed);
         return;
@@ -4850,8 +4858,7 @@ export const HomeScreen = {
       while (low < high) {
         const mid = Math.ceil((low + high) / 2);
         node.textContent = `${fullText.slice(0, mid).trimEnd()}${ellipsis}`;
-        const overflows = node.scrollWidth > (node.clientWidth + 1)
-          || node.scrollHeight > (node.clientHeight + 1);
+        const overflows = node.scrollWidth > maxW || node.scrollHeight > maxH;
         if (overflows) {
           high = mid - 1;
         } else {
@@ -4885,17 +4892,23 @@ export const HomeScreen = {
         return;
       }
 
-      const visibleSiblings = Array.from(copy.children).filter((node) => {
-        if (!(node instanceof HTMLElement) || node === description) {
-          return false;
+      const copyStyle = getComputedStyle(copy);
+      const gapValue = parseFloat(copyStyle.rowGap || copyStyle.gap || "0") || 0;
+      const copyClientHeight = copy.clientHeight;
+      let reservedHeight = 0;
+      let visibleCount = 0;
+      Array.from(copy.children).forEach((node) => {
+        if (!(node instanceof HTMLElement) || node === description) return;
+        const h = node.offsetHeight;
+        const w = node.offsetWidth;
+        if (h > 0 || w > 0) {
+          reservedHeight += h;
+          visibleCount++;
         }
-        return node.offsetHeight > 0 || node.offsetWidth > 0;
       });
-      const gapValue = parseFloat(getComputedStyle(copy).rowGap || getComputedStyle(copy).gap || "0") || 0;
-      const reservedHeight = visibleSiblings.reduce((total, node) => total + node.offsetHeight, 0);
-      const visibleCount = visibleSiblings.length + 1;
+      visibleCount++;
       const gapCount = Math.max(0, visibleCount - 1);
-      const availableHeight = Math.floor(copy.clientHeight - reservedHeight - (gapCount * gapValue));
+      const availableHeight = Math.floor(copyClientHeight - reservedHeight - (gapCount * gapValue));
       const lineHeight = parseFloat(getComputedStyle(description).lineHeight || "0") || 0;
       if (availableHeight <= 0) {
         description.style.maxHeight = lineHeight > 0 ? `${lineHeight}px` : "0px";
@@ -5955,15 +5968,20 @@ export const HomeScreen = {
       return;
     }
     if (!this.boundHomeViewportScrollHandler) {
+      let viewportScrollRaf = null;
       this.boundHomeViewportScrollHandler = () => {
         if (this.shouldSuspendModernViewportFocusSync()) {
           return;
         }
-        const current = this.container?.querySelector(".home-main .focusable.focused") || null;
-        if (current && this.isMainNode(current) && this.isNodeWithinMainViewport(current)) {
-          return;
-        }
-        this.scheduleHomeViewportFocusSync();
+        if (viewportScrollRaf) return;
+        viewportScrollRaf = requestAnimationFrame(() => {
+          viewportScrollRaf = null;
+          const current = this.container?.querySelector(".home-main .focusable.focused") || null;
+          if (current && this.isMainNode(current) && this.isNodeWithinMainViewport(current)) {
+            return;
+          }
+          this.scheduleHomeViewportFocusSync();
+        });
       };
     }
     viewport.addEventListener("scroll", this.boundHomeViewportScrollHandler, { passive: true });
@@ -6762,6 +6780,7 @@ export const HomeScreen = {
     this.ensureHomeTruncationObservers();
     this.scheduleHomeTruncationUpdate();
     this.scheduleReturnFocusRestore();
+    observePosterImages(this.container);
   },
 
   teardownGridStickyHeader() {
@@ -6792,10 +6811,16 @@ export const HomeScreen = {
       sticky.textContent = activeTitle;
       sticky.classList.toggle("is-visible", Boolean(shouldShow));
     };
-    main.addEventListener("scroll", update, { passive: true });
+    let stickyRaf = null;
+    const throttledUpdate = () => {
+      if (stickyRaf) return;
+      stickyRaf = requestAnimationFrame(() => { stickyRaf = null; update(); });
+    };
+    main.addEventListener("scroll", throttledUpdate, { passive: true });
     update();
     this.gridStickyCleanup = () => {
-      main.removeEventListener("scroll", update);
+      main.removeEventListener("scroll", throttledUpdate);
+      if (stickyRaf) { cancelAnimationFrame(stickyRaf); stickyRaf = null; }
     };
   },
 
@@ -7489,7 +7514,15 @@ export const HomeScreen = {
       if (!rowKey || this._trackScrollHandlers.has(track)) {
         return;
       }
+      let paginationRaf = null;
       const handler = () => {
+        if (this._trackPaginationInFlight?.has(rowKey)) {
+          return;
+        }
+        if (paginationRaf) return;
+        paginationRaf = requestAnimationFrame(() => { paginationRaf = null; innerHandler(); });
+      };
+      const innerHandler = () => {
         if (this._trackPaginationInFlight?.has(rowKey)) {
           return;
         }
@@ -7568,6 +7601,7 @@ export const HomeScreen = {
             track.appendChild(frag);
             ScreenUtils.indexFocusables(track);
             this.buildNavigationModel();
+            observePosterImages(track);
           }
           // Update in-memory row data
           if (rowData?.result?.data) {
@@ -7605,6 +7639,9 @@ export const HomeScreen = {
     this.continueWatchingMenu = null;
     this.posterHoldMenu = null;
     this.posterListPicker = null;
+    if (this.container) {
+      unobservePosterImages(this.container);
+    }
     this.persistCurrentFocusState();
     this.homeLoadToken = (this.homeLoadToken || 0) + 1;
     this.cancelScheduledRender();

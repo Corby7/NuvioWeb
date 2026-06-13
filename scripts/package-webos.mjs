@@ -28,7 +28,7 @@ const appStageDir = path.join(stagingDir, "app");
 const serviceStageDir = path.join(stagingDir, "space.nuvio.webos.service");
 const serviceTempBundlePath = path.join(stagingDir, "__webos-service.bundle.js");
 
-const appName = "Nuvio TV";
+const appName = "Nuvio TV (Dev)";
 const webOsServiceId = "space.nuvio.webos.service";
 const webOsServiceSourceDir = path.join(rootDir, "services", "webos");
 const webOsRuntimeScriptPath = "assets/libs/webOSTV.js";
@@ -203,7 +203,7 @@ async function packageWebOs() {
   console.log("creating webOS IPK...");
   const aresPackage = resolveAresBinary("ares-package");
   try {
-    await runCommand(aresPackage, [appStageDir, serviceStageDir, "--outdir", rootDir]);
+    await runCommand(aresPackage, [appStageDir, serviceStageDir, "--outdir", rootDir, "--no-minify"]);
   } catch (error) {
     const { version } = await readAppMetadata();
     const expectedIpk = path.join(rootDir, `space.nuvio.webos_${version}_all.ipk`);

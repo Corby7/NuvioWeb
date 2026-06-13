@@ -1,6 +1,3 @@
-import "./runtime/polyfills.js";
-import "intersection-observer";
-import "whatwg-fetch";
 import { detailWatchedEnrichmentService } from "./data/repository/detailWatchedEnrichmentService.js";
 import { Router } from "./ui/navigation/router.js";
 import { FocusEngine } from "./ui/navigation/focusEngine.js";

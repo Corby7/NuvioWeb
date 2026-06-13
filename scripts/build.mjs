@@ -8,7 +8,6 @@ import postcss from 'postcss';
 import cssnano from 'cssnano';
 import autoprefixer from 'autoprefixer';
 import postcssCustomProperties from 'postcss-custom-properties';
-import esbuildBabel from '@chialab/esbuild-plugin-babel';
 import { readAppMetadata, syncVersionFiles } from "./appMetadata.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -48,7 +47,7 @@ async function buildCSS() {
     const result = await postcss([
       postcssGlobalData({ files: [path.join(cssDir, "base.css")] }),
       postcssCustomProperties({ preserve: false }), 
-      autoprefixer({ overrideBrowserslist: ['Chrome 38'], grid: "autoplace" }),
+      autoprefixer({ overrideBrowserslist: ['Chrome 132'], grid: "autoplace" }),
       cssnano()
     ]).process(css, { from: cssPath, to: outPath });
 
@@ -106,16 +105,11 @@ async function buildBundle() {
   const babelResult = await transformAsync(bundledCode, {
     presets: [
       ["@babel/preset-env", {
-        targets: "chrome 38",
-        useBuiltIns: "entry", 
-        corejs: 3,
+        targets: "chrome 132",
       }]
     ],
     plugins: [
-      // babel plugins
       "@babel/plugin-transform-runtime",
-      "@babel/plugin-transform-optional-chaining",
-      "@babel/plugin-transform-nullish-coalescing-operator"
     ],
     compact: true,
     minified: true
@@ -133,13 +127,7 @@ async function buildBundle() {
     bundle: true,
     minify: true,
     format: "iife",
-    target: ["es5"],
-    supported: {
-      arrow: false,
-      "const-and-let": false,
-      "template-literal": false,
-      "object-extensions": false
-    }
+    target: ["chrome132"]
   });
 
   await cp(path.join(distDir, bundleFileName), path.join(rootDir, bundleFileName));
