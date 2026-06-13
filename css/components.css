@@ -4223,7 +4223,7 @@ button:focus-visible {
 }
 
 .home-track {
-  --home-track-gap: 20px;
+  --home-track-gap: 16px;
   display: flex;
   gap: var(--home-track-gap);
   overflow-x: auto;
@@ -4613,7 +4613,7 @@ button:focus-visible {
   border: 2px solid transparent;
   background: transparent;
   overflow: visible;
-  transition: transform 160ms ease-out, border-color 160ms ease, box-shadow 160ms ease;
+  transition: transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 200ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .home-screen-shell .home-content-card.focused {
@@ -4630,7 +4630,10 @@ button:focus-visible {
 .home-screen-shell .home-poster-card.focused {
   border-color: transparent;
   box-shadow: none;
-  transform: none;
+  transform: scale(1.14) translateY(-6px);
+  position: relative;
+  z-index: 4;
+  filter: none;
 }
 
 .home-screen-shell .home-poster-card.home-content-card.focused {
@@ -4646,12 +4649,16 @@ button:focus-visible {
   border-radius: calc(var(--home-poster-radius) - 2px);
   background-color: transparent;
   overflow: hidden;
-  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  transition: border-color 180ms ease, box-shadow 280ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 140ms ease;
 }
 
 .home-screen-shell .home-poster-card.focused .home-poster-frame {
-  border-color: var(--secondary-color);
-  box-shadow: 0 0 0 2px var(--secondary-color);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 0 0 2.5px rgba(255, 255, 255, 0.8),
+    0 48px 96px -8px rgba(0, 0, 0, 0.9),
+    0 24px 48px -4px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
   background-color: var(--focus-bg);
   transform: none;
 }
@@ -5236,11 +5243,24 @@ button:focus-visible {
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.34);
 }
 
+/* Poster cards override the transform: none above — they pop forward */
+.home-screen-shell.home-layout-classic .home-poster-card.focused,
+.home-screen-shell.home-layout-grid .home-poster-card.focused {
+  transform: scale(1.14) translateY(-6px);
+  position: relative;
+  z-index: 4;
+  filter: none;
+}
+
 .home-screen-shell.home-layout-classic .home-poster-card.focused .home-poster-frame,
 .home-screen-shell.home-layout-grid .home-poster-card.focused .home-poster-frame {
   transform: none;
-  border-color: var(--secondary-color);
-  box-shadow: 0 0 0 2px var(--secondary-color);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 0 0 2.5px rgba(255, 255, 255, 0.8),
+    0 48px 96px -8px rgba(0, 0, 0, 0.9),
+    0 24px 48px -4px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
   background-color: var(--focus-bg);
 }
 
@@ -5883,7 +5903,7 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-track {
-  --home-track-gap: 24px;
+  --home-track-gap: 16px;
   margin-left: calc(var(--modern-track-peek-extension) * -1);
   padding-left: 104px;
   padding-right: 52px;
@@ -16696,4 +16716,48 @@ button:focus-visible {
 
 .nav-screen-body::-webkit-scrollbar {
   display: none;
+}
+
+/* ─── Poster focus: sibling dimming via :has() ───────────────────────────── */
+
+/* Dim + shrink non-focused posters in the same row when a sibling is focused */
+.home-screen-shell .home-track:has(.home-poster-card.focusable) .home-poster-card:not(.focused) {
+  transform: scale(0.96);
+  filter: brightness(0.6);
+}
+
+/* Same pop + dimming for seeall grids (catalogSeeAll, folderDetail) */
+.seeall-card {
+  transition:
+    transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 200ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+  overflow: visible;
+}
+
+.seeall-card-poster-wrap {
+  transition: border-color 180ms ease, box-shadow 280ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 140ms ease;
+}
+
+.seeall-card.focused {
+  transform: scale(1.1) translateY(-6px);
+  position: relative;
+  z-index: 4;
+  filter: none;
+}
+
+.seeall-card.focused .seeall-card-poster-wrap {
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 0 0 2.5px rgba(255, 255, 255, 0.8),
+    0 40px 80px -8px rgba(0, 0, 0, 0.9),
+    0 20px 40px -4px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  background-color: var(--focus-bg);
+}
+
+.seeall-grid:has(.seeall-card.focused) .seeall-card:not(.focused) {
+  transform: scale(0.93);
+  filter: brightness(0.35) saturate(0.5);
 }
