@@ -71,16 +71,6 @@ function trimLogoUrl(url) {
   return promise;
 }
 
-export function applyLogoTrim(imgEl) {
-  if (!(imgEl instanceof HTMLImageElement)) return;
-  const src = imgEl._heroLogoOrigSrc || imgEl.getAttribute("src");
-  if (!src || src.startsWith("data:")) return;
-
-  trimLogoUrl(src).then((trimmed) => {
-    if (!trimmed) return;
-    const currentOrigSrc = imgEl._heroLogoOrigSrc || imgEl.getAttribute("src");
-    if (currentOrigSrc !== src) return;
-    imgEl._heroLogoOrigSrc = src;
-    imgEl.setAttribute("src", trimmed);
-  });
+export function applyLogoTrim(_imgEl) {
+  // trimming disabled
 }
