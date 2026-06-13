@@ -1755,11 +1755,30 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  background: var(--bg-color);
-  transition: width 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  background: transparent;
+  transition: width 350ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 350ms cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   will-change: width;
   contain: layout;
+}
+
+.home-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%) top / 100% 100px no-repeat,
+    rgba(8, 12, 24, 0.62);
+  -webkit-backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
+  backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
+  border-right: 1px solid rgba(255, 255, 255, 0.09);
+  opacity: 0;
+  transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.home-sidebar.expanded::before {
+  opacity: 1;
 }
 
 .home-sidebar[data-collapsible="true"]:not(.expanded) {
@@ -1771,6 +1790,7 @@ button:focus-visible {
 .home-sidebar.expanded {
   width: var(--legacy-sidebar-open-width);
   flex-basis: var(--legacy-sidebar-open-width);
+  box-shadow: 8px 0 48px rgba(0, 0, 0, 0.55);
 }
 
 /* Scrim behind the expanded sidebar */

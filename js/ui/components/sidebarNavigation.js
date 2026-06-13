@@ -240,7 +240,7 @@ export function renderLegacySidebar({
 } = {}) {
   const selectedItem = getSelectedItem(selectedRoute);
   const profileState = profile || {};
-  const showProfileSelector = Boolean(profileState.showProfileSelector && profileState.activeProfileName);
+  // const showProfileSelector = Boolean(profileState.showProfileSelector && profileState.activeProfileName);
   const collapsible = Boolean(layout?.collapseSidebar);
   const performanceConstrained = Platform.isWebOS() || Platform.isTizen();
 
@@ -253,18 +253,16 @@ export function renderLegacySidebar({
         <img class="home-brand-wordmark" src="assets/brand/app_logo_wordmarksmall.png" alt="Nuvio" />
       </div>
       <div class="home-nav-list">
-        ${showProfileSelector ? `
-          <button class="home-profile-pill focusable"
-                  data-action="gotoAccount"
-                  aria-label="${t("sidebar.switchProfile")}">
-            <span class="home-profile-avatar" style="background:${profileState.activeProfileColorHex || getThemeAccentFallback()}">
-              ${profileState.activeProfileAvatarUrl
-                ? `<img class="sidebar-profile-avatar-image" src="${profileState.activeProfileAvatarUrl}" alt="${profileState.activeProfileName || t("sidebar.profileFallback")}" />`
-                : (profileState.activeProfileInitial || "P")}
-            </span>
-            <span class="home-profile-name">${profileState.activeProfileName || t("sidebar.profileFallback")}</span>
-          </button>
-        ` : ""}
+        <button class="home-nav-item focusable"
+                data-action="gotoAccount"
+                aria-label="${t("sidebar.switchProfile")}">
+          <span class="home-profile-avatar" style="background:${profileState.activeProfileColorHex || getThemeAccentFallback()}">
+            ${profileState.activeProfileAvatarUrl
+              ? `<img class="sidebar-profile-avatar-image" src="${profileState.activeProfileAvatarUrl}" alt="${profileState.activeProfileName || t("sidebar.profileFallback")}" />`
+              : (profileState.activeProfileInitial || "P")}
+          </span>
+          <span class="home-nav-label">${profileState.activeProfileName || t("sidebar.profileFallback")}</span>
+        </button>
         ${ROOT_SIDEBAR_ITEMS.map((item) => `
           <button class="home-nav-item focusable${selectedItem.action === item.action ? " selected" : ""}"
                   data-action="${item.action}"
