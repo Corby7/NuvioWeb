@@ -1774,11 +1774,12 @@ button:focus-visible {
   backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
   border-right: 1px solid rgba(255, 255, 255, 0.09);
   opacity: 0;
-  transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .home-sidebar.expanded::before {
   opacity: 1;
+  transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .home-sidebar[data-collapsible="true"]:not(.expanded) {
@@ -1791,6 +1792,7 @@ button:focus-visible {
   width: var(--legacy-sidebar-open-width);
   flex-basis: var(--legacy-sidebar-open-width);
   box-shadow: 8px 0 48px rgba(0, 0, 0, 0.55);
+  transition: width 480ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 480ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Scrim behind the expanded sidebar */
