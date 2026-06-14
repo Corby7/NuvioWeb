@@ -5951,7 +5951,7 @@ button:focus-visible {
   margin-top: 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   overflow: hidden;
   color: #ffffff;
   font-size: 26px;
@@ -6309,7 +6309,7 @@ button:focus-visible {
   right: 16px;
   min-height: 28px;
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: 64px;
   font-size: 20px;
   line-height: 1.4;
 }
@@ -13732,8 +13732,7 @@ button:focus-visible {
   scroll-behavior: smooth;
   padding-top: 12px; 
   padding-bottom: 12px;
-  padding-left: 16px !important;
-  padding-right: 16px;
+  padding-right: 48px;
 }
 
 .series-season-row::-webkit-scrollbar,
@@ -16458,17 +16457,17 @@ button:focus-visible {
 
 .series-episode-thumb {
   height: 395px;
-  border-radius: 64px;
+  border-radius: 24px;
 }
 
 .series-episode-copy {
-  padding: 40px 40px 48px;
+  padding: 16px 32px;
   gap: 12px;
 }
 
 .series-episode-badge {
   padding: 10px 20px;
-  border-radius: 16px;
+  border-radius: 64px;
   font-size: 20px;
   line-height: 28px;
   letter-spacing: 2px;
@@ -16479,6 +16478,7 @@ button:focus-visible {
   min-height: 56px;
   font-size: 32px;
   line-height: 56px;
+  flex: 1;
 }
 
 .series-episode-meta {
