@@ -4691,9 +4691,7 @@ button:focus-visible {
 }
 
 .home-screen-shell .home-poster-card .content-poster {
-  background: linear-gradient(90deg, #181818 0%, #181818 25%, #252525 50%, #181818 75%, #181818 100%);
-  background-size: 300% 100%;
-  animation: nuvioShimmer 1.8s ease-in-out infinite;
+  background: linear-gradient(180deg, #1c1c1c, #111);
   transition: opacity 280ms ease;
 }
 
@@ -5031,10 +5029,13 @@ button:focus-visible {
 }
 
 .home-screen-shell .home-continue-media-loading {
-  background: linear-gradient(90deg, #1a1c22 0%, #1a1c22 25%, #252830 50%, #1a1c22 75%, #1a1c22 100%),
-              linear-gradient(145deg, #262626, #101010);
-  background-size: 300% 100%, cover;
-  animation: nuvioShimmer 1.8s ease-in-out infinite;
+  background: linear-gradient(145deg, #1a1c22, #101318);
+  overflow: hidden;
+}
+
+.home-screen-shell .home-continue-media-loading::after {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  animation: nuvioShimmerSlide 1.8s ease-in-out infinite;
 }
 
 .home-screen-shell .home-continue-card-loading {
@@ -5067,10 +5068,18 @@ button:focus-visible {
 }
 
 .home-screen-shell .home-continue-skeleton-line {
+  position: relative;
+  overflow: hidden;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.07) 25%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.07) 75%, rgba(255,255,255,0.07) 100%);
-  background-size: 300% 100%;
-  animation: nuvioShimmer 1.8s ease-in-out infinite;
+  background: rgba(255,255,255,0.07);
+}
+
+.home-screen-shell .home-continue-skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+  animation: nuvioShimmerSlide 1.8s ease-in-out infinite;
 }
 
 .home-screen-shell .home-continue-skeleton-kicker {
@@ -5096,10 +5105,17 @@ button:focus-visible {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.13) 50%, rgba(255,255,255,0.04) 75%, rgba(255,255,255,0.04) 100%);
-  background-size: 300% 100%;
-  animation: nuvioShimmer 1.8s ease-in-out infinite;
+  background: rgba(255,255,255,0.03);
   z-index: 2;
+}
+
+.home-screen-shell .home-poster-card-loading .home-poster-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  animation: nuvioShimmerSlide 1.8s ease-in-out infinite;
+  z-index: 3;
 }
 
 .home-screen-shell .home-poster-card-loading .content-poster.placeholder {
@@ -5114,10 +5130,18 @@ button:focus-visible {
 }
 
 .home-screen-shell .home-poster-skeleton-line {
+  position: relative;
+  overflow: hidden;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.07) 25%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.07) 75%, rgba(255,255,255,0.07) 100%);
-  background-size: 300% 100%;
-  animation: nuvioShimmer 1.8s ease-in-out infinite;
+  background: rgba(255,255,255,0.07);
+}
+
+.home-screen-shell .home-poster-skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+  animation: nuvioShimmerSlide 1.8s ease-in-out infinite;
 }
 
 .home-screen-shell .home-poster-skeleton-title {
@@ -5141,6 +5165,11 @@ button:focus-visible {
   50% { opacity: 0.92; }
 }
 
+@keyframes nuvioShimmerSlide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
 @keyframes nuvioShimmer {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
@@ -5151,15 +5180,31 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-modern-hero-media-loading .home-hero-backdrop-loading {
-  background: linear-gradient(90deg, #0e1018 0%, #0e1018 25%, #161a26 50%, #0e1018 75%, #0e1018 100%);
-  background-size: 300% 100%;
-  animation: nuvioShimmer 2.4s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: #0e1018;
+}
+
+.home-screen-shell.home-layout-modern .home-modern-hero-media-loading .home-hero-backdrop-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  animation: nuvioShimmerSlide 2.4s ease-in-out infinite;
 }
 
 .home-screen-shell.home-layout-modern .home-modern-skeleton-block {
-  background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.05) 75%, rgba(255,255,255,0.05) 100%);
-  background-size: 300% 100%;
-  animation: nuvioShimmer 1.8s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,0.05);
+}
+
+.home-screen-shell.home-layout-modern .home-modern-skeleton-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+  animation: nuvioShimmerSlide 1.8s ease-in-out infinite;
 }
 
 .home-screen-shell.home-layout-modern .home-modern-hero-copy-skeleton {
@@ -14239,9 +14284,17 @@ button:focus-visible {
 }
 
 .detail-loading-block {
-  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.04) 75%, rgba(255,255,255,0.04) 100%);
-  background-size: 300% 100%;
-  animation: nuvioShimmer 1.8s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+}
+
+.detail-loading-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent);
+  animation: nuvioShimmerSlide 1.8s ease-in-out infinite;
 }
 
 .detail-loading-logo {
@@ -14612,14 +14665,13 @@ button:focus-visible {
   transform: scale(1.005) !important;
 }
 
-.performance-constrained .home-continue-media-loading,
-.performance-constrained .home-continue-card-loading,
-.performance-constrained .home-continue-card-loading .home-continue-progress,
-.performance-constrained .home-continue-skeleton-line,
-.performance-constrained .home-modern-hero-card-loading,
-.performance-constrained .home-modern-hero-media-loading .home-hero-backdrop-loading,
-.performance-constrained .home-hero-backdrop-loading,
-.performance-constrained .home-poster-card .content-poster {
+.performance-constrained .home-continue-media-loading::after,
+.performance-constrained .home-continue-skeleton-line::after,
+.performance-constrained .home-poster-card-loading .home-poster-frame::after,
+.performance-constrained .home-poster-skeleton-line::after,
+.performance-constrained .home-modern-hero-media-loading .home-hero-backdrop-loading::after,
+.performance-constrained .home-modern-skeleton-block::after,
+.performance-constrained .detail-loading-block::after {
   animation: none !important;
 }
 
