@@ -1798,7 +1798,7 @@ button:focus-visible {
   align-items: center;
   justify-content: start;
   height: 80px;
-  padding: 24px;
+  padding: 36px;
   flex-shrink: 0;
   overflow: hidden;
   gap: 32px;
