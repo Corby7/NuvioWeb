@@ -13076,6 +13076,23 @@ button:focus-visible {
   transition: opacity 800ms ease;
 }
 
+/* Scrim when root sidebar is open on detail/cast/etc screens */
+.series-detail-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+  will-change: opacity;
+  transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::before {
+  opacity: 1;
+}
+
 .detail-trailer-layer {
   position: absolute;
   top: 0;
