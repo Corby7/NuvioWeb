@@ -4109,10 +4109,6 @@ button:focus-visible {
   background: transparent;
 }
 
-.home-hero {
-  margin-bottom: 18px;
-}
-
 .home-hero-card {
   position: relative;
   min-height: 270px;
@@ -4168,7 +4164,6 @@ button:focus-visible {
   align-items: center;
   justify-content: flex-start;
   gap: 14px;
-  margin-bottom: 10px;
 }
 
 .home-row-title {
@@ -4235,7 +4230,7 @@ button:focus-visible {
 }
 
 .home-track {
-  --home-track-gap: 16px;
+  --home-track-gap: 24px;
   display: flex;
   gap: var(--home-track-gap);
   overflow-x: auto;
@@ -4582,10 +4577,6 @@ button:focus-visible {
 
 .home-screen-shell.home-layout-classic .home-row {
   margin-bottom: 64px;
-}
-
-.home-screen-shell.home-layout-modern .home-row-head {
-  margin-bottom: 28px;
 }
 
 .home-screen-shell .home-row-title {
@@ -5557,6 +5548,22 @@ button:focus-visible {
   opacity: 1;
 }
 
+/* Modern layout: full-screen flex column so hero + rows are clean adjacent sections */
+.home-screen-shell.home-layout-modern .home-main {
+  padding: 0;
+  overflow: hidden;
+}
+
+.home-screen-shell.home-layout-modern .home-route-content {
+  height: 100%;
+}
+
+.home-screen-shell.home-layout-modern .home-modern-stage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .home-screen-shell.home-layout-modern {
   /* --home-content-start: 104px; */
   --home-row-gap: 24px;
@@ -5567,7 +5574,8 @@ button:focus-visible {
   --modern-rows-viewport-padding-bottom: 52vh;
   --modern-rows-page-height: 56vh;
   --modern-hero-media-width: 72%;
-  --modern-hero-media-height: calc(100% - var(--modern-rows-viewport-height) + 132px);
+  --modern-hero-section-height: calc(100% - var(--modern-rows-viewport-height));
+  --modern-hero-media-height: calc(100% + 132px);
   --modern-trailer-overscan-zoom: 1.35;
   --modern-hero-copy-top-safe: 40px;
   --modern-hero-copy-bottom-gap: 40px;
@@ -5604,20 +5612,21 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-hero {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
+  position: relative;
+  flex: 1 0 0;
+  min-height: 0;
 }
 
 .home-screen-shell.home-layout-modern .home-modern-hero-card {
   position: absolute;
   inset: 0;
   z-index: 1;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: flex-start;
-  padding: var(--modern-hero-copy-top-safe) var(--modern-hero-copy-right) calc(var(--modern-rows-viewport-padding-bottom) + var(--modern-hero-copy-bottom-gap)) 104px;
+  padding: var(--modern-hero-copy-top-safe) var(--modern-hero-copy-right) var(--modern-hero-copy-bottom-gap) 104px;
   box-sizing: border-box;
 }
 
@@ -5769,16 +5778,12 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-modern-hero-copy {
-  position: relative;
-  z-index: 2;
-  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 16px;
   transition: opacity 200ms ease;
-  width: var(--modern-hero-copy-max-width);
-  max-width: min(var(--modern-hero-copy-max-width), 680px);
+  width: 50%;
 }
 
 .home-screen-shell.home-layout-modern .home-modern-hero-card.is-hero-meta-enriching .home-modern-hero-copy {
@@ -5973,17 +5978,14 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-modern-rows-viewport {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--modern-rows-viewport-height);
+  position: relative;
+  flex: 0 0 var(--modern-rows-viewport-height);
+  min-height: 0;
   z-index: 3;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
   scroll-padding-top: 0;
-  margin-top: 16px;
 }
 
 .folder-detail-home-shell .home-main {
@@ -6029,22 +6031,16 @@ button:focus-visible {
   padding-top: 0;
 }
 
-.home-screen-shell.home-layout-modern .home-row-head {
-  margin-bottom: 16px;
-}
-
 .home-screen-shell.home-layout-modern .home-row-title {
-  font-size: 32px;
+  font-size: 28px;
   line-height: 1.2;
   font-weight: 600;
 }
 
 .home-screen-shell.home-layout-modern .home-track {
-  --home-track-gap: 16px;
+  --home-track-gap: var(--home-row-gap);
   margin-left: calc(var(--modern-track-peek-extension) * -1);
-  padding-left: 104px;
-  padding-right: 52px;
-  padding-bottom: 0;
+  padding: 16px 52px 16px 104px;  
   align-items: flex-end;
 }
 
@@ -6321,7 +6317,7 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-content-card.focused {
-  transform: none;
+  transform: scale(1.02);
 }
 
 .home-screen-shell.home-layout-modern .home-poster-card.focused,
@@ -14717,24 +14713,19 @@ button:focus-visible {
   overflow: hidden;
 }
 
-.legacy-webos .home-screen-shell.home-layout-modern .home-hero,
 .legacy-webos .home-screen-shell.home-layout-modern .home-modern-hero-card {
   top: 0;
   right: 0;
   bottom: 0;
   left: 0;
-}
-
-.legacy-webos .home-screen-shell.home-layout-modern .home-modern-hero-card {
-  padding: 40px 52px calc(60vh + 40px) 104px;
+  padding: 40px 52px 40px 104px;
 }
 
 .legacy-webos .home-screen-shell.home-layout-modern .home-modern-hero-media {
   top: 0;
   right: -56px;
   width: 74vw;
-  height: 62vh;
-  min-height: 520px;
+  height: calc(100% + 132px);
 }
 
 .legacy-webos .home-screen-shell.home-layout-modern .home-modern-hero-media::before,
@@ -15137,24 +15128,19 @@ button:focus-visible {
 }
 
 @supports not (font-size: clamp(1px, 2px, 3px)) {
-  .home-screen-shell.home-layout-modern .home-hero,
   .home-screen-shell.home-layout-modern .home-modern-hero-card {
     top: 0;
     right: 0;
     bottom: 0;
     left: 0;
-  }
-
-  .home-screen-shell.home-layout-modern .home-modern-hero-card {
-    padding: 40px 52px calc(60vh + 40px) 104px;
+    padding: 40px 52px 40px 104px;
   }
 
   .home-screen-shell.home-layout-modern .home-modern-hero-media {
     top: 0;
     right: -56px;
     width: 74vw;
-    height: 62vh;
-    min-height: 520px;
+    height: calc(100% + 132px);
   }
 
   .home-screen-shell.home-layout-modern .home-modern-hero-media::before,
@@ -16887,7 +16873,6 @@ button:focus-visible {
 
 /* Dim + shrink non-focused posters in the same row when a sibling is focused */
 .home-screen-shell .home-track:has(.home-poster-card.focusable) .home-poster-card:not(.focused) {
-  transform: scale(0.96);
   filter: brightness(0.6);
 }
 
