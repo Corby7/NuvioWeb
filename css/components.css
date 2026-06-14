@@ -13880,7 +13880,11 @@ button:focus-visible {
   font-size: var(--tv-caption-text);
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.9);
-  display: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
 }
 
 .series-episode-meta {

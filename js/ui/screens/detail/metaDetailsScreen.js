@@ -2621,7 +2621,7 @@ export const MetaDetailsScreen = {
       <button class="series-season-btn focusable${season === this.selectedSeason ? " selected" : ""}"
               data-action="selectSeason"
               data-season="${season}">
-        ${escapeHtml(t("detail.seasonLabel", { season }, "Season {{season}}"))}
+        ${escapeHtml(`S${season}`)}
       </button>
     `).join("");
   },
