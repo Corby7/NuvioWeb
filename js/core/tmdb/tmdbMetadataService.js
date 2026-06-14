@@ -157,6 +157,9 @@ export const TmdbMetadataService = {
       initialResults: Array.isArray(data?.videos?.results) ? data.videos.results : []
     });
     const trailers = mapTrailerCandidates(trailerCandidates);
+    const director = type === "tv"
+      ? (Array.isArray(data.created_by) ? data.created_by.map((c) => String(c?.name || "")).filter(Boolean) : [])
+      : (Array.isArray(data.credits?.crew) ? data.credits.crew.filter((c) => c?.job === "Director").map((c) => String(c?.name || "")).filter(Boolean).slice(0, 3) : []);
 
     return {
       localizedTitle: data.title || data.name || null,
@@ -172,6 +175,7 @@ export const TmdbMetadataService = {
       country: countryValue || null,
       language: spokenLanguage?.iso_639_1 || spokenLanguage?.english_name || null,
       imdbId: data?.external_ids?.imdb_id || null,
+      director: director.length ? director : null,
       credits: data.credits || null,
       companies,
       productionCompanies: companies,

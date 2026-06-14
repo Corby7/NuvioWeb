@@ -1907,6 +1907,9 @@ export const MetaDetailsScreen = {
         language: settings.useDetails ? (enrichment.language || meta.language) : meta.language,
         imdbId: enrichment.imdbId || meta.imdbId || meta.imdb_id || null,
         tmdbRating: typeof enrichment.rating === "number" ? Number(enrichment.rating.toFixed(1)) : (meta.tmdbRating || null),
+        director: Array.isArray(enrichment.director) && enrichment.director.length
+          ? enrichment.director
+          : (meta.director || null),
         credits: enrichment.credits || meta.credits || null,
         companies: Array.isArray(enrichment.companies) ? enrichment.companies : (meta.companies || []),
         productionCompanies: Array.isArray(enrichment.productionCompanies)
@@ -5149,19 +5152,22 @@ export const MetaDetailsScreen = {
       return 0;
     }
     const maxScrollLeft = Math.max(0, horizontalTrack.scrollWidth - horizontalTrack.clientWidth);
+    // target.offsetLeft is relative to the nearest positioned ancestor (.series-detail-content),
+    // not the scroll container. Subtract the track's own offsetLeft to get track-relative position.
+    const trackOffsetLeft = horizontalTrack.offsetLeft;
     if (horizontalTrack.classList.contains("series-episode-track")) {
       const styles = globalThis.getComputedStyle ? globalThis.getComputedStyle(horizontalTrack) : null;
       const leftPad = Math.max(0, Number.parseFloat(styles?.paddingLeft || "0") || 0);
-      return Math.max(0, Math.min(maxScrollLeft, target.offsetLeft - leftPad));
+      return Math.max(0, Math.min(maxScrollLeft, (target.offsetLeft - trackOffsetLeft) - leftPad));
     }
     if (horizontalTrack.classList.contains("detail-morelike-track") || horizontalTrack.classList.contains("detail-comments-track")) {
       const styles = globalThis.getComputedStyle ? globalThis.getComputedStyle(horizontalTrack) : null;
       const leftPad = Math.max(0, Number.parseFloat(styles?.paddingLeft || "0") || 0);
-      return Math.max(0, Math.min(maxScrollLeft, target.offsetLeft - leftPad));
+      return Math.max(0, Math.min(maxScrollLeft, (target.offsetLeft - trackOffsetLeft) - leftPad));
     }
 
     const edgePadding = horizontalTrack.classList.contains("home-track") ? 0 : 24;
-    const targetLeft = target.offsetLeft;
+    const targetLeft = target.offsetLeft - trackOffsetLeft;
     const targetRight = targetLeft + target.offsetWidth;
     const viewLeft = horizontalTrack.scrollLeft;
     const viewRight = viewLeft + horizontalTrack.clientWidth;

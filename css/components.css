@@ -5548,20 +5548,26 @@ button:focus-visible {
   opacity: 1;
 }
 
-/* Modern layout: full-screen flex column so hero + row s are clean adjacent sections */
+/* Modern layout: full-screen flex column so hero + rows are clean adjacent sections */
 .home-screen-shell.home-layout-modern .home-main {
+  display: flex;
+  flex-direction: column;
   padding: 0;
   overflow: hidden;
 }
 
 .home-screen-shell.home-layout-modern .home-route-content {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .home-screen-shell.home-layout-modern .home-modern-stage {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .home-screen-shell.home-layout-modern {
@@ -12401,17 +12407,13 @@ button:focus-visible {
 .series-episode-track {
   display: flex;
   flex-wrap: nowrap;
-  gap: 14px;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   width: 100%;
-  padding: 12px 48px 24px 0;
+  padding: 16px 48px 0px 0px;
   scrollbar-width: none;
   gap: 48px;
-  
-  /* 2. Pull the container back up so it doesn't push elements below it down */
-  margin-top: -12px;
-  margin-bottom: -12px;
+  margin-top: -16px;
 }
 
 .series-episode-track::-webkit-scrollbar {
@@ -13878,8 +13880,7 @@ button:focus-visible {
   font-size: var(--tv-caption-text);
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.9);
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  display: none;
 }
 
 .series-episode-meta {
@@ -14713,6 +14714,10 @@ button:focus-visible {
   overflow: hidden;
 }
 
+.legacy-webos .home-screen-shell.home-layout-modern {
+  --modern-rows-viewport-height: 44%;
+}
+
 .legacy-webos .home-screen-shell.home-layout-modern .home-modern-hero-card {
   top: 0;
   right: 0;
@@ -14750,8 +14755,8 @@ button:focus-visible {
 .legacy-webos .home-screen-shell.home-layout-modern .home-hero-logo {
   width: 440px;
   max-width: 440px;
-  height: 200px;
-  max-height: 200px;
+  height: 120px;
+  max-height: 120px;
 }
 
 .legacy-webos .home-screen-shell.home-layout-modern .home-hero-title-text {
