@@ -26,6 +26,10 @@ import {
   posterItemFromNode,
   PosterOptionsDialogController
 } from "../../components/posterOptionsMenu.js";
+import {
+  setLegacySidebarExpanded,
+  setModernSidebarExpanded
+} from "../../components/sidebarNavigation.js";
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const EPISODE_HOLD_DELAY_MS = 650;
@@ -5307,6 +5311,46 @@ export const MetaDetailsScreen = {
       : "morelike:movie";
   },
 
+  openRootSidebar() {
+    const sidebarEl = document.getElementById("root-nav-sidebar");
+    if (!sidebarEl) return false;
+    const target = sidebarEl.querySelector([
+      ".modern-sidebar-panel .modern-sidebar-nav-item.selected",
+      ".modern-sidebar-panel .modern-sidebar-nav-item",
+      ".modern-sidebar-panel .focusable",
+      ".home-sidebar .home-nav-item.selected",
+      ".home-sidebar .home-nav-item",
+      ".home-sidebar .focusable"
+    ].join(", "));
+    if (!target) return false;
+    this._lastDetailFocused = this.container?.querySelector(".focusable.focused") || null;
+    this.container?.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    if (sidebarEl.querySelector(".modern-sidebar-shell")) {
+      setModernSidebarExpanded(sidebarEl, true);
+    } else {
+      setLegacySidebarExpanded(sidebarEl, true);
+    }
+    target.classList.add("focused");
+    target.focus({ preventScroll: true });
+    return true;
+  },
+
+  closeRootSidebar() {
+    const sidebarEl = document.getElementById("root-nav-sidebar");
+    if (!sidebarEl) return false;
+    if (sidebarEl.querySelector(".modern-sidebar-shell")) {
+      setModernSidebarExpanded(sidebarEl, false);
+    } else {
+      setLegacySidebarExpanded(sidebarEl, false);
+    }
+    return true;
+  },
+
+  focusLeftInList(list, currentIndex, options = {}) {
+    if (currentIndex <= 0) return false;
+    return this.focusInList(list, currentIndex - 1, options);
+  },
+
   focusInList(list, targetIndex, options = {}) {
     if (!Array.isArray(list) || !list.length) {
       return false;
@@ -5642,7 +5686,7 @@ export const MetaDetailsScreen = {
 
     const actionIndex = actions.indexOf(current);
     if (actionIndex >= 0) {
-      if (direction === "left") return this.focusInList(actions, actionIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(actions, actionIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(actions, actionIndex + 1) || true;
       if (direction === "down") {
         if (seasons.length) {
@@ -5660,7 +5704,7 @@ export const MetaDetailsScreen = {
 
     const seasonIndex = seasons.indexOf(current);
     if (seasonIndex >= 0) {
-      if (direction === "left") return this.focusInList(seasons, seasonIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(seasons, seasonIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(seasons, seasonIndex + 1) || true;
       if (direction === "up") {
         if (actions.length) {
@@ -5680,7 +5724,7 @@ export const MetaDetailsScreen = {
 
     const episodeIndex = episodes.indexOf(current);
     if (episodeIndex >= 0) {
-      if (direction === "left") return this.focusInList(episodes, episodeIndex - 1, { preserveVerticalScroll: true }) || true;
+      if (direction === "left") return this.focusLeftInList(episodes, episodeIndex, { preserveVerticalScroll: true }) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(episodes, episodeIndex + 1, { preserveVerticalScroll: true }) || true;
       if (direction === "up") {
         if (seasons.length) {
@@ -5712,7 +5756,7 @@ export const MetaDetailsScreen = {
 
     const tabIndex = insightTabs.indexOf(current);
     if (tabIndex >= 0) {
-      if (direction === "left") return this.focusInList(insightTabs, tabIndex - 1, { preserveVerticalScroll: true }) || true;
+      if (direction === "left") return this.focusLeftInList(insightTabs, tabIndex, { preserveVerticalScroll: true }) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(insightTabs, tabIndex + 1, { preserveVerticalScroll: true }) || true;
       if (direction === "up") {
         if (focusSeriesSectionAboveInsights(tabIndex)) {
@@ -5738,7 +5782,7 @@ export const MetaDetailsScreen = {
 
     const castIndex = castCards.indexOf(current);
     if (castIndex >= 0) {
-      if (direction === "left") return this.focusInList(castCards, castIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(castCards, castIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(castCards, castIndex + 1) || true;
       if (direction === "up") {
         if (insightTabs.length) {
@@ -5762,7 +5806,7 @@ export const MetaDetailsScreen = {
 
     const ratingSeasonIndex = ratingSeasons.indexOf(current);
     if (ratingSeasonIndex >= 0) {
-      if (direction === "left") return this.focusInList(ratingSeasons, ratingSeasonIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(ratingSeasons, ratingSeasonIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(ratingSeasons, ratingSeasonIndex + 1) || true;
       if (direction === "up") {
         if (insightTabs.length) {
@@ -5786,7 +5830,7 @@ export const MetaDetailsScreen = {
 
     const ratingChipIndex = ratingChips.indexOf(current);
     if (ratingChipIndex >= 0) {
-      if (direction === "left") return this.focusInList(ratingChips, ratingChipIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(ratingChips, ratingChipIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(ratingChips, ratingChipIndex + 1) || true;
       if (direction === "up") {
         if (ratingSeasons.length) {
@@ -5813,7 +5857,7 @@ export const MetaDetailsScreen = {
 
     const commentModeIndex = commentModes.indexOf(current);
     if (commentModeIndex >= 0) {
-      if (direction === "left") return this.focusInList(commentModes, commentModeIndex - 1, { preserveVerticalScroll: true }) || true;
+      if (direction === "left") return this.focusLeftInList(commentModes, commentModeIndex, { preserveVerticalScroll: true }) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(commentModes, commentModeIndex + 1, { preserveVerticalScroll: true }) || true;
       if (direction === "up") return focusActiveSectionFromComments(commentModeIndex) || true;
       if (direction === "down" && commentCards.length) return this.focusInList(commentCards, Math.min(commentModeIndex, commentCards.length - 1)) || true;
@@ -5822,7 +5866,7 @@ export const MetaDetailsScreen = {
 
     const commentCardIndex = commentCards.indexOf(current);
     if (commentCardIndex >= 0) {
-      if (direction === "left") return this.focusInList(commentCards, commentCardIndex - 1, { preserveVerticalScroll: true }) || true;
+      if (direction === "left") return this.focusLeftInList(commentCards, commentCardIndex, { preserveVerticalScroll: true }) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(commentCards, commentCardIndex + 1, { preserveVerticalScroll: true }) || true;
       if (direction === "up") {
         if (commentModes.length) return this.focusInList(commentModes, Math.min(commentCardIndex, commentModes.length - 1), { preserveVerticalScroll: true }) || true;
@@ -5834,7 +5878,7 @@ export const MetaDetailsScreen = {
 
     const moreLikeIndex = moreLikeCards.indexOf(current);
     if (moreLikeIndex >= 0) {
-      if (direction === "left") return this.focusInList(moreLikeCards, moreLikeIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(moreLikeCards, moreLikeIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(moreLikeCards, moreLikeIndex + 1) || true;
       if (direction === "up") {
         if (insightTabs.length) {
@@ -5860,7 +5904,7 @@ export const MetaDetailsScreen = {
       if (companyIndex < 0) {
         continue;
       }
-      if (direction === "left") return this.focusInList(cards, companyIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(cards, companyIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(cards, companyIndex + 1) || true;
       if (direction === "up") {
         if (trackIndex > 0 && companyCards[trackIndex - 1]?.length) {
@@ -5946,7 +5990,7 @@ export const MetaDetailsScreen = {
 
     const actionIndex = actions.indexOf(current);
     if (actionIndex >= 0) {
-      if (direction === "left") return this.focusInList(actions, actionIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(actions, actionIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(actions, actionIndex + 1) || true;
       if (direction === "down") {
         if (tabs.length) {
@@ -5967,7 +6011,7 @@ export const MetaDetailsScreen = {
 
     const tabIndex = tabs.indexOf(current);
     if (tabIndex >= 0) {
-      if (direction === "left") return this.focusInList(tabs, tabIndex - 1, { preserveVerticalScroll: true }) || true;
+      if (direction === "left") return this.focusLeftInList(tabs, tabIndex, { preserveVerticalScroll: true }) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(tabs, tabIndex + 1, { preserveVerticalScroll: true }) || true;
       if (direction === "up") return this.focusInList(actions, Math.min(tabIndex, actions.length - 1)) || true;
       if (direction === "down") {
@@ -5981,7 +6025,7 @@ export const MetaDetailsScreen = {
 
     const castIndex = cast.indexOf(current);
     if (castIndex >= 0) {
-      if (direction === "left") return this.focusInList(cast, castIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(cast, castIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(cast, castIndex + 1) || true;
       if (direction === "up") {
         if (tabs.length) {
@@ -6003,7 +6047,7 @@ export const MetaDetailsScreen = {
 
     const moreLikeIndex = moreLikeCards.indexOf(current);
     if (moreLikeIndex >= 0) {
-      if (direction === "left") return this.focusInList(moreLikeCards, moreLikeIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(moreLikeCards, moreLikeIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(moreLikeCards, moreLikeIndex + 1) || true;
       if (direction === "up") {
         if (tabs.length) {
@@ -6026,7 +6070,7 @@ export const MetaDetailsScreen = {
 
     const commentModeIndex = commentModes.indexOf(current);
     if (commentModeIndex >= 0) {
-      if (direction === "left") return this.focusInList(commentModes, commentModeIndex - 1, { preserveVerticalScroll: true }) || true;
+      if (direction === "left") return this.focusLeftInList(commentModes, commentModeIndex, { preserveVerticalScroll: true }) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(commentModes, commentModeIndex + 1, { preserveVerticalScroll: true }) || true;
       if (direction === "up") return focusActiveSectionFromComments(commentModeIndex) || true;
       if (direction === "down" && commentCards.length) return this.focusInList(commentCards, Math.min(commentModeIndex, commentCards.length - 1)) || true;
@@ -6035,7 +6079,7 @@ export const MetaDetailsScreen = {
 
     const commentCardIndex = commentCards.indexOf(current);
     if (commentCardIndex >= 0) {
-      if (direction === "left") return this.focusInList(commentCards, commentCardIndex - 1, { preserveVerticalScroll: true }) || true;
+      if (direction === "left") return this.focusLeftInList(commentCards, commentCardIndex, { preserveVerticalScroll: true }) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(commentCards, commentCardIndex + 1, { preserveVerticalScroll: true }) || true;
       if (direction === "up") {
         if (commentModes.length) return this.focusInList(commentModes, Math.min(commentCardIndex, commentModes.length - 1), { preserveVerticalScroll: true }) || true;
@@ -6051,7 +6095,7 @@ export const MetaDetailsScreen = {
       if (companyIndex < 0) {
         continue;
       }
-      if (direction === "left") return this.focusInList(cards, companyIndex - 1) || true;
+      if (direction === "left") return this.focusLeftInList(cards, companyIndex) || this.openRootSidebar() || true;
       if (direction === "right") return this.focusInList(cards, companyIndex + 1) || true;
       if (direction === "up") {
         if (trackIndex > 0 && companyCards[trackIndex - 1]?.length) {
@@ -6180,6 +6224,28 @@ export const MetaDetailsScreen = {
       event?.preventDefault?.();
       if (!event?.repeat && !this.hasPendingSeasonHold(currentFocusedNode)) {
         this.startPendingSeasonHold(currentFocusedNode);
+      }
+      return;
+    }
+
+    const rootSidebarEl = document.getElementById("root-nav-sidebar");
+    const isSidebarFocused = rootSidebarEl && (
+      rootSidebarEl.contains(document.activeElement) ||
+      rootSidebarEl.querySelector(".focusable.focused")
+    );
+    if (isSidebarFocused) {
+      if (code === 39) {
+        event?.preventDefault?.();
+        rootSidebarEl.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+        this.closeRootSidebar();
+        const returnTarget = (this._lastDetailFocused && this.container?.contains(this._lastDetailFocused))
+          ? this._lastDetailFocused
+          : this.container?.querySelector(".focusable");
+        if (returnTarget) {
+          returnTarget.classList.add("focused");
+          returnTarget.focus({ preventScroll: true });
+        }
+        this._lastDetailFocused = null;
       }
       return;
     }
