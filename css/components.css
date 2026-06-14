@@ -5646,10 +5646,9 @@ button:focus-visible {
   justify-content: flex-end;
   align-items: flex-start;
   gap: 16px;
-  width: min(var(--modern-hero-copy-max-width), calc(100% - var(--home-content-start) - var(--modern-hero-copy-right)));
-  max-width: calc(100% - var(--home-content-start) - var(--modern-hero-copy-right));
   overflow: hidden;
   transition: opacity 200ms ease;
+  width: 50%;
 }
 
 .home-screen-shell.home-layout-modern .home-modern-hero-card.is-hero-meta-enriching .home-modern-hero-copy {
@@ -5729,7 +5728,7 @@ button:focus-visible {
   width: min(100%, var(--modern-hero-meta-max-width));
   max-width: min(100%, var(--modern-hero-meta-max-width));
   color: #b3b3b3;
-  font-size: var(--modern-hero-meta-size);
+  font-size: 24px;
   line-height: 1.25;
   font-weight: 500;
   opacity: 1;
@@ -5760,9 +5759,13 @@ button:focus-visible {
   text-align: left;
 }
 
+.home-screen-shell.home-layout-modern .home-modern-hero-meta-group-trailing.is-wrapped > .home-hero-dot:first-child {
+  display: none;
+}
+
 .home-screen-shell.home-layout-modern .home-modern-hero-secondary {
   color: rgba(255, 255, 255, 0.88);
-  font-size: var(--modern-hero-secondary-size);
+  font-size: 24px;
   line-height: 1.35;
   font-weight: 600;
 }
@@ -5810,7 +5813,7 @@ button:focus-visible {
   -webkit-line-clamp: 4;
   overflow: hidden;
   color: #ffffff;
-  font-size: var(--modern-hero-description-size);
+  font-size: 26px;
   line-height: 1.35;
   letter-spacing: 0.5px;
   opacity: 1;
@@ -5850,6 +5853,7 @@ button:focus-visible {
   overflow-x: hidden;
   scrollbar-width: none;
   scroll-padding-top: 0;
+  margin-top: 16px;
 }
 
 .folder-detail-home-shell .home-main {
@@ -13235,7 +13239,7 @@ button:focus-visible {
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 64px;
+  padding: 0 64px 48px 64px;
   box-sizing: border-box;
   scrollbar-width: none;
 }
@@ -13542,8 +13546,8 @@ button:focus-visible {
   height: auto;
   padding: 0;
   background: transparent;
-  gap: 4px;
-  font-size: var(--tv-secondary-text);
+  gap: 10px;
+  font-size: 26px;
   color: var(--detail-text-secondary);
 }
 
@@ -13588,8 +13592,6 @@ button:focus-visible {
 .detail-company-track,
 .detail-morelike-track,
 .series-episode-ratings-grid {
-  padding-left: var(--tv-safe-gutter-wide);
-  padding-right: var(--tv-safe-gutter-wide);
   box-sizing: border-box;
 }
 
@@ -16264,7 +16266,7 @@ button:focus-visible {
 }
 
 .series-detail-description {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   font-size: var(--detail-body-size);
   line-height: 1.5;
 }
@@ -16290,28 +16292,16 @@ button:focus-visible {
 
 .detail-meta-row {
   gap: 16px;
-  font-size: 28px;
+  font-size: 26px;
 }
 
 .detail-meta-row.secondary {
-  font-size: var(--detail-caption-size);
+  font-size: 24px;
 }
 
 .detail-meta-row .series-imdb-badge img {
   width: 60px;
   height: 60px;
-}
-
-.series-season-row,
-.series-insight-tabs,
-.series-rating-seasons,
-.movie-cast-track,
-.series-cast-track,
-.detail-company-track,
-.detail-morelike-track,
-.series-episode-ratings-grid {
-  padding-left: var(--detail-safe-x);
-  padding-right: var(--detail-safe-x);
 }
 
 .series-season-row {
@@ -16509,7 +16499,7 @@ button:focus-visible {
 .series-primary-btn {
   height: 96px;
   min-height: 96px;
-  padding: 0 48px;
+  padding: 0 36px;
 }
 
 .series-detail-actions .series-primary-btn,

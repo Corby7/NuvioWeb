@@ -239,8 +239,8 @@ function renderModernHeroMarkup({
             <div class="home-modern-hero-meta-group home-modern-hero-meta-group-leading">
               ${primaryLeft}
             </div>
-            ${primaryLeft && hasPrimaryRight ? '<span class="home-hero-dot">•</span>' : ""}
             <div class="home-modern-hero-meta-group home-modern-hero-meta-group-trailing">
+              ${primaryLeft && hasPrimaryRight ? '<span class="home-hero-dot">•</span>' : ""}
               ${primaryRightParts.join('<span class="home-hero-dot">•</span>')}
             </div>
           </div>

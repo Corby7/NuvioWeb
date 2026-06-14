@@ -1587,8 +1587,8 @@ export function buildModernHeroPresentation(hero) {
     ? [yearText].filter(Boolean)
     : [runtimeText, yearText].filter(Boolean);
   const badges = isContinueWatchingHero ? [] : [ageRatingBadge, statusBadge].filter(Boolean);
-  const showImdbPrimary = Boolean(imdbText) && !isSeries && !badges.length && !secondaryHighlightText;
-  const showImdbSecondary = Boolean(imdbText) && !showImdbPrimary;
+  const showImdbPrimary = Boolean(imdbText);
+  const showImdbSecondary = false;
 
   return {
     title: normalized.name || "Untitled",
@@ -1617,6 +1617,15 @@ function renderModernHeroMetaGroup(tokens = []) {
     .join('<span class="home-hero-dot">•</span>');
 }
 
+function syncMetaLineDot(metaLineNode) {
+  if (!metaLineNode) return;
+  const leading = metaLineNode.querySelector(".home-modern-hero-meta-group-leading");
+  const trailing = metaLineNode.querySelector(".home-modern-hero-meta-group-trailing");
+  if (leading && trailing) {
+    trailing.classList.toggle("is-wrapped", trailing.offsetTop > leading.offsetTop);
+  }
+}
+
 function renderModernHeroPrimary(display) {
   const left = renderModernHeroMetaGroup(display.leadingMeta);
   const rightTokens = display.trailingMeta
@@ -1633,8 +1642,7 @@ function renderModernHeroPrimary(display) {
   const hasRight = rightTokens.length > 0;
   return `
     <div class="home-modern-hero-meta-group home-modern-hero-meta-group-leading">${left}</div>
-    ${left && hasRight ? '<span class="home-hero-dot">•</span>' : ""}
-    <div class="home-modern-hero-meta-group home-modern-hero-meta-group-trailing">${rightTokens.join('<span class="home-hero-dot">•</span>')}</div>
+    <div class="home-modern-hero-meta-group home-modern-hero-meta-group-trailing">${left && hasRight ? '<span class="home-hero-dot">•</span>' : ""}${rightTokens.join('<span class="home-hero-dot">•</span>')}</div>
   `;
 }
 
@@ -3176,6 +3184,7 @@ export const HomeScreen = {
           "is-empty",
           !display.leadingMeta.length && !display.trailingMeta.length && !display.showImdbPrimary
         );
+        requestAnimationFrame(() => syncMetaLineDot(primaryNode));
       }
 
       const secondaryNode = heroNode.querySelector(".home-modern-hero-secondary");
@@ -6744,6 +6753,7 @@ export const HomeScreen = {
     `;
 
     this.container.querySelectorAll(".home-hero-logo").forEach(applyLogoTrim);
+    requestAnimationFrame(() => syncMetaLineDot(this.container?.querySelector(".home-modern-hero-meta-line")));
 
     if (modernLandscapePostersEnabled) {
       this.applyCachedModernLandscapePosterMetrics(this.container.querySelector(".home-screen-shell.home-modern-landscape-posters"));
