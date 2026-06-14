@@ -12368,13 +12368,6 @@ button:focus-visible {
   display: block;
 }
 
-.series-season-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
 .series-season-btn {
   height: 44px;
   padding: 0 18px;
@@ -12382,7 +12375,7 @@ button:focus-visible {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(0, 0, 0, 0.34);
   color: #eef4fb;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 600;
   pointer-events: auto;
   display: inline-flex;
@@ -13371,7 +13364,7 @@ button:focus-visible {
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 64px 48px 64px;
+  padding: 0 0 48px 64px;
   box-sizing: border-box;
   scrollbar-width: none;
 }
@@ -13728,11 +13721,17 @@ button:focus-visible {
 }
 
 .series-season-row {
-  margin-bottom: 0;
-  gap: clamp(12px, 1vw, 18px);
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
   overflow-x: auto;
-  padding-top: clamp(26px, 2vw, 36px);
-  padding-bottom: 10px;
+  overflow-y: hidden;
+  width: 100%;
+  scrollbar-width: none;
+  scroll-snap-type: x mandatory; 
+  scroll-behavior: smooth;
+  padding-bottom: 32px;
 }
 
 .series-season-row::-webkit-scrollbar,
@@ -13748,19 +13747,21 @@ button:focus-visible {
 }
 
 .series-season-btn {
-  min-height: clamp(42px, 3vw, 54px);
-  padding: 0 clamp(18px, 1.5vw, 26px);
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: var(--detail-bg-card);
-  color: var(--detail-text-secondary);
-  font-size: var(--tv-secondary-text);
-  line-height: 1;
-  font-weight: 500;
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.34);
+  color: #eef4fb;
+  font-weight: 600;
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+  min-height: 80px;
+  padding: 0 46px;
+  border-radius: 64px;
+  font-size: 30px;
 }
 
 .series-season-btn.selected {
@@ -16452,13 +16453,6 @@ button:focus-visible {
   gap: 24px;
   padding-top: 48px;
   padding-bottom: 48px;
-}
-
-.series-season-btn {
-  min-height: 80px;
-  padding: 20px 40px;
-  border-radius: 40px;
-  font-size: 32px;
 }
 
 .series-episode-track {

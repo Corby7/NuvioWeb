@@ -204,6 +204,9 @@ export const Router = {
     this.currentParams = targetParams;
     const navigationContext = this.resolveNavigationContext(routeName, this.currentParams, options);
 
+    // Fire before mount so UI chrome (sidebar, etc.) updates during the loading skeleton phase.
+    this.onNavigate?.(routeName);
+
     await Screen.mount(this.currentParams, navigationContext);
 
     // If another navigation happened while this screen was mounting, this
@@ -211,8 +214,6 @@ export const Router = {
     if (this.current !== routeName || this.currentParams !== targetParams) {
       return;
     }
-
-    this.onNavigate?.(routeName);
 
     if (window?.history && typeof window.history.pushState === "function") {
       const state = { route: this.current, params: this.currentParams };
