@@ -5824,7 +5824,8 @@ button:focus-visible {
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-enter {
   opacity: 0;
-  transition-duration: 400ms;
+  transition-duration: 700ms;
+  transition-timing-function: ease-out;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-enter.is-visible {
@@ -5833,7 +5834,7 @@ button:focus-visible {
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost {
   opacity: 1;
-  transition: opacity 400ms ease;
+  transition: opacity 700ms ease-in;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost.is-fading-out {

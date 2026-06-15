@@ -69,7 +69,7 @@ const HOME_ROW_TIMEOUT_MS = 3500;
 const HOME_ROW_RETRY_TIMEOUT_MS = 12000;
 const HOME_BACKGROUND_RENDER_DELAY_MS = 120;
 const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;
-const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 400;
+const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 700;
 const CW_META_TIMEOUT_MS = 1800;
 const CW_META_TIMEOUT_TV_MS = 4200;
 const CW_NEXT_UP_META_TIMEOUT_MS = 2200;
@@ -5490,7 +5490,7 @@ export const HomeScreen = {
       if (Router.getCurrent() !== "home") {
         return;
       }
-      this.syncMainFocusToViewport({ suppressFlows: true });
+      this.syncMainFocusToViewport({ suppressFlows: false });
     }, 120);
   },
 
