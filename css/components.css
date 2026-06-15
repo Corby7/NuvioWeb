@@ -12395,7 +12395,11 @@ button:focus-visible {
 }
 
 .series-season-btn.selected {
-  background: rgba(255, 255, 255, 0.2);
+    background: rgb(0 0 0 / 89%);
+    border: 2px solid rgba(255, 255, 255, 0.55);
+    color: var(--detail-text-primary);  
+    transform: scale(1.05);
+    transform-origin: top;
 }
 
 .series-season-btn.focused {
@@ -12812,7 +12816,7 @@ button:focus-visible {
 .series-rating-season {
   flex: 0 0 auto;
   scroll-snap-align: start;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 0 transparent;
   background: var(--detail-bg-card);
   color: var(--detail-text-primary);
   font-family: var(--app-font-family);
@@ -12825,6 +12829,16 @@ button:focus-visible {
   padding: 0 28px;
   border-radius: 64px;
   font-size: 26px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.series-rating-season.selected {
+  background: rgb(0 0 0 / 89%);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  color: var(--detail-text-primary);  
+  transform: scale(1.05);
+  transform-origin: top;
 }
 
 .series-rating-season.focused {
@@ -13748,7 +13762,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .series-season-btn {
   flex: 0 0 auto;
   scroll-snap-align: start;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 0 transparent;
   background: var(--detail-bg-card);
   color: var(--detail-text-primary);
   font-weight: 600;
@@ -13761,11 +13775,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   padding: 0 36px;
   border-radius: 64px;
   font-size: 30px;
-}
-
-.series-season-btn.selected {
-  background: #2d2d2d;
-  color: var(--detail-text-primary);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 .series-season-btn.focused {
@@ -14080,7 +14091,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-rating-season {
-  border: 1px solid rgba(255, 255, 255, 0.2);
   background: var(--detail-bg-card);
   color: var(--detail-text-primary);
   font-size: 26px;
@@ -14091,13 +14101,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   transition: transform 160ms ease, background 160ms ease;
 }
 
-.series-rating-season.selected {
-  background: #2d2d2d;
-  color: var(--detail-text-primary);
-}
-
 .series-rating-summary {
-  padding-left: 16px;
+  padding: 16px 0 0 16px;
   font-size: 24px;
   line-height: 1.35;
   color: var(--detail-text-primary);
