@@ -2556,7 +2556,7 @@ export const MetaDetailsScreen = {
     return `
       <div class="series-insight-tabs" data-scroll-key="people-tabs:${kind}">
         ${normalized.map(([tab, label], index) => `
-          ${index > 0 ? '<span class="series-insight-divider">|</span>' : ""}
+          ${index > 0 ? '<span class="series-insight-divider" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 256 256"><path d="M136,24V232a8,8,0,0,1-16,0V24a8,8,0,0,1,16,0Z"/></svg></span>' : ""}
           <button class="series-insight-tab focusable${activeTab === tab ? " selected" : ""}"
                   data-action="${kind === "series" ? "setSeriesInsightTab" : "setMovieInsightTab"}"
                   data-tab="${tab}">${escapeHtml(label)}</button>

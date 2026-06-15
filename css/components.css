@@ -12746,7 +12746,6 @@ button:focus-visible {
 }
 
 .movie-cast-name {
-  font-size: 36px;
   font-weight: 700;
   line-height: 1.15;
 }
@@ -12773,19 +12772,26 @@ button:focus-visible {
   border: none;
   background: transparent;
   color: rgba(220, 231, 244, 0.72);
+  font-family: var(--app-font-family);
   font-size: 22px;
   font-weight: 700;
   padding: 0;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
 }
 
 .series-insight-divider {
-  color: rgba(220, 231, 244, 0.62);
-  font-size: 22px;
-  font-weight: 700;
+  color: rgba(220, 231, 244, 0.4);
+  display: flex;
+  align-items: center;
+}
+
+.series-insight-divider svg {
+  fill: currentColor;
 }
 
 .series-insight-tab.selected {
   color: rgba(242, 248, 255, 0.96);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
 }
 
 .series-insight-tab.focused {
@@ -12892,11 +12898,6 @@ button:focus-visible {
   line-height: 1.05;
 }
 
-.movie-ratings-row {
-  display: flex;
-  gap: 16px;
-}
-
 .movie-rating-card {
   width: 160px;
   height: 120px;
@@ -12920,10 +12921,6 @@ button:focus-visible {
   font-size: 34px;
   font-weight: 800;
   line-height: 1;
-}
-
-.detail-company-section {
-  margin-top: 20px;
 }
 
 .detail-company-title {
@@ -13340,7 +13337,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   bottom: 0;
   left: 0;
   right: 0;
-  height: 28vh;
+  height: 70vh;
   z-index: 2;
   pointer-events: none;
   background: linear-gradient(180deg, transparent 0%, rgba(4, 6, 10, 0.82) 70%, rgba(4, 6, 10, 0.96) 100%);
@@ -13758,7 +13755,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   justify-content: center;
   white-space: nowrap;
   min-height: 80px;
-  padding: 0 46px;
+  padding: 0 36px;
   border-radius: 64px;
   font-size: 30px;
 }
@@ -14132,8 +14129,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .movie-ratings-row {
   display: flex;
-  gap: 16px;
-  padding: 16px var(--tv-safe-gutter-wide) 10px;
+  gap: 32px;
+  padding: 16px 48px 48px 16px;
 }
 
 .movie-rating-card {
@@ -14144,13 +14141,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.detail-company-section {
-  margin-top: 40px;
-}
-
 .detail-company-title {
   margin: 0;
-  padding: 0 var(--tv-safe-gutter-wide);
   font-size: clamp(24px, 1.6vw, 32px);
   line-height: 1.35;
   font-weight: 500;
@@ -14161,8 +14153,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   display: flex;
   gap: 24px;
   overflow-x: auto;
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding: 48px 0 32px 16px;
 }
 
 .detail-company-card {
@@ -16540,7 +16531,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .series-insight-tab,
 .series-insight-divider,
 .detail-company-title {
-  font-size: var(--detail-section-title-size);
+  font-size: 40px;
 }
 
 .series-insight-divider {
@@ -16559,20 +16550,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   margin-bottom: 20px;
 }
 
-.movie-cast-name {
-  font-size: 30px;
-}
-
 .movie-cast-role {
   font-size: 24px;
-}
-
-.detail-company-title {
-  padding: 0 var(--detail-safe-x);
-}
-
-.detail-company-track {
-  gap: 24px;
 }
 
 .detail-company-card {
