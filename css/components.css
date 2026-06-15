@@ -2666,11 +2666,13 @@ button:focus-visible {
   border: 1px solid var(--border-color);
   background: var(--card-bg);
   padding: 0 88px 0 36px;
-  color: var(--text-color);
-  font-size: 34px;
   font-weight: 500;
   box-sizing: border-box;
   width: 100%;
+  font-size: 28px;
+  line-height: 40px;
+  letter-spacing: 0.2px;
+  color: var(--addons-text-secondary);
 }
 
 .search-input-icon {
@@ -12526,7 +12528,7 @@ button:focus-visible {
   width: 100%;
   padding: 16px 48px 48px 16px;
   scrollbar-width: none;
-  gap: 32px;
+  gap: 48px;
   margin-top: -16px;
 }
 
@@ -13483,7 +13485,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 0 48px 64px;
+  padding: 0 0 48px 48px;
   box-sizing: border-box;
   scrollbar-width: none;
 }
@@ -13960,7 +13962,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .series-episode-top-row {
   display: flex;
-  justify-content: end;
+  justify-content: space-between;
   align-items: center;
 }
 
@@ -14111,7 +14113,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   align-items: center;
   gap: 0;
   margin-bottom: 0;
-  padding: 48px 48px 32px 0;
+  padding: 48px 48px 32px 16px;
   overflow-x: auto;
 }
 
@@ -16432,6 +16434,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   min-height: 100vh;
   height: 100vh;
   padding-bottom: 48px;
+  padding-left: 16px;
 }
 
 .detail-hero-brand {
