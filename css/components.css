@@ -12419,6 +12419,7 @@ button:focus-visible {
   color: #111;
   background: #f9fbff;
   pointer-events: auto;
+  font-family: inherit;
 }
 
 .series-primary-btn {
