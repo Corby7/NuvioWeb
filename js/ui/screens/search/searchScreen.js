@@ -491,6 +491,7 @@ export const SearchScreen = {
 
   async reloadRows() {
     const token = this.loadToken;
+    this.container?.querySelector(".search-content")?.classList.add("search-is-loading");
     if (this.mode === "search" && this.query.length >= 2) {
       this.rows = await this.searchRows(this.query, { token });
     } else if (this.mode === "discover") {
@@ -499,6 +500,7 @@ export const SearchScreen = {
       this.rows = [];
     }
     if (token !== this.loadToken) return;
+    this.container?.querySelector(".search-content")?.classList.remove("search-is-loading");
     if (this.shouldPatchResultsWithoutReplacingInput()) {
       this.renderResultsOnly();
       return;
@@ -696,7 +698,6 @@ export const SearchScreen = {
       if (this.mode === "search") {
         innerContent = `
           <div class="search-empty-state search-empty-state-results">
-            <span class="search-empty-icon material-icons" aria-hidden="true">search</span>
             <h2>${escapeHtml(t("search_no_results_title", {}, "No Results"))}</h2>
             <p>${escapeHtml(t("search_no_results_subtitle", {}, "Try searching with different keywords"))}</p>
           </div>
@@ -783,6 +784,11 @@ export const SearchScreen = {
           </header>
           <section class="search-header${this.layoutPrefs?.searchDiscoverEnabled ? "" : " no-discover"}">
             <div class="search-input-wrap">
+              <span class="search-input-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="currentColor" viewBox="0 0 256 256">
+                  <path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"></path>
+                </svg>
+              </span>
               <input
                 id="searchInput"
                 class="search-input-field focusable"
@@ -794,11 +800,9 @@ export const SearchScreen = {
                 placeholder="${escapeHtml(t("search_placeholder", {}, "Search movies & series"))}"
                 value="${escapeHtml(queryText)}"
               />
-              <span class="search-input-icon" aria-hidden="true">
-                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="currentColor" viewBox="0 0 256 256">
-                  <path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"></path>
-                </svg>
-              </span>
+              <button class="search-clear-btn" data-action="clearSearch" aria-label="${escapeHtml(t("search_clear", {}, "Clear"))}" tabindex="-1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg>
+              </button>
             </div>
             ${this.layoutPrefs?.searchDiscoverEnabled ? `
               <button class="search-discover-btn focusable" data-action="openDiscover" data-index="7" data-nav-zone="header" data-nav-col="0" aria-label="${escapeHtml(t("search_discover_label", {}, "Discover"))}">
@@ -1472,6 +1476,14 @@ export const SearchScreen = {
     }, delay);
   },
 
+  clearSearchInput() {
+    const input = this.container?.querySelector("#searchInput");
+    if (!input) return;
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+  },
+
   bindSearchInputEvents() {
     const input = this.container?.querySelector("#searchInput");
     if (!input || input.__boundSearchListeners) return;
@@ -1479,8 +1491,11 @@ export const SearchScreen = {
 
     input.addEventListener("input", (event) => {
       this.query = trimLeadingWhitespace(event.target?.value || "");
+      input.classList.toggle("has-value", input.value.length > 0);
       this.scheduleSearchFromInput(input);
     });
+
+    input.classList.toggle("has-value", input.value.length > 0);
 
     input.addEventListener("focus", () => {
       const current = this.container?.querySelector(".focusable.focused") || null;
@@ -1492,6 +1507,7 @@ export const SearchScreen = {
     input.addEventListener("keydown", async (event) => {
       if (event.keyCode !== 13) return;
       event.preventDefault();
+      input.blur();
       this.cancelScheduledInputSearch();
       await this.runSearchFromInput(input, { autoFocusResults: true });
     });
@@ -1573,6 +1589,7 @@ export const SearchScreen = {
     if (action === "openCatalogSeeAll") this.openCatalogSeeAllFromNode(node);
     if (action === "openDiscover" && this.layoutPrefs?.searchDiscoverEnabled) Router.navigate("discover");
     if (action === "openVoice") this.handleVoiceSearch();
+    if (action === "clearSearch") this.clearSearchInput();
   },
 
   ensureVoiceRecognition() {
