@@ -1233,22 +1233,25 @@ export const MetaDetailsScreen = {
       <div class="detail-loading-shell" aria-label="Loading detail" aria-live="polite">
         <div class="detail-loading-bg"></div>
         <div class="detail-loading-content">
-          <div class="detail-loading-block detail-loading-logo"></div>
+          <div class="detail-loading-actions">
+            <div class="detail-loading-block detail-loading-btn-primary"></div>
+            <div class="detail-loading-block detail-loading-btn-circle"></div>
+            <div class="detail-loading-block detail-loading-btn-circle"></div>
+          </div>
+          <div class="detail-loading-desc">
+            <div class="detail-loading-block detail-loading-desc-line" style="width:65%"></div>
+            <div class="detail-loading-block detail-loading-desc-line" style="width:58%"></div>
+            <div class="detail-loading-block detail-loading-desc-line" style="width:60%"></div>
+            <div class="detail-loading-block detail-loading-desc-line" style="width:65%"></div>
+          </div>
           <div class="detail-loading-meta-row">
             <div class="detail-loading-block detail-loading-meta-chip"></div>
             <div class="detail-loading-block detail-loading-meta-chip"></div>
             <div class="detail-loading-block detail-loading-meta-chip"></div>
           </div>
-          <div class="detail-loading-actions">
-            <div class="detail-loading-block detail-loading-btn-primary"></div>
-            <div class="detail-loading-block detail-loading-btn-circle"></div>
-            <div class="detail-loading-block detail-loading-btn-circle"></div>
-            <div class="detail-loading-block detail-loading-btn-circle"></div>
-          </div>
-          <div class="detail-loading-desc">
-            <div class="detail-loading-block detail-loading-desc-line" style="width:78%"></div>
-            <div class="detail-loading-block detail-loading-desc-line" style="width:90%"></div>
-            <div class="detail-loading-block detail-loading-desc-line" style="width:65%"></div>
+          <div class="detail-loading-meta-row">
+            <div class="detail-loading-block detail-loading-meta-chip"></div>
+            <div class="detail-loading-block detail-loading-meta-chip"></div>
           </div>
         </div>
       </div>
