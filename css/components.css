@@ -2603,8 +2603,8 @@ button:focus-visible {
 
 .search-discover-btn,
 .search-voice-btn {
-  width: 110px;
-  height: 110px;
+  width: 100px;
+  height: 100px;
   border-radius: 64px;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
@@ -2626,7 +2626,7 @@ button:focus-visible {
 }
 
 .search-input-field {
-  height: 110px;
+  height: 100px;
   border-radius: 64px;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
@@ -12807,27 +12807,30 @@ button:focus-visible {
 .series-rating-seasons {
   display: flex;
   gap: 10px;
-  margin-bottom: 12px;
 }
 
 .series-rating-season {
-  min-width: 50px;
-  height: 38px;
-  border-radius: 999px;
-  border: none;
-  background: rgba(255, 255, 255, 0.14);
-  color: rgba(241, 247, 254, 0.95);
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.series-rating-season.selected {
-  background: rgba(255, 255, 255, 0.28);
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: var(--detail-bg-card);
+  color: var(--detail-text-primary);
+  font-family: var(--app-font-family);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  min-height: 64px;
+  padding: 0 28px;
+  border-radius: 64px;
+  font-size: 26px;
 }
 
 .series-rating-season.focused {
-  transform: none;
-  border: 2px solid rgba(245, 249, 255, 0.95);
+  background: var(--detail-focus-fill);
+  border-color: transparent;
+  color: var(--detail-focus-text);
 }
 
 .series-episode-ratings-grid {
@@ -13571,13 +13574,13 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .detail-morelike-card.focused {
-  transform: scale(1.02);
+  transform: scale(1.05);
 }
 
 .movie-cast-card.focused,
 .detail-company-card.focused,
 .series-episode-rating-chip.focused {
-  transform: scale(1.03);
+  transform: scale(1.05);
 }
 
 .series-detail-support {
@@ -14072,48 +14075,43 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-rating-seasons {
-  gap: 8px;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  gap: 16px;
+  padding: 16px 48px 16px 16px;
 }
 
 .series-rating-season {
-  min-width: 0;
-  height: auto;
-  padding: 8px 14px;
-  border-radius: 16px;
-  border: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   background: var(--detail-bg-card);
   color: var(--detail-text-primary);
-  font-size: var(--tv-caption-text);
-  line-height: 1.35;
-  font-weight: 500;
+  font-size: 26px;
+  font-weight: 600;
+  min-height: 64px;
+  padding: 0 28px;
+  border-radius: 64px;
   transition: transform 160ms ease, background 160ms ease;
 }
 
 .series-rating-season.selected {
-  background: var(--focus-bg);
+  background: #2d2d2d;
+  color: var(--detail-text-primary);
 }
 
 .series-rating-summary {
-  padding: 4px var(--tv-safe-gutter-wide) 0;
-  font-size: clamp(12px, 0.82vw, 15px);
+  padding-left: 16px;
+  font-size: 24px;
   line-height: 1.35;
-  color: var(--text-tertiary);
+  color: var(--detail-text-primary);
 }
 
 .series-episode-ratings-grid {
-  gap: 8px;
-  padding-top: 8px;
-  padding-bottom: 10px;
+  gap: 16px;
+  padding: 16px 48px 48px 16px;
 }
 
 .series-episode-rating-chip {
-  min-width: 88px;
-  width: 88px;
   height: 56px;
-  padding: 8px 10px;
-  border-radius: 16px;
+  padding: 0px 36px;
+  border-radius: 64px;
   transition: transform 160ms ease;
 }
 
@@ -16606,19 +16604,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
     border-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 220ms ease;
-}
-
-.series-insight-section.is-switching {
-  animation: detailInsightSwitch 160ms linear both;
-}
-
-@keyframes detailInsightSwitch {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 .detail-trailer-card .detail-morelike-poster-wrap {

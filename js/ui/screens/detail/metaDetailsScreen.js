@@ -3889,8 +3889,11 @@ export const MetaDetailsScreen = {
         if (season > 0 && season !== this.selectedSeason) {
           this.hasManualSeasonSelection = true;
           this.selectedSeason = season;
+          this.selectedRatingSeason = season;
           this.updateRenderedDetailSections(this.meta, { selector: `.series-season-btn[data-season="${season}"]` });
         }
+        const ratingBtn = this.container?.querySelector(`.series-rating-season.focusable[data-season="${season}"]`);
+        if (ratingBtn) ratingBtn.classList.add("focused");
         return;
       }
       if (target.matches(".series-insight-tab.focusable")) {
@@ -3913,8 +3916,12 @@ export const MetaDetailsScreen = {
         const season = Number(target.dataset.season || 0);
         if (season > 0 && season !== this.selectedRatingSeason) {
           this.selectedRatingSeason = season;
-          this.render(this.meta, { selector: `.series-rating-season[data-season="${season}"]` });
+          this.selectedSeason = season;
+          this.hasManualSeasonSelection = true;
+          this.updateRenderedDetailSections(this.meta, { selector: `.series-rating-season[data-season="${season}"]` });
         }
+        const ratingBtn = this.container?.querySelector(`.series-rating-season.focusable[data-season="${season}"]`);
+        if (ratingBtn) ratingBtn.classList.add("focused");
       }
     };
     this.container.addEventListener("focusin", this.detailFocusHandler, true);
