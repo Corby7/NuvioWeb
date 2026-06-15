@@ -5369,6 +5369,11 @@ button:focus-visible {
   height: 100%;
 }
 
+.home-screen-shell.home-layout-modern .home-modern-row-title-skeleton {
+  width: 160px;
+  height: 24px;
+  border-radius: 8px;
+}
 
 .home-screen-shell.home-layout-classic .home-main {
   background: #000;

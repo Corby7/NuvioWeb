@@ -121,7 +121,7 @@ export function renderModernHomeLayout({
               blurNextUp: blurContinueWatchingNextUp
             })}
             <div class="home-modern-catalogs">
-              ${sectionsMarkup.join("")}
+              ${sectionsMarkup.length ? sectionsMarkup.join("") : (continueWatchingLoading ? renderModernCatalogSkeletonMarkup() : "")}
             </div>
           </div>
         </div>
@@ -259,6 +259,11 @@ function renderModernHeroSkeletonMarkup() {
   return `
     <section class="home-hero home-hero-modern home-hero-modern-loading" aria-hidden="true">
       <article class="home-hero-card home-modern-hero-card home-modern-hero-card-loading">
+        <div class="home-modern-hero-media home-modern-hero-media-loading">
+          <div class="home-hero-backdrop-wrap">
+            <div class="home-hero-backdrop placeholder home-hero-backdrop-loading"></div>
+          </div>
+        </div>
         <div class="home-modern-hero-copy-skeleton">
           <div class="home-modern-skeleton-block home-modern-hero-logo-skeleton"></div>
           <div class="home-modern-hero-meta-skeleton">
@@ -280,4 +285,36 @@ function renderModernHeroSkeletonMarkup() {
       </article>
     </section>
   `;
+}
+
+function renderModernCatalogSkeletonMarkup(rowCount = 3, cardsPerRow = 6) {
+  const titleWidths = [116, 128, 104, 132, 120, 140];
+  const subtitleWidths = [82, 96, 74, 90, 88, 100];
+  const skeletonCard = (i) => `
+    <article class="home-content-card home-poster-card home-poster-card-loading" aria-disabled="true">
+      <div class="home-poster-frame">
+        <div class="content-poster placeholder"></div>
+        <div class="home-poster-expanded-backdrop placeholder" aria-hidden="true"></div>
+        <div class="home-poster-trailer-layer"></div>
+        <div class="home-poster-expanded-gradient"></div>
+        <div class="home-poster-expanded-brand"></div>
+      </div>
+      <div class="home-poster-copy home-poster-copy-skeleton" aria-hidden="true"
+           style="--poster-skeleton-title:${titleWidths[i % titleWidths.length]}px;--poster-skeleton-subtitle:${subtitleWidths[i % subtitleWidths.length]}px;">
+        <div class="home-poster-skeleton-line home-poster-skeleton-title"></div>
+        <div class="home-poster-skeleton-line home-poster-skeleton-subtitle"></div>
+      </div>
+    </article>
+  `;
+  const skeletonRow = () => `
+    <section class="home-row home-modern-row home-modern-row-loading" aria-hidden="true">
+      <div class="home-row-head">
+        <div class="home-modern-skeleton-block home-modern-row-title-skeleton"></div>
+      </div>
+      <div class="home-track">
+        ${Array.from({ length: cardsPerRow }, (_, i) => skeletonCard(i)).join("")}
+      </div>
+    </section>
+  `;
+  return Array.from({ length: rowCount }, skeletonRow).join("");
 }

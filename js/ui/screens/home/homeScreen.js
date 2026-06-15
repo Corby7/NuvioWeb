@@ -6707,16 +6707,16 @@ export const HomeScreen = {
       this.catalogSeeAllMap = new Map();
     } else if (this.layoutMode === "modern") {
       modernLayoutPayload = renderModernHomeLayout({
-        rows: [], // DEBUG: hardcoded for skeleton CSS work
+        rows: this.rows,
         heroItem,
         heroCandidates: this.heroCandidates,
-        continueWatchingItems: [], // DEBUG: hardcoded for skeleton CSS work
-        continueWatchingLoading: true, // DEBUG: hardcoded for skeleton CSS work
+        continueWatchingItems: this.continueWatchingDisplay || [],
+        continueWatchingLoading: Boolean(this.continueWatchingLoading),
         continueWatchingLoadingCount: effectiveContinueWatchingLoadingCount,
         useEpisodeThumbnailsInCw: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
         blurContinueWatchingNextUp: Boolean(this.layoutPrefs?.blurContinueWatchingNextUp),
         rowItemLimit,
-        showHeroSection: false, // DEBUG: hardcoded for skeleton CSS work (shows hero skeleton)
+        showHeroSection,
         showPosterLabels,
         showCatalogTypeSuffix,
         preferLandscapePosters: modernLandscapePostersEnabled,
