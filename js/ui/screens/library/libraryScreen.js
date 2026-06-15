@@ -404,6 +404,18 @@ export const LibraryScreen = {
   },
 
   renderLibraryContentArea(state) {
+    if (state.isLoading || state.isSyncing) {
+      return `
+        <div id="libraryContentAreaMount">
+          <section class="library-loading-state">
+            <svg class="library-loading-spinner" viewBox="0 0 96 96" aria-hidden="true" focusable="false">
+              <circle class="library-loading-spinner-track" cx="48" cy="48" r="40"></circle>
+            </svg>
+            <div class="library-loading-label">${escapeHtml(t("library_syncing_library", {}, "Loading library"))}</div>
+          </section>
+        </div>
+      `;
+    }
     return `
       <div id="libraryContentAreaMount">
         ${this.renderActions(state)}
@@ -716,15 +728,6 @@ export const LibraryScreen = {
     const posterWidth = 252;
     const posterRadius = 24;
     const libraryStyle = `--library-poster-width:${posterWidth}px;--library-poster-height:${Math.round(posterWidth * 1.5)}px;--library-poster-radius:${posterRadius}px;`;
-    if (state.isLoading || state.isSyncing) {
-      this.renderLoading();
-      ScreenUtils.indexFocusables(this.container);
-      if (!this.layoutPrefs?.modernSidebar) {
-        setLegacySidebarExpanded(this.container, false);
-      }
-      return;
-    }
-
     this.container.innerHTML = `
       <div class="home-shell library-shell${this.libraryRouteEnterPending ? " library-route-enter" : ""}" style="${escapeHtml(libraryStyle)}">
         ${this.renderSidebar()}

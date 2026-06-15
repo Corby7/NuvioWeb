@@ -3275,6 +3275,19 @@ button:focus-visible {
   min-height: calc(100vh - 96px);
   color: var(--text-color);
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+#libraryContentAreaMount {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#libraryContentAreaMount .library-loading-state {
+  flex: 1;
+  min-height: unset;
 }
 
 .library-page-header {
@@ -3686,6 +3699,7 @@ button:focus-visible {
   gap: 28px;
   color: var(--text-secondary);
 }
+
 
 .library-loading-spinner {
   width: 96px;
