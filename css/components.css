@@ -16480,9 +16480,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .series-episode-meta {
   gap: 24px;
-  min-height: 32px;
   font-size: 20px;
   line-height: 28px;
+  margin-top: 8px;
 }
 
 .series-episode-runtime {
@@ -16496,11 +16496,15 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .series-episode-meta .series-imdb-badge {
   font-size: 20px;
+  display: flex;
+  justify-content: start;
+  align-items: center;
+  gap: 10px;
 }
 
 .series-episode-meta .series-imdb-badge img {
-  width: 56px;
-  height: 28px;
+  width: auto;
+  height: 20px;
 }
 
 .series-episode-progress {
