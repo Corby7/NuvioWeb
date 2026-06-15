@@ -3283,6 +3283,10 @@ export const HomeScreen = {
     if (!Array.isArray(rowNodes) || !rowNodes.length) {
       return null;
     }
+    // CW row always starts at the first (most-recently-watched) card when entering from another row
+    if (rowNodes[0]?.closest?.(".home-track-continue")) {
+      return rowNodes[0];
+    }
     const rowKey = this.getNodeRowKey(rowNodes[0]);
     const storedIndex = rowKey
       ? Number(this.lastFocusedItemIndexByRowKey?.[rowKey])

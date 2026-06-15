@@ -6055,7 +6055,6 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-modern .home-hero-description {
-  flex: 0 1 auto;
   min-height: 0;
   margin-top: 0;
   display: -webkit-box;
@@ -16938,6 +16937,11 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 /* Dim + shrink non-focused posters in the same row when a sibling is focused */
 .home-screen-shell .home-track:has(.home-poster-card.focusable) .home-poster-card:not(.focused) {
+  filter: brightness(0.6);
+}
+
+/* Same dimming for continue watching cards */
+.home-screen-shell .home-track:has(.home-continue-card.focusable) .home-continue-card:not(.focused) {
   filter: brightness(0.6);
 }
 
