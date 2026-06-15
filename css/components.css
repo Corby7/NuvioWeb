@@ -12830,26 +12830,19 @@ button:focus-visible {
   font-weight: 700;
 }
 
-.movie-cast-track {
-  display: flex;
-  gap: 18px;
-  overflow-x: auto;
-  padding-bottom: 10px;
-  scrollbar-width: none;
-}
-
-.movie-cast-track::-webkit-scrollbar {
-  display: none;
-}
-
+.movie-cast-track,
 .series-cast-track {
   display: flex;
-  gap: 18px;
+  flex-wrap: nowrap;
   overflow-x: auto;
-  padding-bottom: 10px;
+  overflow-y: visible;
+  width: 100%;
+  gap: 18px;
+  padding: 16px 48px 32px 16px;
   scrollbar-width: none;
 }
 
+.movie-cast-track::-webkit-scrollbar,
 .series-cast-track::-webkit-scrollbar {
   display: none;
 }
@@ -13065,6 +13058,7 @@ button:focus-visible {
   font-size: 28px;
   font-weight: 700;
   color: var(--detail-text-primary);
+  padding-left: 16px;
 }
 
 .detail-company-track {
@@ -14168,7 +14162,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   flex-direction: column;
   align-items: center;
   justify-content: start;
-  width: 250px;
+  flex: 0 0 250px;
   box-shadow: none !important;
 }
 

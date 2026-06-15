@@ -3415,7 +3415,8 @@ export const HomeScreen = {
         action: "toggleWatched",
         label: this.posterHoldMenu?.isWatched
           ? t("hero_mark_unwatched", {}, "Mark as unwatched")
-          : t("hero_mark_watched", {}, "Mark as watched")
+          : t("hero_mark_watched", {}, "Mark as watched"),
+        icon: this.posterHoldMenu?.isWatched ? DIALOG_ICONS.markUnwatched : DIALOG_ICONS.markWatched
       });
     }
     return options;

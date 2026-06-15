@@ -99,7 +99,8 @@ export function getPosterOptions(state, options = {}) {
       action: "toggleWatched",
       label: state.isWatched
         ? t("hero_mark_unwatched", {}, "Mark as unwatched")
-        : t("hero_mark_watched", {}, "Mark as watched")
+        : t("hero_mark_watched", {}, "Mark as watched"),
+      icon: state.isWatched ? DIALOG_ICONS.markUnwatched : DIALOG_ICONS.markWatched
     });
   }
   return actions;
