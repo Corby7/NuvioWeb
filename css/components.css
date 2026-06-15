@@ -3124,7 +3124,7 @@ button:focus-visible {
 }
 
 .search-results-track {
-  padding: 16px 64px 16px 16px;
+  padding: 16px 64px 32px 16px;
   display: flex;
   gap: 24px;
   overflow-x: auto;

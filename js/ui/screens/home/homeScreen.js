@@ -6889,15 +6889,18 @@ export const HomeScreen = {
       return;
     }
     const hero = showHeroSection ? this.container?.querySelector(".home-hero") : null;
-    const heroHeight = hero ? hero.offsetHeight : 0;
+    let heroHeight = hero ? hero.offsetHeight : 0;
+    let sectionTops = sections.map((s) => ({ top: s.offsetTop, title: String(s.dataset.sectionTitle || "") }));
+    const snapshotOffsets = () => {
+      heroHeight = hero ? hero.offsetHeight : 0;
+      sectionTops = sections.map((s) => ({ top: s.offsetTop, title: String(s.dataset.sectionTitle || "") }));
+    };
     const update = () => {
       const threshold = main.scrollTop + 72;
       let activeTitle = "";
-      sections.forEach((section) => {
-        if (section.offsetTop <= threshold) {
-          activeTitle = String(section.dataset.sectionTitle || "");
-        }
-      });
+      for (let i = 0; i < sectionTops.length; i++) {
+        if (sectionTops[i].top <= threshold) activeTitle = sectionTops[i].title;
+      }
       const shouldShow = activeTitle && (!showHeroSection || main.scrollTop > Math.max(0, heroHeight - 48));
       sticky.textContent = activeTitle;
       sticky.classList.toggle("is-visible", Boolean(shouldShow));
@@ -6907,11 +6910,14 @@ export const HomeScreen = {
       if (stickyRaf) return;
       stickyRaf = requestAnimationFrame(() => { stickyRaf = null; update(); });
     };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(snapshotOffsets) : null;
+    if (ro) ro.observe(main);
     main.addEventListener("scroll", throttledUpdate, { passive: true });
     update();
     this.gridStickyCleanup = () => {
       main.removeEventListener("scroll", throttledUpdate);
       if (stickyRaf) { cancelAnimationFrame(stickyRaf); stickyRaf = null; }
+      if (ro) ro.disconnect();
     };
   },
 
