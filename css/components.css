@@ -14026,13 +14026,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   margin-top: 0;
 }
 
-.movie-cast-track,
-.series-cast-track {
-  gap: 16px;
-  padding-top: 12px;
-  padding-bottom: 16px;
-}
-
 .movie-cast-card {
   flex: 0 0 300px;
   width: 300px;
@@ -16310,6 +16303,16 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   --detail-label-size: 32px;
   --detail-body-size: 32px;
   --detail-caption-size: 28px;
+}
+
+[class*="-card"].focusable:not([class*="player-"]) {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+[class*="-card"].focusable:not([class*="player-"]).focused {
+  transform: scale(1.05);
+  transform-origin: top;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
 .detail-hero-section {
