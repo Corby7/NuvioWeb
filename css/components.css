@@ -13988,7 +13988,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   align-items: center;
   gap: 0;
   margin-bottom: 0;
-  padding-top: 24px;
+  padding: 48px 0;
   overflow-x: auto;
 }
 
@@ -16458,7 +16458,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-episode-copy {
-  padding: 16px 32px;
+  padding: 24px 32px;
   gap: 12px;
 }
 
