@@ -571,7 +571,7 @@ export const CatalogSeeAllScreen = {
       <div class="nav-screen seeall-shell">
         <div class="nav-screen-body">
           <header class="seeall-header">
-            <h2 class="seeall-title">${escapeHtml(title)}</h2>
+            <h1 class="library-page-title">${escapeHtml(title)}</h1>
             ${this.layoutPrefs?.catalogAddonNameEnabled !== false && descriptor.addonName
               ? `<div class="seeall-subtitle">${escapeHtml(t("catalog_see_all_from", [descriptor.addonName], "from %1$s"))}</div>`
               : ""}
