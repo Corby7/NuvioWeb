@@ -259,11 +259,6 @@ function renderModernHeroSkeletonMarkup() {
   return `
     <section class="home-hero home-hero-modern home-hero-modern-loading" aria-hidden="true">
       <article class="home-hero-card home-modern-hero-card home-modern-hero-card-loading">
-        <div class="home-modern-hero-media home-modern-hero-media-loading">
-          <div class="home-hero-backdrop-wrap">
-            <div class="home-hero-backdrop placeholder home-hero-backdrop-loading"></div>
-          </div>
-        </div>
         <div class="home-modern-hero-copy-skeleton">
           <div class="home-modern-skeleton-block home-modern-hero-logo-skeleton"></div>
           <div class="home-modern-hero-meta-skeleton">
@@ -312,7 +307,7 @@ function renderModernCatalogSkeletonMarkup(rowCount = 3, cardsPerRow = 6) {
         <div class="home-modern-skeleton-block home-modern-row-title-skeleton"></div>
       </div>
       <div class="home-track">
-        ${Array.from({ length: cardsPerRow }, (_, i) => skeletonCard(i)).join("")}
+        ${Array.from({ length: cardsPerRow+1 }, (_, i) => skeletonCard(i)).join("")}
       </div>
     </section>
   `;

@@ -5753,6 +5753,15 @@ button:focus-visible {
   overflow: hidden;
 }
 
+.home-screen-shell.home-layout-modern .home-modern-hero-media::before,
+.home-screen-shell.home-layout-modern .home-modern-hero-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .home-screen-shell.home-layout-modern .home-modern-hero-media::before {
   /* Horizontal gradient: spans ~45% of media width (ATV ModernHeroGradientLayer exact stops) */
   background:
@@ -9350,7 +9359,7 @@ button:focus-visible {
 
 .addons-meta {
   margin: 20px 0 0;
-  font-size: 22px;
+  font-size: 24px;
   line-height: 32px;
   letter-spacing: 0.2px;
   color: var(--addons-text-tertiary);
