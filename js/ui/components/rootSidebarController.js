@@ -44,7 +44,26 @@ export const RootSidebarController = {
   // Screens that render sidebar in their own HTML call register() so the
   // controller's app-level events can call their expand/collapse logic.
   register(routeName, { onExpand = null, onCollapse = null, onAfterInject = null } = {}) {
-    this._callbacks[String(routeName || "")] = { onExpand, onCollapse, onAfterInject };
+    const key = String(routeName || "");
+    this._callbacks[key] = { onExpand, onCollapse, onAfterInject };
+    // Inject immediately so the sidebar is present during the screen's own
+    // loading/skeleton renders, not just after mount() completes.
+    if (this.currentRoute === key) {
+      const screenEl = document.getElementById(key);
+      if (screenEl) {
+        this._screenEl = screenEl;
+        this._stopObserver();
+        this._inject(key, screenEl);
+        if (typeof MutationObserver !== "undefined") {
+          this._observer = new MutationObserver(() => {
+            if (!screenEl.querySelector(`[${RSC_ATTR}]`)) {
+              this._inject(key, screenEl);
+            }
+          });
+          this._observer.observe(screenEl, { childList: true });
+        }
+      }
+    }
   },
 
   unregister(routeName) {
@@ -57,6 +76,7 @@ export const RootSidebarController = {
     this.currentRoute = routeName;
     this.expanded = false;
     this._stopObserver();
+    this._screenEl = null;
 
     // Keep #root-nav-sidebar hidden; sidebar lives in the screen container.
     this.el.hidden = true;
@@ -74,10 +94,14 @@ export const RootSidebarController = {
     // Refresh profile on every navigation so profile-switch changes are reflected.
     getSidebarProfileState().then((profile) => { this.profile = profile; }).catch(() => {});
 
+    // register() may have already injected and started the observer — skip if so.
+    if (screenEl.querySelector(`[${RSC_ATTR}]`) && this._observer) return;
+
     this._inject(routeName, screenEl);
 
     // Re-inject whenever the screen wipes its container with innerHTML = "..."
     if (typeof MutationObserver !== "undefined") {
+      this._stopObserver();
       this._observer = new MutationObserver(() => {
         if (!screenEl.querySelector(`[${RSC_ATTR}]`)) {
           this._inject(routeName, screenEl);
@@ -107,7 +131,6 @@ export const RootSidebarController = {
   _stopObserver() {
     this._observer?.disconnect();
     this._observer = null;
-    this._screenEl = null;
   },
 
   _getSidebarHost() {
@@ -151,6 +174,11 @@ export const RootSidebarController = {
       if (target.closest(`[${RSC_ATTR}]`)) {
         if (app.__rscCollapseTimer) { clearTimeout(app.__rscCollapseTimer); app.__rscCollapseTimer = null; }
         if (!this.expanded) this.expand();
+      } else if (target.classList?.contains("focusable")) {
+        // Track the last focused content element so collapse() can restore to it.
+        // Done here (not in expand()) because the screen may strip .focused before
+        // expand() runs when the cursor moves from content directly to the sidebar.
+        this.lastScreenFocus = target;
       }
     });
   },
@@ -221,10 +249,6 @@ export const RootSidebarController = {
     if (!host) return;
 
     const layout = LayoutPreferences.get();
-
-    // Remember what was focused in the screen content (excluding sidebar)
-    const focused = this._screenEl?.querySelector(".focusable.focused");
-    this.lastScreenFocus = (focused && !focused.closest(`[${RSC_ATTR}]`)) ? focused : null;
 
     if (layout.modernSidebar) {
       setModernSidebarExpanded(host, true);
