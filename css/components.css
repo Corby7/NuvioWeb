@@ -3142,7 +3142,7 @@ button:focus-visible {
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.12);
   border-top-color: var(--secondary-color);
-  animation: discoverSpinner 800ms linear infinite;
+  animation: homeLoadingSpin 820ms linear infinite;
 }
 
 .discover-loading-label {
@@ -3181,11 +3181,6 @@ button:focus-visible {
   }
 }
 
-@keyframes discoverSpinner {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 .search-results-row {
   margin-bottom: 32px;
@@ -3789,20 +3784,12 @@ button:focus-visible {
 
 
 .library-loading-spinner {
-  width: 96px;
-  height: 96px;
-  animation: librarySpin 1332ms linear infinite;
-}
-
-.library-loading-spinner-track {
-  fill: none;
-  stroke: #9E9E9E;
-  stroke-width: 8;
-  stroke-linecap: round;
-  stroke-dasharray: 188 252;
-  stroke-dashoffset: 0;
-  transform-origin: center;
-  animation: librarySpinnerDash 1332ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 4px solid rgba(158, 158, 158, 0.22);
+  border-top-color: #9e9e9e;
+  animation: homeLoadingSpin 820ms linear infinite;
 }
 
 .library-loading-label {
@@ -4240,29 +4227,6 @@ button:focus-visible {
   transform: scale(1.1);
 }
 
-@keyframes librarySpin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes librarySpinnerDash {
-  0% {
-    stroke-dasharray: 1 252;
-    stroke-dashoffset: 0;
-  }
-  50% {
-    stroke-dasharray: 188 252;
-    stroke-dashoffset: -64;
-  }
-  100% {
-    stroke-dasharray: 188 252;
-    stroke-dashoffset: -252;
-  }
-}
 
 @keyframes libraryPickerMenuOpen {
   from {
@@ -10165,7 +10129,7 @@ button:focus-visible {
   border: 6px solid rgba(255, 255, 255, 0.18);
   border-top-color: rgba(255, 255, 255, 0.96);
   box-shadow: 0 0 22px rgba(0, 0, 0, 0.35);
-  animation: playerLoadingSpinnerRotate 900ms linear infinite;
+  animation: homeLoadingSpin 820ms linear infinite;
 }
 
 .player-loading-backdrop {
@@ -10261,14 +10225,6 @@ button:focus-visible {
   }
 }
 
-@keyframes playerLoadingSpinnerRotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 .player-controls-overlay {
   position: absolute;

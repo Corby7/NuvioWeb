@@ -334,9 +334,7 @@ export const LibraryScreen = {
         ${this.renderSidebar()}
         <main class="home-main library-main">
           <section class="library-loading-state">
-            <svg class="library-loading-spinner" viewBox="0 0 96 96" aria-hidden="true" focusable="false">
-              <circle class="library-loading-spinner-track" cx="48" cy="48" r="40"></circle>
-            </svg>
+            <div class="library-loading-spinner" aria-hidden="true"></div>
             <div class="library-loading-label">${escapeHtml(t("library_syncing_library", {}, "Loading library"))}</div>
           </section>
         </main>
@@ -420,9 +418,7 @@ export const LibraryScreen = {
       return `
         <div id="libraryContentAreaMount">
           <section class="library-loading-state">
-            <svg class="library-loading-spinner" viewBox="0 0 96 96" aria-hidden="true" focusable="false">
-              <circle class="library-loading-spinner-track" cx="48" cy="48" r="40"></circle>
-            </svg>
+            <div class="library-loading-spinner" aria-hidden="true"></div>
             <div class="library-loading-label">${escapeHtml(t("library_syncing_library", {}, "Loading library"))}</div>
           </section>
         </div>
