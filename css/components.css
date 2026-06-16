@@ -2745,6 +2745,10 @@ button:focus-visible {
   outline: none;
 }
 
+.search-content.search-is-loading .search-history {
+  display: none;
+}
+
 .search-history {
   width: 100%;
 }
