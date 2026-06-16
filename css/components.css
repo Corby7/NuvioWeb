@@ -4805,7 +4805,7 @@ button:focus-visible {
   aspect-ratio: 2 / 3;
   border: 2px solid transparent;
   border-radius: calc(var(--home-poster-radius) - 2px);
-  background-color: transparent;
+  background-color: #161a22;
   overflow: hidden;
   transform: translateZ(0);
   transition: border-color 180ms ease, box-shadow 280ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 140ms ease;
