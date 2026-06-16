@@ -289,7 +289,7 @@ button:focus-visible {
 .account-card.focused,
 .account-settings-card.focused {
   background: var(--focus-bg);
-  box-shadow: 0 0 0 2px var(--focus-color);
+  box-shadow: 0 0 0 4px var(--focus-color);
 }
 
 .account-card-danger,
@@ -302,7 +302,7 @@ button:focus-visible {
 .account-card-danger.focused,
 .account-settings-card-danger.focused {
   background: var(--error-bg);
-  box-shadow: 0 0 0 2px var(--focus-color);
+  box-shadow: 0 0 0 4px var(--focus-color);
 }
 
 .account-card-title,
@@ -3620,7 +3620,7 @@ button:focus-visible {
 .library-dialog-input.focused,
 .library-dialog-textarea.focused {
   border-color: var(--focus-color);
-  box-shadow: 0 0 0 2px var(--focus-color);
+  box-shadow: 0 0 0 4px var(--focus-color);
   background: var(--focus-bg);
 }
 
@@ -13961,7 +13961,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-episode-card.focused .series-episode-thumb {
-  box-shadow: 0 0 0 2px var(--focus-color);
+  box-shadow: 0 0 0 4px var(--focus-color);
   background-color: var(--focus-bg);
   transform: none;
 }
@@ -13974,9 +13974,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .detail-morelike-card.focused .detail-morelike-poster-wrap {
   border-color: var(--focus-color);
-  box-shadow: 0 0 0 2px var(--focus-color);
+  box-shadow: 0 0 0 4px var(--focus-color);
   background-color: var(--focus-bg);
   transform: none;
+  overflow: hidden;
 }
 
 .series-episode-overlay {
