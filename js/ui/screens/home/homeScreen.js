@@ -7777,6 +7777,6 @@ export const HomeScreen = {
     this.homeTruncationScope = null;
     this.cachedModernPortraitPosterMetrics = null;
     this.cachedModernLandscapePosterMetrics = null;
-    ScreenUtils.hide(this.container);
+    ScreenUtils.hide(this.container, { preserveDom: this.hasLoadedOnce });
   }
 };

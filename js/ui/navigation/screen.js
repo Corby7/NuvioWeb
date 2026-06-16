@@ -17,14 +17,14 @@ export const ScreenUtils = {
     }
   },
 
-  hide(container) {
+  hide(container, { preserveDom = false } = {}) {
     if (!container) {
       return;
     }
     if (container.style.display !== "none") {
       container.style.display = "none";
     }
-    if (container.childNodes?.length) {
+    if (!preserveDom && container.childNodes?.length) {
       if (typeof container.replaceChildren === "function") {
         container.replaceChildren();
       } else {
