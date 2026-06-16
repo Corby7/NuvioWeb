@@ -76,6 +76,29 @@ function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const SEARCH_HISTORY_KEY = "nuvio_search_history";
+const SEARCH_HISTORY_MAX = 6;
+
+function getSearchHistory() {
+  try {
+    const stored = localStorage.getItem(SEARCH_HISTORY_KEY);
+    const parsed = JSON.parse(stored || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSearchHistory(query) {
+  const trimmed = String(query || "").trim();
+  if (!trimmed || trimmed.length < 2) return;
+  try {
+    const history = getSearchHistory().filter((h) => h.toLowerCase() !== trimmed.toLowerCase());
+    history.unshift(trimmed);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, SEARCH_HISTORY_MAX)));
+  } catch {}
+}
+
 function escapeSelectorValue(value = "") {
   const raw = String(value ?? "");
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -703,10 +726,17 @@ export const SearchScreen = {
           </div>
         `;
       } else {
-        innerContent = `
-          <div class="search-empty-state">
+        const history = getSearchHistory();
+        innerContent = history.length ? `
+          <div class="search-history">
+            <div class="search-history-label">${escapeHtml(t("search_history_label", {}, "Recent searches"))}</div>
+            <div class="search-history-chips">
+              ${history.map((q) => `
+                <button class="search-history-chip focusable" data-action="applyHistorySearch" data-query="${escapeHtml(q)}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 256 256"><path d="M136,80v43.47l36.12,21.67a8,8,0,0,1-8.24,13.72l-40-24A8,8,0,0,1,120,128V80a8,8,0,0,1,16,0Zm-8-48A95.44,95.44,0,0,0,60.08,60.15C52.81,67.51,46.35,74.59,40,82V64a8,8,0,0,0-16,0v40a8,8,0,0,0,8,8H72a8,8,0,0,0,0-16H49c7.15-8.42,14.27-16.35,22.39-24.57a80,80,0,1,1,1.66,114.75,8,8,0,1,0-11,11.64A96,96,0,1,0,128,32Z"></path></svg>${escapeHtml(q)}</button>
+              `).join("")}
+            </div>
           </div>
-        `;
+        ` : `<div class="search-empty-state"></div>`;
       }
 
       return `
@@ -1484,6 +1514,18 @@ export const SearchScreen = {
     input.focus();
   },
 
+  applyHistorySearch(node) {
+    const query = String(node?.dataset?.query || "").trim();
+    if (!query) return;
+    const input = this.container?.querySelector("#searchInput");
+    if (!input) return;
+    input.value = query;
+    input.classList.toggle("has-value", true);
+    this.query = query;
+    this.cancelScheduledInputSearch();
+    void this.runSearchFromInput(input, { autoFocusResults: true });
+  },
+
   bindSearchInputEvents() {
     const input = this.container?.querySelector("#searchInput");
     if (!input || input.__boundSearchListeners) return;
@@ -1498,6 +1540,8 @@ export const SearchScreen = {
     input.classList.toggle("has-value", input.value.length > 0);
 
     input.addEventListener("focus", () => {
+      const content = this.container?.querySelector(".search-content");
+      if (content) content.scrollTop = 0;
       const current = this.container?.querySelector(".focusable.focused") || null;
       if (current !== input) {
         this.focusNode(current, input);
@@ -1509,6 +1553,8 @@ export const SearchScreen = {
       event.preventDefault();
       input.blur();
       this.cancelScheduledInputSearch();
+      const queryToSave = trimLeadingWhitespace(input.value || "").trim();
+      if (queryToSave.length >= 2) saveSearchHistory(queryToSave);
       await this.runSearchFromInput(input, { autoFocusResults: true });
     });
   },
@@ -1590,6 +1636,7 @@ export const SearchScreen = {
     if (action === "openDiscover" && this.layoutPrefs?.searchDiscoverEnabled) Router.navigate("discover");
     if (action === "openVoice") this.handleVoiceSearch();
     if (action === "clearSearch") this.clearSearchInput();
+    if (action === "applyHistorySearch") this.applyHistorySearch(node);
   },
 
   ensureVoiceRecognition() {
