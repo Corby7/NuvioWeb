@@ -64,10 +64,13 @@ jobs:
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
-              const parsed = JSON.parse(data);
-              const review = parsed.content?.[0]?.text || 'No review generated';
-              fs.writeFileSync('/tmp/review.txt', review);
-              console.log('Review generated successfully');
+                console.log('Status:', res.statusCode);
+                const parsed = JSON.parse(data);
+                console.log('Content blocks:', parsed.content?.length);
+                console.log('First block type:', parsed.content?.[0]?.type);
+                const review = parsed.content?.[0]?.text || `No review generated. Raw: ${JSON.stringify(parsed.error || parsed.content)}`;
+                fs.writeFileSync('/tmp/review.txt', review);
+                console.log('Review generated successfully');
             });
           });
 
