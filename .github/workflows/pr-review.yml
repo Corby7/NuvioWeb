@@ -28,15 +28,19 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Claude review
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Write review script
         run: |
-          node << SCRIPT
+          cat > /tmp/review.js << 'JSEOF'
           const fs = require('fs');
           const https = require('https');
 
           const diff = fs.readFileSync('/tmp/pr_diff.txt', 'utf8');
+          const apiKey = process.env.ANTHROPIC_API_KEY;
+
+          if (!apiKey) {
+            fs.writeFileSync('/tmp/review.txt', 'Error: ANTHROPIC_API_KEY not set');
+            process.exit(1);
+          }
 
           const body = JSON.stringify({
             model: 'claude-sonnet-4-6',
@@ -52,7 +56,7 @@ jobs:
             path: '/v1/messages',
             method: 'POST',
             headers: {
-              'x-api-key': process.env.ANTHROPIC_API_KEY,
+              'x-api-key': apiKey,
               'anthropic-version': '2023-06-01',
               'content-type': 'application/json',
               'content-length': Buffer.byteLength(body)
@@ -71,13 +75,18 @@ jobs:
           });
 
           req.on('error', (e) => {
-            console.error('Request failed:', e);
+            fs.writeFileSync('/tmp/review.txt', 'Request failed: ' + e.message);
             process.exit(1);
           });
 
           req.write(body);
           req.end();
-          SCRIPT
+          JSEOF
+
+      - name: Claude review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node /tmp/review.js
 
       - name: Post comment
         uses: actions/github-script@v7
