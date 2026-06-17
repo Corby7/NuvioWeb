@@ -496,6 +496,16 @@ export function setLegacySidebarExpanded(container, expanded) {
     sidebar._legacyOpenTimer = null;
   }
 
+  const shell = container?.querySelector(".home-shell")
+    || container?.parentElement?.querySelector(".home-shell")
+    || null;
+  const isCollapsible = sidebar.dataset.collapsible === "true";
+
+  if (shell) {
+    shell.classList.toggle("sidebar-expanded-collapsible", expanded && isCollapsible);
+    shell.classList.toggle("sidebar-expanded-fixed", expanded && !isCollapsible);
+  }
+
   if (expanded) {
     sidebar.classList.add("opening", "content-expanded", "expanded");
     sidebar._legacyOpenTimer = setTimeout(() => {
