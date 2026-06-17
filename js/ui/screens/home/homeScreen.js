@@ -27,7 +27,7 @@ import {
   MODERN_HOME_CONSTANTS,
   renderModernHomeLayout
 } from "./modernHomeLayout.js";
-import { observePosterImages, unobservePosterImages, optimizePosterUrl, resetPosterLoader } from "./posterLoader.js";
+import { optimizePosterUrl } from "./posterLoader.js";
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
@@ -68,7 +68,7 @@ const HOME_ROW_TIMEOUT_MS = 3500;
 const HOME_ROW_RETRY_TIMEOUT_MS = 12000;
 const HOME_BACKGROUND_RENDER_DELAY_MS = 120;
 const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;
-const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 700;
+const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 400;
 const CW_META_TIMEOUT_MS = 1800;
 const CW_META_TIMEOUT_TV_MS = 4200;
 const CW_NEXT_UP_META_TIMEOUT_MS = 2200;
@@ -2008,7 +2008,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
       ? `<img class="home-poster-focus-gif" data-src="${escapeAttribute(collectionItem.focusGifUrl)}" alt="" aria-hidden="true" />`
       : "";
     const contentMarkup = visualSrc
-      ? `<img class="content-poster" data-poster-src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
+      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" loading="lazy" alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
       : (collectionItem.coverEmoji
         ? `<div class="home-collection-emoji" aria-hidden="true">${escapeHtml(collectionItem.coverEmoji)}</div>`
         : '<div class="content-poster placeholder"></div>');
@@ -2091,7 +2091,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
              data-logo-src="${escapeAttribute(normalized.logo || "")}"`}>
       <div class="home-poster-frame">
         ${(!isLoading && posterSrc)
-      ? `<img class="content-poster" data-poster-src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" alt="" aria-label="${escapeAttribute(normalized.name || "")}" />`
+      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" loading="lazy" alt="" aria-label="${escapeAttribute(normalized.name || "")}" />`
       : '<div class="content-poster placeholder"></div>'}
         ${(!isLoading && expandedVisualSrc)
       ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}" decoding="async" loading="lazy" alt="" aria-hidden="true" />`
@@ -6895,8 +6895,6 @@ export const HomeScreen = {
     this.ensureHomeTruncationObservers();
     this.scheduleHomeTruncationUpdate();
     this.scheduleReturnFocusRestore();
-    resetPosterLoader();
-    observePosterImages(this.container);
   },
 
   teardownGridStickyHeader() {
@@ -7723,7 +7721,6 @@ export const HomeScreen = {
             track.appendChild(frag);
             ScreenUtils.indexFocusables(track);
             this.buildNavigationModel();
-            observePosterImages(track);
           }
           // Update in-memory row data
           if (rowData?.result?.data) {
@@ -7762,9 +7759,6 @@ export const HomeScreen = {
     this.continueWatchingMenu = null;
     this.posterHoldMenu = null;
     this.posterListPicker = null;
-    if (this.container) {
-      unobservePosterImages(this.container);
-    }
     this.persistCurrentFocusState();
     this.homeLoadToken = (this.homeLoadToken || 0) + 1;
     this.cancelScheduledRender();

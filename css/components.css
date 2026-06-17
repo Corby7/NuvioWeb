@@ -1748,9 +1748,7 @@ button:focus-visible {
   z-index: -1;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%) top / 100% 100px no-repeat,
-    rgba(8, 12, 24, 0.62);
-  -webkit-backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
-  backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
+    rgba(8, 12, 24, 0.94);
   border-right: 1px solid rgba(255, 255, 255, 0.09);
   opacity: 0;
   transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -2198,13 +2196,6 @@ button:focus-visible {
   background:
     linear-gradient(180deg, rgba(16, 16, 16, 0.22), rgba(16, 16, 16, 0.22)),
     linear-gradient(180deg, rgba(74, 79, 89, 0.839), rgba(63, 69, 79, 0.8), rgba(64, 71, 79, 0.776));
-  backdrop-filter: blur(0px) saturate(1);
-  -webkit-backdrop-filter: blur(0px) saturate(1);
-}
-
-.modern-sidebar-shell.blur-enabled.expanded:not(.collapsing) .modern-sidebar-panel {
-  backdrop-filter: blur(26px) saturate(1);
-  -webkit-backdrop-filter: blur(26px) saturate(1);
 }
 
 .modern-sidebar-profile {
@@ -4830,14 +4821,6 @@ button:focus-visible {
   transform: none;
 }
 
-.home-screen-shell .home-poster-card img.content-poster:not(.poster-loaded) {
-  opacity: 0;
-}
-
-.home-screen-shell .home-poster-card img.content-poster.poster-loaded {
-  opacity: 1;
-  transition: opacity 180ms ease;
-}
 
 .home-screen-shell .home-poster-card .content-poster,
 .home-screen-shell .home-poster-card .home-poster-expanded-backdrop {
@@ -5853,13 +5836,12 @@ button:focus-visible {
 .home-screen-shell.home-layout-modern .home-hero-backdrop {
   object-position: 100% 0;
   opacity: 1;
-  will-change: opacity;
-  transition: opacity 700ms ease-in-out;
+  transition: opacity 400ms ease-in-out;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-enter {
   opacity: 0;
-  transition-duration: 700ms;
+  transition-duration: 400ms;
   transition-timing-function: ease-out;
 }
 
@@ -5869,8 +5851,7 @@ button:focus-visible {
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost {
   opacity: 1;
-  will-change: opacity;
-  transition: opacity 700ms ease-in;
+  transition: opacity 400ms ease-in;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost.is-fading-out {
