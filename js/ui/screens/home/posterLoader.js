@@ -93,3 +93,19 @@ export function optimizePosterUrl(url) {
   }
   return url;
 }
+
+export function optimizeBackdropUrl(url) {
+  if (!url) return url;
+  if (TMDB_POSTER_RE.test(url)) {
+    return url.replace(TMDB_POSTER_RE, "/image.tmdb.org/t/p/w1280/");
+  }
+  return url;
+}
+
+export function optimizeLogoUrl(url) {
+  if (!url) return url;
+  if (TMDB_POSTER_RE.test(url)) {
+    return url.replace(TMDB_POSTER_RE, "/image.tmdb.org/t/p/w500/");
+  }
+  return url;
+}

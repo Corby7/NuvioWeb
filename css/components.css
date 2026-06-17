@@ -1710,7 +1710,6 @@ button:focus-visible {
   color: #f8fbff;
   overflow: hidden;
   padding-left: var(--legacy-sidebar-rail-width);
-  transition: padding-left 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .home-route-content {
@@ -1734,7 +1733,7 @@ button:focus-visible {
 
 .home-sidebar {
   box-sizing: border-box;
-  width: var(--legacy-sidebar-rail-width);
+  width: var(--legacy-sidebar-open-width);
   height: 100vh;
   position: absolute;
   top: 0;
@@ -1745,9 +1744,8 @@ button:focus-visible {
   flex-direction: column;
   align-items: stretch;
   background: transparent;
-  transition: width 350ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow 350ms cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
-  will-change: width;
   contain: layout style;
 }
 
@@ -1772,17 +1770,18 @@ button:focus-visible {
   transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.home-sidebar[data-collapsible="true"] {
+  transition: box-shadow 350ms cubic-bezier(0.4, 0, 0.2, 1), transform 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
 .home-sidebar[data-collapsible="true"]:not(.expanded) {
-  width: 0;
-  padding-left: 0;
-  padding-right: 0;
+  transform: translateX(-100%);
 }
 
 .home-sidebar.expanded {
-  width: var(--legacy-sidebar-open-width);
-  flex-basis: var(--legacy-sidebar-open-width);
   box-shadow: 8px 0 48px rgba(0, 0, 0, 0.55);
-  transition: width 480ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 480ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow 480ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Scrim behind the expanded sidebar */
@@ -1797,7 +1796,6 @@ button:focus-visible {
   z-index: 5;
   pointer-events: none;
   opacity: 0;
-  will-change: opacity;
   transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -2137,15 +2135,13 @@ button:focus-visible {
   right: auto;
   bottom: 0;
   left: 0;
-  width: var(--modern-sidebar-collapsed-width);
+  width: var(--modern-sidebar-open-width);
   z-index: 18;
   pointer-events: none;
   contain: layout style;
   overflow: visible;
   transform: translateZ(0);
   backface-visibility: hidden;
-  will-change: width;
-  transition: width 385ms cubic-bezier(0, 0, 0.2, 1);
 }
 
 .modern-sidebar-shell,
@@ -2153,13 +2149,6 @@ button:focus-visible {
   box-sizing: border-box;
 }
 
-.modern-sidebar-shell.expanded:not(.opening):not(.collapsing) {
-  width: var(--modern-sidebar-open-width);
-}
-
-.modern-sidebar-shell.opening {
-  animation: modernSidebarShellOpen 395ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
 
 .modern-sidebar-pill,
 .modern-sidebar-panel {
@@ -2467,18 +2456,6 @@ button:focus-visible {
 .modern-sidebar-shell.keep-pill-expanded .modern-sidebar-pill-chevron,
 .modern-sidebar-shell.keep-pill-expanded .modern-sidebar-pill-label {
   display: block;
-}
-
-@keyframes modernSidebarShellOpen {
-  from {
-    width: var(--modern-sidebar-collapsed-width);
-  }
-  47.95% {
-    width: 548px;
-  }
-  to {
-    width: var(--modern-sidebar-open-width);
-  }
 }
 
 @keyframes modernSidebarPanelOpen {
@@ -4815,7 +4792,6 @@ button:focus-visible {
 .home-screen-shell .home-poster-card {
   border-color: transparent;
   transform: none;
-  will-change: transform;
 }
 
 .home-screen-shell .home-poster-card.focused {
@@ -6581,7 +6557,6 @@ button:focus-visible {
   grid-template-columns: 440px minmax(0, 1fr);
   gap: 64px;
   transition: width 350ms cubic-bezier(0.4, 0, 0.2, 1), margin 350ms cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: width, margin;
 }
 
 .settings-page-header {
@@ -11105,7 +11080,6 @@ button:focus-visible {
   flex: 0 0 auto;
   align-self: flex-start;
   overflow: hidden;
-  will-change: height;
 }
 
 .player-parental-line-fill {
@@ -13345,7 +13319,6 @@ button:focus-visible {
   z-index: 5;
   pointer-events: none;
   opacity: 0;
-  will-change: opacity;
   transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -15008,7 +14981,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   transition: none !important;
 }
 
-/* Kill layout-triggering transitions (padding-left, width) on weak hardware */
+/* Kill remaining transitions on weak hardware */
 .performance-constrained .home-route,
 .performance-constrained .home-sidebar {
   transition: none !important;

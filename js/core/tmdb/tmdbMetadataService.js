@@ -12,7 +12,7 @@ function resolveType(contentType) {
   return "movie";
 }
 
-function toImageUrl(path, size = "original") {
+function toImageUrl(path, size = "w1280") {
   if (!path) {
     return null;
   }

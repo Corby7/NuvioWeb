@@ -27,7 +27,7 @@ import {
   MODERN_HOME_CONSTANTS,
   renderModernHomeLayout
 } from "./modernHomeLayout.js";
-import { optimizePosterUrl } from "./posterLoader.js";
+import { optimizePosterUrl, optimizeBackdropUrl, optimizeLogoUrl } from "./posterLoader.js";
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
@@ -1511,12 +1511,13 @@ export function buildModernHeroPresentation(hero) {
     if (!normalizedCollection) {
       return null;
     }
+    const collectionBackdrops = buildHeroBackdropSources(normalizedCollection);
     return {
       title: normalizedCollection.heroTitle || normalizedCollection.name || normalizedCollection.rawTitle || "",
-      logo: firstNonEmpty(normalizedCollection.titleLogoUrl, normalizedCollection.logo),
+      logo: optimizeLogoUrl(firstNonEmpty(normalizedCollection.titleLogoUrl, normalizedCollection.logo)),
       description: "",
-      backdrop: buildHeroBackdropSources(normalizedCollection)[0] || "",
-      backdropFallbacks: buildHeroBackdropSources(normalizedCollection).slice(1),
+      backdrop: optimizeBackdropUrl(collectionBackdrops[0] || ""),
+      backdropFallbacks: collectionBackdrops.slice(1).map(optimizeBackdropUrl),
       leadingMeta: [],
       trailingMeta: [],
       secondaryHighlightText: "",
@@ -1557,15 +1558,16 @@ export function buildModernHeroPresentation(hero) {
   const showImdbPrimary = Boolean(imdbText);
   const showImdbSecondary = false;
 
+  const backdropSources = buildHeroBackdropSources(normalized);
   return {
     title: normalized.name || "Untitled",
-    logo: firstNonEmpty(normalized.logo),
+    logo: optimizeLogoUrl(firstNonEmpty(normalized.logo)),
     description: firstNonEmpty(
       isContinueWatchingHero ? normalized.episodeDescription : null,
       normalized.description
     ) || "",
-    backdrop: buildHeroBackdropSources(normalized)[0] || "",
-    backdropFallbacks: buildHeroBackdropSources(normalized).slice(1),
+    backdrop: optimizeBackdropUrl(backdropSources[0] || ""),
+    backdropFallbacks: backdropSources.slice(1).map(optimizeBackdropUrl),
     leadingMeta,
     trailingMeta,
     secondaryHighlightText,
@@ -4198,7 +4200,7 @@ export const HomeScreen = {
     if (heroNode && String(heroNode.dataset.itemId || "") !== String(hero.id || "")) {
       heroNode.classList.add("is-hero-copy-updating");
     }
-    this.heroFocusDelayTimer = setTimeout(async () => {
+    this.heroFocusDelayTimer = setTimeout(() => {
       this.heroItem = shouldEnrichModernHero(hero) ? { ...hero, heroMetaEnriching: true } : hero;
       const matchedIndex = this.heroCandidates.findIndex((item) => String(item?.id || "") === String(hero.id || ""));
       if (matchedIndex >= 0) {
@@ -4206,11 +4208,14 @@ export const HomeScreen = {
       }
       this.applyHeroToDom();
       if (shouldEnrichModernHero(hero)) {
-        await this.enrichCurrentHeroAsync(hero);
+        const heroId = String(hero.id);
+        setTimeout(() => {
+          if (String(this.heroItem?.id || "") === heroId) {
+            this.enrichCurrentHeroAsync(this.heroItem || hero);
+          }
+        }, 0);
       }
-      if (String(this.heroItem?.id || "") === String(hero.id || "")) {
-        this._prefetchAdjacentCards(node);
-      }
+      this._prefetchAdjacentCards(node);
     }, delay);
   },
 
@@ -4266,6 +4271,10 @@ export const HomeScreen = {
 
   async enrichCurrentHeroAsync(hero) {
     if (!hero || !hero.id || hero.heroSource === "continueWatching" || hero.heroSource === "collection") {
+      return;
+    }
+    // Defer if a scroll animation is active; camera-follow landing retries via scheduleModernHeroUpdate
+    if (this.shouldSuspendModernViewportFocusSync()) {
       return;
     }
     const itemId = String(hero.id);
@@ -5253,8 +5262,7 @@ export const HomeScreen = {
     if (!track) {
       return null;
     }
-    const styles = globalThis.getComputedStyle ? globalThis.getComputedStyle(track) : null;
-    const leftPad = Math.max(0, Number.parseFloat(styles?.paddingLeft || "0") || 0);
+    const leftPad = this.getTrackEdgePadding();
     const trackRect = track.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
     const targetLeft = ((targetRect.left - trackRect.left) + Number(track.scrollLeft || 0)) - Number(layoutAdjustment || 0);
@@ -6075,16 +6083,10 @@ export const HomeScreen = {
     if (!this.boundHomeViewportScrollHandler) {
       let viewportScrollRaf = null;
       this.boundHomeViewportScrollHandler = () => {
-        if (this.shouldSuspendModernViewportFocusSync()) {
-          return;
-        }
+        if (this.shouldSuspendModernViewportFocusSync()) return;
         if (viewportScrollRaf) return;
         viewportScrollRaf = requestAnimationFrame(() => {
           viewportScrollRaf = null;
-          const current = this.container?.querySelector(".home-main .focusable.focused") || null;
-          if (current && this.isMainNode(current) && this.isNodeWithinMainViewport(current)) {
-            return;
-          }
           this.scheduleHomeViewportFocusSync();
         });
       };
@@ -6888,7 +6890,12 @@ export const HomeScreen = {
     }
     this.startHeroRotation();
     if (this.layoutMode === "modern" && heroItem) {
-      void this.enrichCurrentHeroAsync(heroItem);
+      const _initialHeroId = String(heroItem.id || "");
+      setTimeout(() => {
+        if (String(this.heroItem?.id || "") === _initialHeroId) {
+          this.enrichCurrentHeroAsync(this.heroItem || heroItem);
+        }
+      }, 0);
     }
     this.homeRouteEnterPending = false;
     this.renderedLayoutMode = this.layoutMode;
