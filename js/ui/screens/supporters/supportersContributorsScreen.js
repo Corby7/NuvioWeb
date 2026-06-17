@@ -566,7 +566,7 @@ export const SupportersContributorsScreen = {
       body: `
         <div class="supporters-dialog-person-row">
           <span class="supporters-avatar supporters-avatar-image large">
-            ${contributor.avatarUrl ? `<img src="${escapeHtml(contributor.avatarUrl)}" alt="${escapeHtml(contributor.name)}" />` : ""}
+            ${contributor.avatarUrl ? `<img src="${escapeHtml(contributor.avatarUrl)}" alt="${escapeHtml(contributor.name)}" loading="lazy" decoding="async" />` : ""}
             <span${contributor.avatarUrl ? " hidden" : ""}>${escapeHtml(initialsForName(contributor.name))}</span>
           </span>
           <div>

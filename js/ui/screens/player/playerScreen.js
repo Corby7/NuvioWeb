@@ -10630,7 +10630,7 @@ export const PlayerScreen = {
       return `
         <div class="player-episode-item focusable${selectedClass}" data-episode-index="${index}">
           <div class="player-episode-thumb-wrap">
-            ${thumbnail ? `<img class="player-episode-thumb" src="${escapeAttribute(thumbnail)}" alt="" />` : `<div class="player-episode-thumb-fallback"></div>`}
+            ${thumbnail ? `<img class="player-episode-thumb" src="${escapeAttribute(thumbnail)}" alt="" loading="lazy" decoding="async" />` : `<div class="player-episode-thumb-fallback"></div>`}
             ${code ? `<div class="player-episode-code">${escapeHtml(code)}</div>` : ""}
             ${current ? `<div class="player-episode-current">&#10003;</div>` : ""}
           </div>
