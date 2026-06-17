@@ -47,7 +47,7 @@ jobs:
             max_tokens: 4000,
             messages: [{
               role: 'user',
-              content: 'You are reviewing a pull request for a streaming TV app (Nuvio) targeting LG WebOS and Samsung Tizen. Review in this priority order: 1) bugs, 2) WebOS/Tizen-specific problems, 3) performance issues (animations, DOM size, memory leaks), 4) code quality, 5) CSS changes (lowest priority). Be concise and direct. Skip sections with nothing notable.\n\nDiff:\n' + diff
+              content: 'You are reviewing a pull request for a streaming TV app (Nuvio) targeting LG WebOS 25 (+). Review in this priority order: 1) bugs, 2) WebOS-specific problems, 3) performance issues (animations, DOM size, memory leaks), 4) code quality, 5) CSS changes (lowest priority). Be concise and direct. Skip sections with nothing notable.\n\nDiff:\n' + diff
             }]
           });
 
