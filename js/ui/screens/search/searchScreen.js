@@ -791,6 +791,7 @@ export const SearchScreen = {
     this.container.innerHTML = `
       <div class="home-shell search-screen-shell${this.searchRouteEnterPending ? " search-route-enter" : ""}">
         <main class="home-main search-content">
+          <div class="search-inline-spinner" aria-hidden="true"></div>
           <header class="library-page-header">
             <h1 class="library-page-title">${escapeHtml(t("search_title", {}, "Search"))}</h1>
           </header>

@@ -698,7 +698,10 @@ button:focus-visible {
 .profile-editor-backdrop,
 .profile-dialog-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
@@ -708,7 +711,10 @@ button:focus-visible {
 
 .profile-pin-layer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1332,7 +1338,10 @@ button:focus-visible {
 /* Backdrop / scrim — ATV dialogs dim the app heavily behind the focused panel. */
 .nuvio-dialog-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -1691,6 +1700,7 @@ button:focus-visible {
   }
 }
 
+
 .home-shell {
   display: flex;
   width: 100vw;
@@ -1738,13 +1748,16 @@ button:focus-visible {
   transition: width 350ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 350ms cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   will-change: width;
-  contain: layout;
+  contain: layout style;
 }
 
 .home-sidebar::before {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: -1;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%) top / 100% 100px no-repeat,
@@ -1776,7 +1789,10 @@ button:focus-visible {
 .home-shell::before {
   content: "";
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(0, 0, 0, 0.5);
   z-index: 5;
   pointer-events: none;
@@ -1876,7 +1892,6 @@ button:focus-visible {
   transition: background-color 180ms cubic-bezier(0.4, 0, 0.2, 1), color 180ms cubic-bezier(0.4, 0, 0.2, 1);
   margin: 0;
   flex-shrink: 0;
-  will-change: background-color, color;
 }
 
 .home-nav-item.profile {
@@ -2118,7 +2133,10 @@ button:focus-visible {
 
 .modern-sidebar-shell {
   position: absolute;
-  inset: 0 auto 0 0;
+  top: 0;
+  right: auto;
+  bottom: 0;
+  left: 0;
   width: var(--modern-sidebar-collapsed-width);
   z-index: 18;
   pointer-events: none;
@@ -2494,9 +2512,8 @@ button:focus-visible {
   padding-bottom: 0;
 }
 
-.search-content.search-is-loading::after {
-  content: "";
-  display: block;
+.search-content .search-inline-spinner {
+  display: none;
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -2504,6 +2521,11 @@ button:focus-visible {
   border-top-color: #9e9e9e;
   animation: homeLoadingSpin 820ms linear infinite;
   margin: 60px auto;
+  will-change: transform;
+}
+
+.search-content.search-is-loading .search-inline-spinner {
+  display: block;
 }
 
 .search-screen-shell {
@@ -3818,7 +3840,10 @@ button:focus-visible {
 
 .library-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgb(var(--bg-color-rgb) / 0.58);
   display: flex;
   align-items: center;
@@ -4299,7 +4324,10 @@ button:focus-visible {
 
 .featured-backdrop {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   max-height: none;
@@ -4551,7 +4579,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
 }
@@ -4583,7 +4614,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
 }
 
@@ -4769,7 +4803,7 @@ button:focus-visible {
   border: 2px solid transparent;
   background: transparent;
   overflow: visible;
-  transition: transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 200ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .home-screen-shell .home-content-card.focused {
@@ -4804,7 +4838,7 @@ button:focus-visible {
   aspect-ratio: 2 / 3;
   border: 2px solid transparent;
   border-radius: calc(var(--home-poster-radius) - 2px);
-  background-color: #27292e;
+  background-color: transparent;
   overflow: hidden;
   transform: translateZ(0);
   transition: border-color 180ms ease, box-shadow 280ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 140ms ease;
@@ -4829,7 +4863,6 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -4864,7 +4897,10 @@ button:focus-visible {
 
 .home-screen-shell .home-poster-expanded-gradient {
   position: absolute;
-  inset: auto 0 0;
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
   height: 40%;
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.76) 100%);
   pointer-events: none;
@@ -5078,7 +5114,10 @@ button:focus-visible {
 .home-screen-shell .home-continue-bg {
   position: absolute;
   z-index: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   display: block;
@@ -5107,7 +5146,10 @@ button:focus-visible {
   content: "";
   position: absolute;
   z-index: 1;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: linear-gradient(180deg, transparent 0%, transparent 45%, rgba(13, 13, 13, 0.7) 78%, rgba(13, 13, 13, 0.95) 100%);
 }
 
@@ -5239,7 +5281,10 @@ button:focus-visible {
 .home-screen-shell .home-poster-card-loading .home-poster-frame::before {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(255,255,255,0.03);
   z-index: 2;
 }
@@ -5401,7 +5446,10 @@ button:focus-visible {
 }
 
 .home-screen-shell.home-layout-classic .home-hero-backdrop-wrap {
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .home-screen-shell.home-layout-classic .home-hero-card::before {
@@ -5745,7 +5793,10 @@ button:focus-visible {
 
 .home-screen-shell.home-layout-modern .home-modern-hero-card {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 1;
   overflow: visible;
   display: flex;
@@ -5769,7 +5820,10 @@ button:focus-visible {
 .home-screen-shell.home-layout-modern .home-modern-hero-media::after {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
   z-index: 1;
 }
@@ -5809,7 +5863,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
 }
@@ -5864,7 +5921,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 0;
   opacity: 0;
   overflow: hidden;
@@ -5879,7 +5939,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   transform: scale(var(--modern-trailer-overscan-zoom));
@@ -6294,7 +6357,10 @@ button:focus-visible {
 
 .home-screen-shell .home-poster-focus-gif {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   opacity: 0;
@@ -6399,7 +6465,10 @@ button:focus-visible {
 
 .home-screen-shell.home-layout-modern .home-poster-card.is-trailer-active .home-poster-trailer-layer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: block;
   z-index: 1;
   opacity: 1;
@@ -7038,7 +7107,10 @@ button:focus-visible {
 
 .supporters-brand-face {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   padding: min(3.33vw, 64px) min(2.92vw, 56px); /* ATV 32dp/28dp -> 64px/56px */
   display: flex;
   flex-direction: column;
@@ -7445,7 +7517,10 @@ button:focus-visible {
 
 .supporters-dialog-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 80;
   display: flex;
   align-items: center;
@@ -8541,7 +8616,10 @@ button:focus-visible {
 .settings-layout-preview::after {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   border: 1px solid rgb(255 255 255 / 0.05);
   border-radius: inherit;
   pointer-events: none;
@@ -8930,7 +9008,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -9669,7 +9750,10 @@ button:focus-visible {
 
 .addons-qr-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
@@ -9910,7 +9994,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
 }
 
@@ -9920,7 +10007,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 5;
   pointer-events: auto;
   background: #000;
@@ -9947,7 +10037,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   background: #000;
@@ -9967,7 +10060,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   max-width: none;
@@ -9983,7 +10079,10 @@ button:focus-visible {
 
 .tizen-tv .tizen-avplay-object {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100vw;
   height: 100vh;
   display: block;
@@ -10050,7 +10149,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 20;
   opacity: 1;
   transition: opacity 220ms ease;
@@ -10100,7 +10202,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: #080b10 center center / cover no-repeat;
   filter: saturate(0.92);
 }
@@ -10111,7 +10216,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background:
     linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.58) 58%, rgba(0, 0, 0, 0.92) 100%),
     radial-gradient(120% 70% at 50% 45%, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.55));
@@ -10194,7 +10302,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -10550,7 +10661,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 31;
   opacity: 1;
   transition: opacity 180ms ease;
@@ -10568,7 +10682,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background:
     linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.56) 46%, rgba(0, 0, 0, 0.82) 100%),
     linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.72) 34%, rgba(0, 0, 0, 0.36) 62%, rgba(0, 0, 0, 0.12) 100%);
@@ -10795,7 +10912,10 @@ button:focus-visible {
 .player-skip-intro-progress-track,
 .player-skip-intro-progress-fill {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .player-skip-intro-progress-track {
@@ -10869,7 +10989,10 @@ button:focus-visible {
 
 .player-next-episode-thumb-shade {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: linear-gradient(180deg, rgba(0, 0, 0, 0) 26%, rgba(0, 0, 0, 0.32) 100%);
 }
 
@@ -11102,7 +11225,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 34;
   pointer-events: auto;
   background:
@@ -12294,7 +12420,10 @@ button:focus-visible {
 .player-skip-intro-progress-track,
 .player-skip-intro-progress-fill {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .player-skip-intro-progress-track {
@@ -12357,7 +12486,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   background: #0a0d12 center center / cover no-repeat;
@@ -12369,7 +12501,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background:
     linear-gradient(90deg, rgba(4, 7, 11, 0.92) 0%, rgba(8, 12, 17, 0.68) 44%, rgba(8, 12, 17, 0.34) 67%, rgba(8, 12, 17, 0.18) 100%),
     linear-gradient(180deg, rgba(0, 0, 0, 0.26), rgba(0, 0, 0, 0.82));
@@ -12597,19 +12732,28 @@ button:focus-visible {
 
 .series-stream-overlay {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 8;
 }
 
 .series-stream-overlay-backdrop {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgb(var(--bg-color-rgb) / 0.68);
 }
 
 .series-stream-panel {
   position: absolute;
-  inset: 34px 28px 34px 72px;
+  top: 34px;
+  right: 28px;
+  bottom: 34px;
+  left: 72px;
   display: grid;
   grid-template-columns: 0.94fr 1.46fr;
   gap: 20px;
@@ -13178,7 +13322,10 @@ button:focus-visible {
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   background: var(--detail-bg) right top / cover no-repeat;
@@ -13190,7 +13337,10 @@ button:focus-visible {
 .series-detail-shell::before {
   content: "";
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(0, 0, 0, 0.5);
   z-index: 5;
   pointer-events: none;
@@ -13209,7 +13359,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 0;
   opacity: 0;
   transition: opacity 600ms ease;
@@ -13228,7 +13381,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
 }
@@ -13239,7 +13395,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -13266,7 +13425,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background:
     linear-gradient(180deg, rgba(0, 0, 0, 0.68) 0%, rgba(0, 0, 0, 0.22) 34%, rgba(0, 0, 0, 0) 62%),
     linear-gradient(90deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.54) 34%, rgba(0, 0, 0, 0) 60%);
@@ -13436,7 +13598,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 0;
   /* Android TV BackdropLayer leftGradient: fadeWidth = 78% of screen. */
   background: linear-gradient(90deg,
@@ -13944,13 +14109,19 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   right: 0;
   bottom: 0;
   left: 0;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.18) 22%, rgba(0, 0, 0, 0.62) 52%, rgba(0, 0, 0, 0.86) 82%, rgba(0, 0, 0, 0.95) 100%);
 }
 
 .series-episode-copy {
   position: absolute;
-  inset: auto 0 0;
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -14362,7 +14533,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .detail-loading-shell {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100vw;
   height: 100vh;
   background: #05090f;
@@ -14371,7 +14545,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .detail-loading-bg {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: radial-gradient(ellipse 70% 60% at 65% 35%, rgba(25, 30, 45, 0.7) 0%, transparent 70%);
 }
 
@@ -14460,7 +14637,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .stream-screen-panel {
-  inset: 28px 24px;
+  top: 28px;
+  right: 24px;
+  bottom: 28px;
+  left: 24px;
   grid-template-columns: 0.9fr 1.5fr;
   background: rgba(11, 15, 22, 0.82);
   padding: 18px;
@@ -14486,7 +14666,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .stream-route-right-gradient,
 .stream-route-content {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .stream-route-backdrop {
@@ -14724,11 +14907,18 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .performance-constrained .player-loading-spinner-ring {
-  animation: playerLoadingSpinnerRotate 900ms linear infinite !important;
+  animation: playerLoadingSpinnerRotate 960ms steps(12, end) infinite !important;
 }
 
 .performance-constrained .stream-route-chip-spinner {
-  animation: streamRouteSpin 700ms linear infinite !important;
+  animation: streamRouteSpin 720ms steps(12, end) infinite !important;
+}
+
+.performance-constrained .home-screen-shell .home-loading-spinner-ring,
+.performance-constrained .home-screen-shell [class*="loading-spin"] {
+  animation-duration: 720ms !important;
+  animation-timing-function: steps(12, end) !important;
+  animation-iteration-count: infinite !important;
 }
 
 .performance-constrained .nuvio-route-slide-enter,
@@ -14815,6 +15005,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 /* Profile nav: keep grayscale states but kill the animated transition between them */
 .performance-constrained .home-nav-item.profile {
+  transition: none !important;
+}
+
+/* Kill layout-triggering transitions (padding-left, width) on weak hardware */
+.performance-constrained .home-route,
+.performance-constrained .home-sidebar {
   transition: none !important;
 }
 
@@ -15024,7 +15220,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .legacy-webos .player-skip-intro-progress-track,
 .legacy-webos .player-skip-intro-progress-fill {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .legacy-webos .player-skip-intro-progress-track {
@@ -15430,7 +15629,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   .player-skip-intro-progress-track,
   .player-skip-intro-progress-fill {
     position: absolute;
-    inset: 0;
+    top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   }
 
   .player-skip-intro-progress-track {
@@ -16286,7 +16488,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .folder-follow-hero-media,
 .folder-follow-hero-backdrop {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
 }
@@ -16299,7 +16504,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .folder-follow-hero::before {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: linear-gradient(90deg, rgb(13 13 13 / 0.95) 0%, rgb(13 13 13 / 0.86) 26%, rgb(13 13 13 / 0.35) 62%, rgb(13 13 13 / 0.15) 100%);
   z-index: 1;
 }
