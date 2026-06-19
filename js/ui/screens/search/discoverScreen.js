@@ -14,6 +14,7 @@ import {
   focusWithoutAutoScroll,
   setLegacySidebarExpanded
 } from "../../components/sidebarNavigation.js";
+import { RootSidebarController } from "../../components/rootSidebarController.js";
 
 const POSTER_HOLD_DELAY_MS = 650;
 const PICKER_MENU_EXIT_MS = 160;
@@ -276,6 +277,18 @@ export const DiscoverScreen = {
     this.container = document.getElementById("discover");
     ScreenUtils.show(this.container);
     this.layoutPrefs = LayoutPreferences.get();
+    RootSidebarController.register("discover", {
+      onCollapse: () => {
+        const last = this.container?.querySelector(".focusable.focused")
+          || this.container?.querySelector(`.focusable[data-action="${this.lastFocusedAction}"]`)
+          || this.container?.querySelector(".focusable");
+        if (last) {
+          this.container?.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+          last.classList.add("focused");
+          focusWithoutAutoScroll(last);
+        }
+      }
+    });
     this.sidebarExpanded = false;
     this.focusZone = "content";
     this.discoverRouteEnterPending = true;
@@ -1278,16 +1291,16 @@ export const DiscoverScreen = {
       <div class="home-shell search-screen-shell discover-shell">
         <main class="home-main discover-main${enterClass}">
           <header class="library-page-header">
-            <h1 class="library-page-title">${escapeHtml(t("discover_title", {}, "Discover"))}</h1>
-          </header>
-          <div class="seeall-shell discover-seeall-shell">
-            <header class="seeall-header discover-header">
-              <div class="seeall-subtitle" id="discoverContextLabel">${escapeHtml(contextLabel)}</div>
+              <h1 class="library-page-title">${escapeHtml(t("discover_title", {}, "Discover"))}</h1>
+              <div class="library-page-source" id="libraryPageSource">${escapeHtml(contextLabel)}</div>
             </header>
-            <section class="library-picker-row discover-picker-row" id="discoverPickerRow">
-              ${this.renderFilterPicker("type", "Type", formatAddonTypeLabel(this.selectedType))}
-              ${this.renderFilterPicker("catalog", "Catalog", selectedCatalog?.catalogName || "Select")}
-              ${this.renderFilterPicker("genre", "Genre", this.selectedGenre || "Default")}
+          <div class="seeall-shell discover-seeall-shell">
+            <section class="library-picker-groups" id="libraryPickerGroupsMount">
+              <section class="library-picker-row discover-picker-row" id="discoverPickerRow">
+                ${this.renderFilterPicker("type", "Type", formatAddonTypeLabel(this.selectedType))}
+                ${this.renderFilterPicker("catalog", "Catalog", selectedCatalog?.catalogName || "Select")}
+                ${this.renderFilterPicker("genre", "Genre", this.selectedGenre || "Default")}
+              </section>
             </section>
             <section class="seeall-grid discover-grid" id="discoverGridMount">
               ${cards}
@@ -1467,6 +1480,7 @@ export const DiscoverScreen = {
     if (focusedFilterKind) {
       if (isLeftKey(event)) {
         if (currentAction === "discoverFilterType") {
+          RootSidebarController.expand();
           return;
         }
         this.moveFilterFocus(-1);
@@ -1485,6 +1499,7 @@ export const DiscoverScreen = {
     if (currentAction === "openDetail") {
       if (isLeftKey(event) && Number(current.dataset.navCol || 0) === 0) {
         event?.preventDefault?.();
+        RootSidebarController.expand();
         return;
       }
       if (isUpKey(event) && Number(current.dataset.navRow || 0) === 0) {
@@ -1543,6 +1558,7 @@ export const DiscoverScreen = {
   },
 
   cleanup() {
+    RootSidebarController.unregister("discover");
     this.loadToken = (this.loadToken || 0) + 1;
     this.cancelScheduledRender();
     this.clearClosingPicker();

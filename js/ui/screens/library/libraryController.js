@@ -347,69 +347,78 @@ export class LibraryController {
       this.onChange(this.getState());
     }
 
-    const [sourceMode, listTabs, allItems, watchedItems] = await Promise.all([
-      libraryRepository.getSourceMode(),
-      libraryRepository.getListTabs(),
-      libraryRepository.getItems(),
-      watchedItemsRepository.getAll(5000).catch(() => [])
-    ]);
+    try {
+      const [sourceMode, listTabs, allItems, watchedItems] = await Promise.all([
+        libraryRepository.getSourceMode(),
+        libraryRepository.getListTabs(),
+        libraryRepository.getItems(),
+        watchedItemsRepository.getAll(5000).catch(() => [])
+      ]);
 
-    const nextSelectedListKey = sourceMode === LibrarySourceMode.TRAKT
-      ? (this.state.selectedListKey && listTabs.some((item) => item.key === this.state.selectedListKey)
-        ? this.state.selectedListKey
-        : (listTabs[0]?.key || null))
-      : null;
+      const nextSelectedListKey = sourceMode === LibrarySourceMode.TRAKT
+        ? (this.state.selectedListKey && listTabs.some((item) => item.key === this.state.selectedListKey)
+          ? this.state.selectedListKey
+          : (listTabs[0]?.key || null))
+        : null;
 
-    const availableSortOptions = sourceMode === LibrarySourceMode.TRAKT
-      ? LIBRARY_SORT_OPTIONS
-      : LIBRARY_SORT_OPTIONS.filter((option) => option.key !== LibrarySortOptionKey.DEFAULT);
-    const facets = buildFacets(allItems, {
-      ...this.state,
-      sourceMode,
-      selectedListKey: nextSelectedListKey
-    });
-    const availableTypeTabs = facets.availableTypeTabs;
-    const selectedTypeKey = availableTypeTabs.some((item) => item.key === this.state.selectedTypeKey)
-      ? this.state.selectedTypeKey
-      : ALL_KEY;
-    const selectedGenre = this.state.selectedGenre && facets.availableGenres.some((item) => item.key === this.state.selectedGenre)
-      ? this.state.selectedGenre
-      : null;
-    const selectedYear = this.state.selectedYear && facets.availableYears.some((item) => item.key === this.state.selectedYear)
-      ? this.state.selectedYear
-      : null;
-    const selectedSortKey = availableSortOptions.some((item) => item.key === this.state.selectedSortKey)
-      ? this.state.selectedSortKey
-      : (sourceMode === LibrarySourceMode.TRAKT ? LibrarySortOptionKey.DEFAULT : LibrarySortOptionKey.ADDED_DESC);
-    const manageSelectedListKey = this.state.manageSelectedListKey && listTabs.some((item) => item.key === this.state.manageSelectedListKey && item.type === "personal")
-      ? this.state.manageSelectedListKey
-      : (listTabs.find((item) => item.type === "personal")?.key || null);
+      const availableSortOptions = sourceMode === LibrarySourceMode.TRAKT
+        ? LIBRARY_SORT_OPTIONS
+        : LIBRARY_SORT_OPTIONS.filter((option) => option.key !== LibrarySortOptionKey.DEFAULT);
+      const facets = buildFacets(allItems, {
+        ...this.state,
+        sourceMode,
+        selectedListKey: nextSelectedListKey
+      });
+      const availableTypeTabs = facets.availableTypeTabs;
+      const selectedTypeKey = availableTypeTabs.some((item) => item.key === this.state.selectedTypeKey)
+        ? this.state.selectedTypeKey
+        : ALL_KEY;
+      const selectedGenre = this.state.selectedGenre && facets.availableGenres.some((item) => item.key === this.state.selectedGenre)
+        ? this.state.selectedGenre
+        : null;
+      const selectedYear = this.state.selectedYear && facets.availableYears.some((item) => item.key === this.state.selectedYear)
+        ? this.state.selectedYear
+        : null;
+      const selectedSortKey = availableSortOptions.some((item) => item.key === this.state.selectedSortKey)
+        ? this.state.selectedSortKey
+        : (sourceMode === LibrarySourceMode.TRAKT ? LibrarySortOptionKey.DEFAULT : LibrarySortOptionKey.ADDED_DESC);
+      const manageSelectedListKey = this.state.manageSelectedListKey && listTabs.some((item) => item.key === this.state.manageSelectedListKey && item.type === "personal")
+        ? this.state.manageSelectedListKey
+        : (listTabs.find((item) => item.type === "personal")?.key || null);
 
-    this.state = {
-      ...this.state,
-      sourceMode,
-      allItems,
-      listTabs,
-      availableTypeTabs: facets.availableTypeTabs,
-      availableGenres: facets.availableGenres,
-      availableYears: facets.availableYears,
-      availableSortOptions,
-      selectedListKey: nextSelectedListKey,
-      selectedTypeKey,
-      selectedGenre,
-      selectedYear,
-      selectedSortKey,
-      manageSelectedListKey,
-      isNuvioAccount: sourceMode === LibrarySourceMode.LOCAL && AuthManager.isAuthenticated,
-      isTraktAuthenticated: sourceMode === LibrarySourceMode.TRAKT,
-      watchedMovieIds: new Set((watchedItems || []).filter((item) => item.season == null && item.episode == null).map((item) => String(item.contentId || ""))),
-      watchedSeriesIds: new Set((watchedItems || []).filter((item) => item.season == null && item.episode == null).map((item) => String(item.contentId || ""))),
-      isLoading: false,
-      isSyncing: false,
-      expandedPicker: preserveOverlay ? this.state.expandedPicker : null,
-      pickerFocusIndex: 0
-    };
-    this.state.visibleItems = sortForState(this.state.allItems, this.state);
+      this.state = {
+        ...this.state,
+        sourceMode,
+        allItems,
+        listTabs,
+        availableTypeTabs: facets.availableTypeTabs,
+        availableGenres: facets.availableGenres,
+        availableYears: facets.availableYears,
+        availableSortOptions,
+        selectedListKey: nextSelectedListKey,
+        selectedTypeKey,
+        selectedGenre,
+        selectedYear,
+        selectedSortKey,
+        manageSelectedListKey,
+        isNuvioAccount: sourceMode === LibrarySourceMode.LOCAL && AuthManager.isAuthenticated,
+        isTraktAuthenticated: sourceMode === LibrarySourceMode.TRAKT,
+        watchedMovieIds: new Set((watchedItems || []).filter((item) => item.season == null && item.episode == null).map((item) => String(item.contentId || ""))),
+        watchedSeriesIds: new Set((watchedItems || []).filter((item) => item.season == null && item.episode == null).map((item) => String(item.contentId || ""))),
+        isLoading: false,
+        isSyncing: false,
+        expandedPicker: preserveOverlay ? this.state.expandedPicker : null,
+        pickerFocusIndex: 0
+      };
+      this.state.visibleItems = sortForState(this.state.allItems, this.state);
+    } catch (err) {
+      console.error("LibraryController: reload failed", err);
+      this.state = {
+        ...this.state,
+        isLoading: false,
+        isSyncing: false
+      };
+    }
     this.onChange(this.getState());
   }
 

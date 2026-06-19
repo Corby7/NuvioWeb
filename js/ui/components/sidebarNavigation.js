@@ -172,7 +172,9 @@ export function scheduleRootSidebarTextFit(container) {
 }
 
 function getSelectedItem(routeName = "") {
-  return ROOT_SIDEBAR_ITEMS.find((item) => item.route === String(routeName || "")) || ROOT_SIDEBAR_ITEMS[0];
+  const route = String(routeName || "");
+  const mapped = route === "discover" ? "search" : route;
+  return ROOT_SIDEBAR_ITEMS.find((item) => item.route === mapped) || ROOT_SIDEBAR_ITEMS[0];
 }
 
 function getItemForAction(action = "") {
