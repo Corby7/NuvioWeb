@@ -3583,10 +3583,10 @@ export const PlayerScreen = {
         <div id="playerAspectToast" class="player-aspect-toast hidden"></div>
 
         <div id="playerSeekOverlay" class="player-seek-overlay hidden">
-          <div class="player-seek-overlay-track"><div id="playerSeekFill" class="player-seek-fill"></div></div>
+          <div class="player-seek-overlay-track"><div id="playerSeekFill" class="player-progress-fill"></div></div>
           <div class="player-seek-overlay-bottom">
             <span id="playerSeekDirection" class="player-seek-direction"></span>
-            <span id="playerSeekPreview" class="player-seek-preview">0:00 / 0:00</span>
+            <span id="playerSeekPreview" class="player-time-label">0:00 / 0:00</span>
           </div>
         </div>
 

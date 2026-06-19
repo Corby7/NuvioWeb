@@ -10593,7 +10593,7 @@ button:focus-visible {
 
 .player-seek-overlay-track {
   width: 100%;
-  height: 8px;
+  height: 12px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.3);
   overflow: hidden;
@@ -10603,8 +10603,7 @@ button:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: clamp(12px, 1vw, 18px);
-  margin-top: 14px;
+  margin-top: 32px;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.65);
 }
 
@@ -11235,18 +11234,9 @@ button:focus-visible {
 
 .player-subtitle-modal,
 .player-audio-modal {
-  left: 44px;
-  bottom: 64px;
-  width: min(724px, calc(100vw - 88px));
-  max-height: calc(100vh - 92px);
-  padding: 0;
+  padding: 64px 48px;
   display: flex;
   flex-direction: column;
-}
-
-.player-subtitle-modal {
-  height: min(72vh, calc(100vh - 128px));
-  overflow: hidden;
 }
 
 .player-audio-modal {
@@ -11902,16 +11892,8 @@ button:focus-visible {
 
 .player-subtitle-modal,
 .player-audio-modal {
-  left: min(4.58vw, 88px); /* ATV scaffold start 44dp -> 88px */
-  bottom: min(6.67vw, 128px); /* ATV audio scaffold bottom 64dp -> 128px */
-  width: min(75.42vw, 1448px); /* ATV 724dp -> 1448px */
-  max-height: calc(100vh - min(9.58vw, 184px));
-}
-
-.player-subtitle-modal {
-  bottom: min(2.92vw, 56px); /* ATV subtitle scaffold bottom 28dp -> 56px */
-  height: min(75vh, calc(100vh - min(9.58vw, 184px)));
-  overflow: hidden;
+  width: 100%;
+  height: 100%;
 }
 
 .player-speed-modal {
@@ -11928,7 +11910,7 @@ button:focus-visible {
 }
 
 .player-dialog-title {
-  margin-bottom: min(1.25vw, 24px); /* ATV 12dp -> 24px */
+  margin-bottom: 32px;
 }
 
 .player-subtitle-rail {
