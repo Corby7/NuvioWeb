@@ -10466,9 +10466,17 @@ button:focus-visible {
   justify-content: center;
 }
 
+.player-control-buttons .player-control-btn:first-child span {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .player-control-icon {
-  width: var(--player-control-icon);
-  height: var(--player-control-icon);
+  width: 40px;
+  height: 40px;
   display: block;
   filter: invert(1) brightness(1.15);
 }
@@ -11752,7 +11760,7 @@ button:focus-visible {
   --player-controls-x: min(3.33vw, 64px); /* ATV 32dp -> 64px */
   --player-controls-y: min(2.5vw, 48px); /* ATV 24dp -> 48px */
   --player-control-size: min(5vw, 96px); /* ATV 48dp -> 96px */
-  --player-control-icon: min(2.5vw, 48px); /* ATV 24dp -> 48px */
+  --player-control-icon: min(2.5vw, 48px); /* ATV 24dp -> 48px */ 
   --player-panel-width: min(54.17vw, 1040px); /* ATV 520dp -> 1040px */
   --player-panel-padding: min(2.5vw, 48px); /* ATV 24dp -> 48px */
   --player-overlay-left: min(5.42vw, 104px); /* ATV 52dp -> 104px */
