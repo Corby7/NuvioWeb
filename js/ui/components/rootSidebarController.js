@@ -20,6 +20,9 @@ export const RootSidebarController = {
   appEl: null,         // #app
   profile: null,
   expanded: false,
+  openedBy: null,      // 'dpad' | 'pointer' | null
+  _pointerInSidebar: false,
+  _savedContentFocused: null,
   lastScreenFocus: null,
   currentRoute: "",
   _currentShell: null, // current screen's .home-shell (for content-shift classes)
@@ -93,6 +96,8 @@ export const RootSidebarController = {
     if (!this.el) return;
     this.currentRoute = routeName;
     this.expanded = false;
+    this.openedBy = null;
+    this._savedContentFocused = null;
     this._currentShell = null;
     this._render();
   },
@@ -134,6 +139,11 @@ export const RootSidebarController = {
   expand() {
     if (this.expanded) return;
     this.expanded = true;
+    this.openedBy = 'dpad';
+
+    // Strip .focused from content so it doesn't compete with the sidebar item.
+    this.appEl?.querySelectorAll(".focusable.focused:not(#root-nav-sidebar .focusable)")
+      .forEach((n) => n.classList.remove("focused"));
 
     // Clear any pre-existing .focused on sidebar items before opening so that
     // onExpand / openSidebar can set it cleanly on the selected item.
@@ -169,10 +179,47 @@ export const RootSidebarController = {
     }
   },
 
+  // Expand visually only — no focus move, no callbacks. Used for pointer hover.
+  _expandVisualOnly() {
+    this.expanded = true;
+    this.openedBy = 'pointer';
+    // Strip .focused from whatever content element had it so it doesn't
+    // visually compete with the hovered sidebar item.
+    const prev = this.appEl?.querySelector(".focusable.focused:not(#root-nav-sidebar .focusable)");
+    if (prev) {
+      prev.classList.remove("focused");
+      this._savedContentFocused = prev;
+    }
+    const layout = LayoutPreferences.get();
+    if (layout.modernSidebar) {
+      setModernSidebarExpanded(this.el, true);
+    } else {
+      setLegacySidebarExpanded(this.el, true);
+      this._toggleShellClass(true);
+    }
+  },
+
   collapse() {
     console.log("[rootSidebarController] collapse() called");
     if (!this.expanded) return;
+    const wasPointerOpen = this.openedBy === 'pointer';
     this.expanded = false;
+    this.openedBy = null;
+
+    if (wasPointerOpen) {
+      const layout = LayoutPreferences.get();
+      if (layout.modernSidebar) {
+        setModernSidebarExpanded(this.el, false);
+      } else {
+        setLegacySidebarExpanded(this.el, false);
+        this._toggleShellClass(false);
+      }
+      if (this._savedContentFocused?.isConnected) {
+        this._savedContentFocused.classList.add("focused");
+      }
+      this._savedContentFocused = null;
+      return;
+    }
 
     const cb = this._callbacks[this.currentRoute];
     if (cb?.onCollapse) {
@@ -218,15 +265,29 @@ export const RootSidebarController = {
     const app = this.appEl;
 
     // focusin: d-pad focus entering the sidebar triggers expand().
+    // Guard against magic remote auto-focus when pointer is already in sidebar.
     app.addEventListener("focusin", (event) => {
       if (!this._isManaged(this.currentRoute)) return;
       const target = event?.target;
       if (!target?.closest) return;
       if (target.closest("#root-nav-sidebar")) {
-        if (!this.expanded) this.expand();
+        if (!this.expanded && !this._pointerInSidebar) this.expand();
       } else if (target.classList?.contains("focusable")) {
         this.lastScreenFocus = target;
       }
+    });
+
+    // Pointer hover: expand visually on enter, collapse on leave if pointer-opened.
+    this.el.addEventListener("mouseenter", () => {
+      if (!this._isManaged(this.currentRoute)) return;
+      this._pointerInSidebar = true;
+      if (this.openedBy === 'dpad') return;
+      if (!this.expanded) this._expandVisualOnly();
+    });
+
+    this.el.addEventListener("mouseleave", () => {
+      this._pointerInSidebar = false;
+      if (this.openedBy === 'pointer') this.collapse();
     });
   },
 

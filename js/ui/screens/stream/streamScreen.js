@@ -1642,11 +1642,6 @@ export const StreamScreen = {
           ${bottomBadges || ""}
           ${meta ? `<div class="stream-route-card-meta">${meta}</div>` : ""}
         </div>
-        <div class="stream-route-card-side">
-          <div class="stream-route-addon-badge">${addonBadge}</div>
-          <div class="stream-route-addon-name">${escapeHtml(stream.addonName || "Addon")}</div>
-          ${isResolving ? `<div class="stream-route-addon-name">${escapeHtml(resolvingLabel)}</div>` : ""}
-        </div>
       </article>
     `;
   },

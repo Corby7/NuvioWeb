@@ -5435,6 +5435,9 @@ export const HomeScreen = {
     if (!this.container || !this.navModel?.rows?.length) {
       return null;
     }
+    if (RootSidebarController.expanded) {
+      return null;
+    }
     const current = this.container.querySelector(".home-main .focusable.focused");
     if (current && this.isMainNode(current) && this.isNodeWithinMainViewport(current)) {
       return current;
