@@ -5322,11 +5322,7 @@ export const MetaDetailsScreen = {
   },
 
   openRootSidebar() {
-    // Sidebar is injected into this.container by RootSidebarController after mount.
-    // Fall back to #root-nav-sidebar for compatibility with older render cycles.
-    const sidebarEl = this.container?.querySelector("[data-rsc-sidebar]")
-      ? this.container
-      : document.getElementById("root-nav-sidebar");
+    const sidebarEl = document.getElementById("root-nav-sidebar");
     if (!sidebarEl) return false;
     const target = sidebarEl.querySelector([
       ".modern-sidebar-panel .modern-sidebar-nav-item.selected",
@@ -5337,7 +5333,7 @@ export const MetaDetailsScreen = {
       ".home-sidebar .focusable"
     ].join(", "));
     if (!target) return false;
-    this._lastDetailFocused = this.container?.querySelector(".focusable:not([data-rsc-sidebar] *)") || null;
+    this._lastDetailFocused = this.container?.querySelector(".focusable") || null;
     this.container?.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
     if (sidebarEl.querySelector(".modern-sidebar-shell")) {
       setModernSidebarExpanded(sidebarEl, true);
@@ -5350,9 +5346,7 @@ export const MetaDetailsScreen = {
   },
 
   closeRootSidebar() {
-    const sidebarEl = this.container?.querySelector("[data-rsc-sidebar]")
-      ? this.container
-      : document.getElementById("root-nav-sidebar");
+    const sidebarEl = document.getElementById("root-nav-sidebar");
     if (!sidebarEl) return false;
     if (sidebarEl.querySelector(".modern-sidebar-shell")) {
       setModernSidebarExpanded(sidebarEl, false);

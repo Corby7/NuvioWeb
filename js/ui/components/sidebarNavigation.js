@@ -407,11 +407,6 @@ export function bindRootSidebarEvents(container, {
       }
     };
 
-    node.onmouseenter = () => {
-      const connected = focusables.filter((n) => n.isConnected);
-      connected.forEach((n) => n.classList.remove("focused"));
-      node.classList.add("focused");
-    };
   });
 
   container?.querySelectorAll(".modern-sidebar-pill[data-action='expandSidebar']").forEach((node) => {
@@ -419,15 +414,6 @@ export function bindRootSidebarEvents(container, {
       event?.preventDefault?.();
       event?.stopPropagation?.();
       event?.stopImmediatePropagation?.();
-      if (typeof onExpandSidebar === "function") {
-        onExpandSidebar(node);
-      }
-    };
-    node.onmouseenter = () => {
-      if (container.__sidebarCollapseTimer) {
-        clearTimeout(container.__sidebarCollapseTimer);
-        container.__sidebarCollapseTimer = null;
-      }
       if (typeof onExpandSidebar === "function") {
         onExpandSidebar(node);
       }
@@ -487,8 +473,16 @@ export function bindRootSidebarEvents(container, {
   scheduleRootSidebarTextFit(container);
 }
 
+function resolveSidebarContainer(container) {
+  const hasSidebar = Boolean(container?.querySelector?.(".home-sidebar, .modern-sidebar-shell"));
+  if (hasSidebar) return container;
+  if (typeof document === "undefined") return container;
+  return document.getElementById("root-nav-sidebar") || container;
+}
+
 export function setLegacySidebarExpanded(container, expanded) {
-  const sidebar = container?.querySelector(".home-sidebar");
+  const resolved = resolveSidebarContainer(container);
+  const sidebar = resolved?.querySelector(".home-sidebar");
   if (!sidebar) return;
 
   if (sidebar._legacyOpenTimer) {
@@ -496,40 +490,33 @@ export function setLegacySidebarExpanded(container, expanded) {
     sidebar._legacyOpenTimer = null;
   }
 
-  const shell = container?.querySelector(".home-shell")
-    || container?.parentElement?.querySelector(".home-shell")
-    || null;
-  const isCollapsible = sidebar.dataset.collapsible === "true";
-
-  if (shell) {
-    shell.classList.toggle("sidebar-expanded-collapsible", expanded && isCollapsible);
-    shell.classList.toggle("sidebar-expanded-fixed", expanded && !isCollapsible);
-  }
-
   if (expanded) {
     sidebar.classList.add("opening", "content-expanded", "expanded");
     sidebar._legacyOpenTimer = setTimeout(() => {
       sidebar.classList.remove("opening");
       sidebar._legacyOpenTimer = null;
-      scheduleRootSidebarTextFit(container);
+      scheduleRootSidebarTextFit(resolved);
     }, 350);
-    scheduleRootSidebarTextFit(container);
+    scheduleRootSidebarTextFit(resolved);
     return;
   }
 
   sidebar.classList.remove("opening", "content-expanded", "expanded");
-  scheduleRootSidebarTextFit(container);
+  sidebar.querySelectorAll(".focusable").forEach((n) => n.classList.remove("focused"));
+  scheduleRootSidebarTextFit(resolved);
 }
 
 export function getLegacySidebarNodes(container) {
-  return Array.from(container?.querySelectorAll(".home-sidebar .focusable") || [])
+  const resolved = resolveSidebarContainer(container);
+  return Array.from(resolved?.querySelectorAll(".home-sidebar .focusable") || [])
     .filter((node) => !node.closest(".modern-sidebar-panel"));
 }
 
 export function getLegacySidebarSelectedNode(container) {
-  return container?.querySelector(".home-sidebar .home-nav-item.selected")
-    || container?.querySelector(".home-sidebar .home-nav-item")
-    || container?.querySelector(".home-sidebar .focusable")
+  const resolved = resolveSidebarContainer(container);
+  return resolved?.querySelector(".home-sidebar .home-nav-item.selected")
+    || resolved?.querySelector(".home-sidebar .home-nav-item")
+    || resolved?.querySelector(".home-sidebar .focusable")
     || null;
 }
 
@@ -570,13 +557,15 @@ export function handleLegacySidebarBack(screen, event) {
 }
 
 export function getModernSidebarNodes(container) {
-  return Array.from(container?.querySelectorAll(".modern-sidebar-panel .focusable") || []);
+  const resolved = resolveSidebarContainer(container);
+  return Array.from(resolved?.querySelectorAll(".modern-sidebar-panel .focusable") || []);
 }
 
 export function getModernSidebarSelectedNode(container) {
-  return container?.querySelector(".modern-sidebar-panel .modern-sidebar-nav-item.selected")
-    || container?.querySelector(".modern-sidebar-panel .modern-sidebar-nav-item")
-    || container?.querySelector(".modern-sidebar-panel .focusable")
+  const resolved = resolveSidebarContainer(container);
+  return resolved?.querySelector(".modern-sidebar-panel .modern-sidebar-nav-item.selected")
+    || resolved?.querySelector(".modern-sidebar-panel .modern-sidebar-nav-item")
+    || resolved?.querySelector(".modern-sidebar-panel .focusable")
     || null;
 }
 
@@ -593,8 +582,9 @@ export function isRootSidebarNode(node) {
 }
 
 export function setModernSidebarPillIconOnly(container, iconOnly, keepExpanded = false) {
-  const shell = container?.querySelector(".modern-sidebar-shell");
-  const pill = container?.querySelector(".modern-sidebar-pill");
+  const resolved = resolveSidebarContainer(container);
+  const shell = resolved?.querySelector(".modern-sidebar-shell");
+  const pill = resolved?.querySelector(".modern-sidebar-pill");
   const shouldKeepExpanded = Boolean(keepExpanded || shell?.classList?.contains("keep-pill-expanded"));
   if (!pill || shouldKeepExpanded) {
     pill?.classList.remove("icon-only");
@@ -604,7 +594,8 @@ export function setModernSidebarPillIconOnly(container, iconOnly, keepExpanded =
 }
 
 export function setModernSidebarExpanded(container, expanded) {
-  const shell = container?.querySelector(".modern-sidebar-shell");
+  const resolved = resolveSidebarContainer(container);
+  const shell = resolved?.querySelector(".modern-sidebar-shell");
   if (!shell) {
     return false;
   }
@@ -638,9 +629,9 @@ export function setModernSidebarExpanded(container, expanded) {
     shell._modernOpenTimer = setTimeout(() => {
       shell.classList.remove("opening");
       shell._modernOpenTimer = null;
-      scheduleRootSidebarTextFit(container);
+      scheduleRootSidebarTextFit(resolved);
     }, 365);
-    scheduleRootSidebarTextFit(container);
+    scheduleRootSidebarTextFit(resolved);
     return true;
   }
 
@@ -659,9 +650,9 @@ export function setModernSidebarExpanded(container, expanded) {
       panel.setAttribute("aria-hidden", "true");
     }
     shell._modernCloseEndTimer = null;
-    scheduleRootSidebarTextFit(container);
+    scheduleRootSidebarTextFit(resolved);
   }, 430);
-  scheduleRootSidebarTextFit(container);
+  scheduleRootSidebarTextFit(resolved);
   return true;
 }
 

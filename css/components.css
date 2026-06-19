@@ -1383,7 +1383,7 @@ button:focus-visible {
   backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
   -webkit-backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
   border-radius: 64px;
-  padding: 48px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -1413,6 +1413,7 @@ button:focus-visible {
   line-height: 1.2;
   font-weight: 700;
   color: #ffffff;
+  padding: 24px 36px 12px 36px;
 }
 
 .nuvio-dialog-subtitle {
@@ -1423,7 +1424,8 @@ button:focus-visible {
   font-weight: 500;
   letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.5);
-  margin-top: -24px;
+  margin-top: -32px;
+  padding: 0 36px;
 }
 
 .nuvio-dialog-error {
@@ -1458,7 +1460,7 @@ button:focus-visible {
   font-family: inherit;
   display: flex;
   align-items: center;
-  gap: var(--modern-sidebar-button-gap);
+  gap: 32px;
   transform: scale(1);
   transform-origin: center center;
   transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -1731,6 +1733,19 @@ button:focus-visible {
   }
 }
 
+#root-nav-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 100;
+  pointer-events: none;
+}
+
+#root-nav-sidebar > * {
+  pointer-events: auto;
+}
+
 .home-sidebar {
   box-sizing: border-box;
   width: var(--legacy-sidebar-open-width);
@@ -1757,12 +1772,11 @@ button:focus-visible {
   bottom: 0;
   left: 0;
   z-index: -1;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%) top / 100% 100px no-repeat,
-    rgba(8, 12, 24, 0.94);
   border-right: 1px solid rgba(255, 255, 255, 0.09);
+  -webkit-backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
+  backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%) top / 100% 100px no-repeat, rgba(8, 12, 24, 0.62);
   opacity: 0;
-  transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .home-sidebar.expanded::before {
@@ -1799,7 +1813,7 @@ button:focus-visible {
   transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.home-shell:has(.root-sidebar-legacy.expanded)::before {
+body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   opacity: 1;
 }
 
@@ -1918,23 +1932,25 @@ button:focus-visible {
   transition: transform 430ms cubic-bezier(0.4, 0, 0.2, 1), background-color 180ms cubic-bezier(0.4, 0, 0.2, 1), color 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.home-nav-item.selected {
-  color: var(--secondary-color);
+.home-sidebar.content-expanded .home-nav-item.selected {
+  color: var(--text-color);
   font-weight: bold;
 }
 
-.home-sidebar.content-expanded .home-nav-item.selected {
-  color: var(--text-color);
+/* No pointer interaction on rail (collapsed) — prevents :hover from sticking after sidebar closes */
+.home-sidebar:not(.content-expanded) .home-nav-item {
+  pointer-events: none;
 }
 
+
 .home-nav-item.focused {
-  background: var(--focus-bg);
   color: var(--text-color);
   border: none !important;
   box-shadow: none !important;
 }
 
 .home-sidebar.content-expanded .home-nav-item.focused {
+  background: var(--focus-bg);
   color: var(--text-color);
 }
 
@@ -2273,6 +2289,11 @@ button:focus-visible {
   gap: var(--modern-sidebar-list-gap);
   padding: 0;
   transform: translateY(-24px);
+}
+
+/* No pointer interaction on pill (panel closed) — prevents :hover from sticking */
+.modern-sidebar-shell:not(.panel-visible) .modern-sidebar-nav-item {
+  pointer-events: none;
 }
 
 .modern-sidebar-nav-item {

@@ -3205,10 +3205,10 @@ export const HomeScreen = {
 
   setSidebarExpanded(expanded) {
     if (this.layoutPrefs?.modernSidebar) {
-      this.sidebarExpanded = Boolean(expanded);
       return;
     }
     setLegacySidebarExpanded(this.container, expanded);
+    RootSidebarController.applyShellExpanded(expanded);
   },
 
   isSidebarNode(node) {
@@ -5133,51 +5133,6 @@ export const HomeScreen = {
     this.collapseFocusedPoster();
   },
 
-  openSidebar(skipFocus = false) {
-    if (this.layoutPrefs?.modernSidebar) {
-      if (this.sidebarExpanded) {
-        return true;
-      }
-      this.sidebarExpanded = true;
-      RootSidebarController.expanded = true;
-      setModernSidebarExpanded(this.container, true);
-      if (skipFocus) return true;
-      const target = getModernSidebarSelectedNode(this.container);
-      const current = this.container?.querySelector(".focusable.focused") || null;
-      return this.focusNode(current, target) || true;
-    }
-    const target = getLegacySidebarSelectedNode(this.container);
-    if (target) {
-      this.container?.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
-      target.classList.add("focused");
-      this.focusWithoutAutoScroll(target);
-      this.setSidebarExpanded(true);
-      return true;
-    }
-    return false;
-  },
-
-  closeSidebarToContent() {
-    if (this.layoutPrefs?.modernSidebar) {
-      if (!this.sidebarExpanded) {
-        return false;
-      }
-      const target = (this.lastMainFocus && this.isMainNode(this.lastMainFocus))
-        ? this.lastMainFocus
-        : (this.navModel?.rows?.[0]?.[0] || null);
-      this.sidebarExpanded = false;
-      RootSidebarController.expanded = false;
-      setModernSidebarExpanded(this.container, false);
-      const current = this.container?.querySelector(".focusable.focused") || null;
-      return this.focusNode(current, target, "right") || true;
-    }
-    RootSidebarController.expanded = false;
-    const current = this.container?.querySelector(".home-sidebar .focusable.focused");
-    const target = (this.lastMainFocus && this.isMainNode(this.lastMainFocus))
-      ? this.lastMainFocus
-      : (this.navModel?.rows?.[0]?.[0] || null);
-    return this.focusNode(current, target, "right") || true;
-  },
 
   getMainFocusAnchor(node) {
     if (!node) {
@@ -5797,9 +5752,10 @@ export const HomeScreen = {
   },
 
   buildNavigationModel() {
+    const sidebarRoot = document.getElementById("root-nav-sidebar");
     const sidebar = this.layoutPrefs?.modernSidebar
-      ? Array.from(this.container?.querySelectorAll(".modern-sidebar-panel .focusable") || [])
-      : Array.from(this.container?.querySelectorAll(".home-sidebar .focusable") || []);
+      ? Array.from(sidebarRoot?.querySelectorAll(".modern-sidebar-panel .focusable") || [])
+      : Array.from(sidebarRoot?.querySelectorAll(".home-sidebar .focusable") || []);
     const rows = [];
 
     if (this.layoutMode === "modern") {
@@ -5873,7 +5829,10 @@ export const HomeScreen = {
     if (!nav) {
       return false;
     }
-    let current = this.container.querySelector(".focusable.focused")
+    const sidebarRootEl = document.getElementById("root-nav-sidebar");
+    let current = (RootSidebarController.expanded
+      ? (sidebarRootEl?.querySelector(".focusable.focused") || this.container.querySelector(".focusable.focused"))
+      : this.container.querySelector(".focusable.focused"))
       || this.container?.querySelector(".focusable")
       || null;
     if (!current) {
@@ -5925,7 +5884,9 @@ export const HomeScreen = {
         return this.focusNode(current, target, direction, inputMeta) || true;
       }
       if (direction === "right") {
-        return this.closeSidebarToContent() || true;
+        console.log("[handleHomeDpad] sidebar right → collapse");
+        RootSidebarController.collapse();
+        return true;
       }
       return true;
     }
@@ -5943,9 +5904,10 @@ export const HomeScreen = {
         || getModernSidebarSelectedNode(this.container)
         || nav.sidebar[0]
         || null;
-      if (this.layoutPrefs?.modernSidebar && !this.sidebarExpanded) {
+      if (this.layoutPrefs?.modernSidebar && !RootSidebarController.expanded) {
         this.lastMainFocus = current;
-        return this.openSidebar();
+        RootSidebarController.expand();
+        return true;
       }
       return this.focusNode(current, sidebarFallback, direction, inputMeta) || true;
     }
@@ -5990,7 +5952,7 @@ export const HomeScreen = {
           }
         }
         if (target.closest(".home-sidebar .focusable, .modern-sidebar-panel .focusable")) {
-          this.setSidebarExpanded(true);
+          RootSidebarController.expand();
           return;
         }
         if (!target.closest(".home-main .focusable")) {
@@ -6099,12 +6061,8 @@ export const HomeScreen = {
     ScreenUtils.show(this.container);
     this.ensureDelegatedEventsBound();
     RootSidebarController.register("home", {
-      onExpand: (skipFocus) => this.openSidebar(skipFocus),
-      onCollapse: () => this.closeSidebarToContent(),
-      onAfterInject: () => this.buildNavigationModel(),
-      injectTarget: ".home-screen-shell"
+      onAfterInject: () => this.buildNavigationModel()
     });
-    this.sidebarExpanded = false;
     this.pillIconOnly = false;
     this.homeRouteEnterPending = true;
     this.destroyHomeHoldDialog();
@@ -6176,7 +6134,6 @@ export const HomeScreen = {
     const token = this.homeLoadToken;
     const prefs = LayoutPreferences.get();
     this.layoutPrefs = prefs;
-    this.sidebarExpanded = Boolean(this.layoutPrefs?.modernSidebar && this.sidebarExpanded);
     this.layoutMode = String(prefs.homeLayout || "classic").toLowerCase();
     const includeWatchedItemNextUpSeeds = watchProgressRepository.getContinueWatchingSource?.() !== "trakt";
 
@@ -7514,18 +7471,19 @@ export const HomeScreen = {
         this.cancelFocusedPosterFlow();
         this.collapseFocusedPoster();
       }
+      const sidebarRoot = document.getElementById("root-nav-sidebar");
       const sidebarFocused = Boolean(
-        this.container?.querySelector(".modern-sidebar-panel .focusable.focused")
-        || this.container?.querySelector(".home-sidebar .focusable.focused")
+        sidebarRoot?.querySelector(".modern-sidebar-panel .focusable.focused")
+        || sidebarRoot?.querySelector(".home-sidebar .focusable.focused")
       );
       if (sidebarFocused) {
         Platform.exitApp();
       } else {
-        this.openSidebar();
+        RootSidebarController.expand();
       }
       return;
     }
-    if (this.layoutPrefs?.modernSidebar && !this.sidebarExpanded) {
+    if (this.layoutPrefs?.modernSidebar && !RootSidebarController.expanded) {
       if (code === 40) {
         this.pillIconOnly = true;
         setModernSidebarPillIconOnly(this.container, true);
@@ -7609,14 +7567,15 @@ export const HomeScreen = {
       this.cancelFocusedPosterFlow();
       this.collapseFocusedPoster();
     }
+    const sidebarRoot = document.getElementById("root-nav-sidebar");
     const sidebarFocused = Boolean(
-      this.container?.querySelector(".modern-sidebar-panel .focusable.focused")
-      || this.container?.querySelector(".home-sidebar .focusable.focused")
+      sidebarRoot?.querySelector(".modern-sidebar-panel .focusable.focused")
+      || sidebarRoot?.querySelector(".home-sidebar .focusable.focused")
     );
     if (sidebarFocused) {
       Platform.exitApp();
     } else {
-      this.openSidebar();
+      RootSidebarController.expand();
     }
     return true;
   },

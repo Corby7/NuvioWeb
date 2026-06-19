@@ -15,25 +15,24 @@ import { LayoutPreferences } from "../../data/local/layoutPreferences.js";
 // Routes with no sidebar at all
 const NO_SIDEBAR_ROUTES = new Set(["account", "profileSelection", "stream", "player"]);
 
-// Attribute that marks the sidebar host div we inject into screen containers
-const RSC_ATTR = "data-rsc-sidebar";
-
 export const RootSidebarController = {
-  el: null,        // #root-nav-sidebar (kept hidden for managed routes)
-  appEl: null,     // #app
+  el: null,            // #root-nav-sidebar — persistent, never re-injected
+  appEl: null,         // #app
   profile: null,
   expanded: false,
   lastScreenFocus: null,
   currentRoute: "",
-  _observer: null, // MutationObserver to survive screen re-renders
-  _screenEl: null, // Currently injected screen container
-  _callbacks: {},  // routeName → { onExpand, onCollapse, onAfterInject }
+  _currentShell: null, // current screen's .home-shell (for content-shift classes)
+  _callbacks: {},      // routeName → { onExpand, onCollapse, onAfterInject }
 
   init() {
     this.el = document.getElementById("root-nav-sidebar");
     this.appEl = document.getElementById("app");
     if (!this.el || !this.appEl) return;
-    getSidebarProfileState().then((profile) => { this.profile = profile; }).catch(() => {});
+    getSidebarProfileState().then((profile) => {
+      this.profile = profile;
+      this._render();
+    }).catch(() => { this._render(); });
     this._bindAppEvents();
   },
 
@@ -41,149 +40,179 @@ export const RootSidebarController = {
     return !NO_SIDEBAR_ROUTES.has(routeName);
   },
 
-  // Screens that render sidebar in their own HTML call register() so the
-  // controller's app-level events can call their expand/collapse logic.
+  _render() {
+    if (!this.el) return;
+    if (!this._isManaged(this.currentRoute)) {
+      this.el.hidden = true;
+      return;
+    }
+    const layout = LayoutPreferences.get();
+    this.el.hidden = false;
+    this.el.innerHTML = renderRootSidebar({
+      selectedRoute: this.currentRoute,
+      profile: this.profile,
+      layout
+    });
+    this._bindSidebarItemEvents(this.el);
+    scheduleRootSidebarTextFit(this.el);
+    if (this.expanded) {
+      if (layout.modernSidebar) {
+        setModernSidebarExpanded(this.el, true);
+      } else {
+        setLegacySidebarExpanded(this.el, true);
+        this._toggleShellClass(true);
+      }
+    }
+  },
+
+  // Called by screens to register expand/collapse/afterInject callbacks.
   register(routeName, { onExpand = null, onCollapse = null, onAfterInject = null } = {}) {
     const key = String(routeName || "");
     this._callbacks[key] = { onExpand, onCollapse, onAfterInject };
-    // Inject immediately so the sidebar is present during the screen's own
-    // loading/skeleton renders, not just after mount() completes.
-    if (this.currentRoute === key) {
-      const screenEl = document.getElementById(key);
-      if (screenEl) {
-        this._screenEl = screenEl;
-        this._stopObserver();
-        this._inject(key, screenEl);
-        if (typeof MutationObserver !== "undefined") {
-          this._observer = new MutationObserver(() => {
-            if (!screenEl.querySelector(`[${RSC_ATTR}]`)) {
-              this._inject(key, screenEl);
-            }
-          });
-          this._observer.observe(screenEl, { childList: true });
-        }
-      }
-    }
   },
 
   unregister(routeName) {
     delete this._callbacks[String(routeName || "")];
   },
 
-  // Called by Router.onNavigate (before screen mount) — clear previous state.
+  // Called by Router.onNavigate (before screen mount) — update selected route.
   update(routeName) {
     if (!this.el) return;
     this.currentRoute = routeName;
     this.expanded = false;
-    this._stopObserver();
-    this._screenEl = null;
-
-    // Keep #root-nav-sidebar hidden; sidebar lives in the screen container.
-    this.el.hidden = true;
+    this._currentShell = null;
+    this._render();
   },
 
-  // Called by Router.afterNavigate (after screen mount) — inject sidebar into screen.
+  // Called by Router.afterNavigate (after screen mount) — resolve current shell + notify.
   afterMount(routeName) {
     if (!this._isManaged(routeName)) return;
-
     const screenEl = document.getElementById(routeName);
-    if (!screenEl) return;
+    this._currentShell = screenEl?.querySelector(".home-shell") || null;
 
-    this._screenEl = screenEl;
+    getSidebarProfileState().then((profile) => {
+      if (profile !== this.profile) {
+        this.profile = profile;
+        this._render();
+      }
+    }).catch(() => {});
 
-    // Refresh profile on every navigation so profile-switch changes are reflected.
-    getSidebarProfileState().then((profile) => { this.profile = profile; }).catch(() => {});
-
-    // register() may have already injected and started the observer — skip if so.
-    if (screenEl.querySelector(`[${RSC_ATTR}]`) && this._observer) return;
-
-    this._inject(routeName, screenEl);
-
-    // Re-inject whenever the screen wipes its container with innerHTML = "..."
-    if (typeof MutationObserver !== "undefined") {
-      this._stopObserver();
-      this._observer = new MutationObserver(() => {
-        if (!screenEl.querySelector(`[${RSC_ATTR}]`)) {
-          this._inject(routeName, screenEl);
-        }
-      });
-      this._observer.observe(screenEl, { childList: true });
-    }
-  },
-
-  _inject(routeName, screenEl) {
-    const layout = LayoutPreferences.get();
-    const host = document.createElement("div");
-    host.setAttribute(RSC_ATTR, "true");
-    host.innerHTML = renderRootSidebar({ selectedRoute: routeName, profile: this.profile, layout });
-    screenEl.prepend(host);
-    this._bindSidebarItemEvents(routeName, host);
-    scheduleRootSidebarTextFit(host);
-    // Restore expanded visual state if sidebar was open when re-render happened
-    if (this.expanded) {
-      const layout2 = LayoutPreferences.get();
-      if (layout2.modernSidebar) setModernSidebarExpanded(host, true);
-      else setLegacySidebarExpanded(host, true);
-    }
     this._callbacks[routeName]?.onAfterInject?.();
   },
 
-  _stopObserver() {
-    this._observer?.disconnect();
-    this._observer = null;
+  // Toggle content-shift classes on the current screen's .home-shell.
+  _toggleShellClass(expanded) {
+    const shell = this._currentShell;
+    if (!shell) return;
+    const sidebar = this.el?.querySelector(".home-sidebar");
+    const isCollapsible = sidebar?.dataset.collapsible === "true";
+    shell.classList.toggle("sidebar-expanded-collapsible", expanded && isCollapsible);
+    shell.classList.toggle("sidebar-expanded-fixed", expanded && !isCollapsible);
   },
 
-  _getSidebarHost() {
-    return this._screenEl?.querySelector(`[${RSC_ATTR}]`) || null;
+  // Public: let screens that call setLegacySidebarExpanded directly also sync the shell class.
+  applyShellExpanded(expanded) {
+    this._toggleShellClass(expanded);
+  },
+
+  expand() {
+    if (this.expanded) return;
+    this.expanded = true;
+
+    // Clear any pre-existing .focused on sidebar items before opening so that
+    // onExpand / openSidebar can set it cleanly on the selected item.
+    // (Spatial nav may have already focused a non-selected item via focusin.)
+    this.el?.querySelectorAll(".home-sidebar .focusable, .modern-sidebar-panel .focusable")
+      .forEach((n) => n.classList.remove("focused"));
+
+    const cb = this._callbacks[this.currentRoute];
+    if (cb?.onExpand) {
+      cb.onExpand();
+      return;
+    }
+
+    const layout = LayoutPreferences.get();
+    if (layout.modernSidebar) {
+      setModernSidebarExpanded(this.el, true);
+      const target = getModernSidebarSelectedNode(this.el);
+      if (target) {
+        this.el.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+        target.classList.add("focused");
+        focusWithoutAutoScroll(target);
+      }
+    } else {
+      setLegacySidebarExpanded(this.el, true);
+      const target = getLegacySidebarSelectedNode(this.el);
+      if (target) {
+        this.el.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+        target.classList.add("focused");
+        focusWithoutAutoScroll(target);
+      }
+    }
+  },
+
+  collapse() {
+    console.log("[rootSidebarController] collapse() called");
+    if (!this.expanded) return;
+    this.expanded = false;
+
+    const cb = this._callbacks[this.currentRoute];
+    if (cb?.onCollapse) {
+      // Close the sidebar visually first so pointer-events:none activates immediately.
+      const layout = LayoutPreferences.get();
+      if (layout.modernSidebar) {
+        setModernSidebarExpanded(this.el, false);
+      } else {
+        setLegacySidebarExpanded(this.el, false);
+      }
+      this.el?.querySelectorAll(".focusable")
+        .forEach((n) => n.classList.remove("focused"));
+      this.el?.querySelectorAll(".home-nav-item, .modern-sidebar-nav-item")
+        .forEach((n) => n.classList.remove(
+          "hovered", "is-hover", "expanded", "active", "is-active", "open", "content-expanded"
+        ));
+      cb.onCollapse();
+      return;
+    }
+
+    // Default path (no screen callback): strip all state then collapse.
+    this.el?.querySelectorAll(".home-nav-item, .modern-sidebar-nav-item")
+      .forEach((n) => n.classList.remove(
+        "focused", "hovered", "is-hover",
+        "expanded", "active", "is-active", "open", "content-expanded"
+      ));
+    const layout = LayoutPreferences.get();
+    if (layout.modernSidebar) {
+      setModernSidebarExpanded(this.el, false);
+    } else {
+      setLegacySidebarExpanded(this.el, false);
+    }
+    const target = (this.lastScreenFocus?.isConnected ? this.lastScreenFocus : null)
+      || document.getElementById(this.currentRoute)?.querySelector(".focusable") || null;
+    if (target) {
+      document.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+      target.classList.add("focused");
+      focusWithoutAutoScroll(target);
+    }
   },
 
   _bindAppEvents() {
     const app = this.appEl;
 
-    // Detect cursor leaving the sidebar area → collapse
-    app.addEventListener("mouseover", (event) => {
-      if (!this._isManaged(this.currentRoute)) return;
-      const target = event?.target;
-      if (!target) return;
-
-      const inSidebar = target.closest(`[${RSC_ATTR}]`);
-      if (inSidebar) {
-        // Only cancel a pending collapse if cursor genuinely moved FROM outside
-        const fromOutside = event.relatedTarget && !event.relatedTarget.closest(`[${RSC_ATTR}]`);
-        if (fromOutside && app.__rscCollapseTimer) {
-          clearTimeout(app.__rscCollapseTimer);
-          app.__rscCollapseTimer = null;
-        }
-        return;
-      }
-
-      if (app.__rscCollapseTimer) { clearTimeout(app.__rscCollapseTimer); app.__rscCollapseTimer = null; }
-      if (this.expanded) {
-        app.__rscCollapseTimer = setTimeout(() => {
-          app.__rscCollapseTimer = null;
-          this.collapse();
-        }, 120);
-      }
-    });
-
-    // LG Magic Remote auto-focuses elements on pointer hover → use focusin to detect
+    // focusin: d-pad focus entering the sidebar triggers expand().
     app.addEventListener("focusin", (event) => {
       if (!this._isManaged(this.currentRoute)) return;
       const target = event?.target;
       if (!target?.closest) return;
-      if (target.closest(`[${RSC_ATTR}]`)) {
-        if (app.__rscCollapseTimer) { clearTimeout(app.__rscCollapseTimer); app.__rscCollapseTimer = null; }
+      if (target.closest("#root-nav-sidebar")) {
         if (!this.expanded) this.expand();
       } else if (target.classList?.contains("focusable")) {
-        // Track the last focused content element so collapse() can restore to it.
-        // Done here (not in expand()) because the screen may strip .focused before
-        // expand() runs when the cursor moves from content directly to the sidebar.
         this.lastScreenFocus = target;
       }
     });
   },
 
-  _bindSidebarItemEvents(routeName, host) {
+  _bindSidebarItemEvents(host) {
     const focusables = Array.from(
       host.querySelectorAll(".home-sidebar .focusable, .modern-sidebar-panel .focusable")
     );
@@ -205,94 +234,34 @@ export const RootSidebarController = {
         event?.preventDefault?.();
         event?.stopPropagation?.();
         const action = String(node.dataset.action || "");
-        activateLegacySidebarAction(action, routeName);
-        // If user clicks the already-selected route, collapse the sidebar.
-        if (isSelectedSidebarAction(action, routeName)) this.collapse();
+        activateLegacySidebarAction(action, this.currentRoute);
+        if (isSelectedSidebarAction(action, this.currentRoute)) {
+          this.collapse();
+        } else {
+          // Navigation in flight — disarm focusin-based expand before update() fires.
+          this.expanded = false;
+        }
       };
       node.onkeydown = (event) => {
         const key = Number(event?.keyCode || 0);
-        if (key === 38) { event.preventDefault(); moveFocus(node, -1); }
-        if (key === 40) { event.preventDefault(); moveFocus(node, 1); }
-      };
-      node.onmouseenter = () => {
-        focusables.filter((n) => n.isConnected).forEach((n) => n.classList.remove("focused"));
-        node.classList.add("focused");
+        if (key === 38 || key === 40) {
+          event.preventDefault();
+          event.stopPropagation();
+          moveFocus(node, key === 38 ? -1 : 1);
+        } else if (key === 39) {
+          event.preventDefault();
+          event.stopPropagation();
+          this.collapse();
+        } else if (key === 13) {
+          // WebOS d-pad OK does not fire a synthetic click on focused buttons.
+          event.preventDefault();
+          node.click();
+        }
       };
     });
 
     host.querySelectorAll(".modern-sidebar-pill").forEach((pill) => {
       pill.onclick = () => this.expand();
-      pill.onmouseenter = () => {
-        if (this.appEl.__rscCollapseTimer) {
-          clearTimeout(this.appEl.__rscCollapseTimer);
-          this.appEl.__rscCollapseTimer = null;
-        }
-        this.expand();
-      };
     });
-  },
-
-  expand() {
-    if (this.expanded) return;
-    // Set flag BEFORE any focus() call — focusWithoutAutoScroll fires focusin
-    // synchronously and would re-enter expand() causing infinite recursion.
-    this.expanded = true;
-
-    // Screens that manage their own sidebar register an onExpand callback.
-    const cb = this._callbacks[this.currentRoute];
-    if (cb?.onExpand) {
-      cb.onExpand();
-      return;
-    }
-
-    const host = this._getSidebarHost();
-    if (!host) return;
-
-    const layout = LayoutPreferences.get();
-
-    if (layout.modernSidebar) {
-      setModernSidebarExpanded(host, true);
-      const target = getModernSidebarSelectedNode(host);
-      if (target) {
-        host.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
-        target.classList.add("focused");
-        focusWithoutAutoScroll(target);
-      }
-    } else {
-      setLegacySidebarExpanded(host, true);
-      const target = getLegacySidebarSelectedNode(host);
-      if (target) {
-        host.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
-        target.classList.add("focused");
-        focusWithoutAutoScroll(target);
-      }
-    }
-  },
-
-  collapse() {
-    if (!this.expanded) return;
-    this.expanded = false;
-
-    // Screens that manage their own sidebar register an onCollapse callback.
-    const cb = this._callbacks[this.currentRoute];
-    if (cb?.onCollapse) {
-      cb.onCollapse();
-      return;
-    }
-
-    const host = this._getSidebarHost();
-    const layout = LayoutPreferences.get();
-    if (host) {
-      if (layout.modernSidebar) setModernSidebarExpanded(host, false);
-      else setLegacySidebarExpanded(host, false);
-    }
-
-    const target = (this.lastScreenFocus?.isConnected ? this.lastScreenFocus : null)
-      || this._screenEl?.querySelector(".focusable:not([data-rsc-sidebar] *)") || null;
-    if (target) {
-      document.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
-      target.classList.add("focused");
-      focusWithoutAutoScroll(target);
-    }
   }
 };
