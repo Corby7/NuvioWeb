@@ -2687,7 +2687,7 @@ button:focus-visible {
   width: 100%;
   font-size: 28px;
   line-height: 40px;
-  letter-spacing: 1px;
+  letter-spacing: 0.45px;
   color: var(--addons-text-secondary);
 }
 
@@ -2860,11 +2860,7 @@ button:focus-visible {
 }
 
 .discover-main {
-  position: relative;
-  flex: 1 1 auto;
-  width: 100%;
-  margin-left: 0;
-  padding: 24px 48px 32px;
+  padding: 48px 64px;
 }
 
 .discover-content {
@@ -3552,7 +3548,7 @@ button:focus-visible {
   min-height: min(4.375vw, 84px);
   padding: 0 min(1.04vw, 20px);
   border: none;
-  border-radius: min(1.25vw, 24px);
+  border-radius: 64px;
   background: transparent;
   color: var(--text-color);
   display: flex;
@@ -10366,7 +10362,7 @@ button:focus-visible {
 }
 
 .player-ends-at {
-  margin-top: 2px;
+  margin-top: 8px;
   font-size: 10px;
   color: rgba(255, 255, 255, 0.78);
 }
@@ -10392,7 +10388,7 @@ button:focus-visible {
 }
 
 .player-subtitle {
-  margin-top: 2px;
+  margin-top: 8px;
   font-size: 16px;
   color: rgba(239, 245, 251, 0.9);
 }
@@ -10414,7 +10410,7 @@ button:focus-visible {
   width: 100%;
   padding: 0;
   outline: none;
-  margin-top: 12px;
+  margin-top: 32px;
 }
 
 .player-progress-track {
@@ -11793,7 +11789,7 @@ button:focus-visible {
 }
 
 .player-ends-at {
-  margin-top: 0;
+  margin-top: 8px;
   font-size: min(1.042vw, 20px); /* ATV 10sp -> 20px */
   line-height: 1.2;
   font-weight: 400;
