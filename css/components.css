@@ -2127,14 +2127,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   margin-left: 0;
 }
 
-.home-shell.sidebar-expanded-collapsible .home-main {
-  transform: translateX(var(--legacy-sidebar-open-width));
-}
-
-.home-shell.sidebar-expanded-fixed .home-main {
-  transform: translateX(calc(var(--legacy-sidebar-open-width) - var(--legacy-sidebar-rail-width)));
-}
-
 .home-shell.home-modern-sidebar-enabled .home-main {
   margin-left: 0;
 }

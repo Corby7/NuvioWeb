@@ -32,6 +32,7 @@ export const RootSidebarController = {
     getSidebarProfileState().then((profile) => {
       this.profile = profile;
       this._render();
+      this._callbacks[this.currentRoute]?.onAfterInject?.();
     }).catch(() => { this._render(); });
     this._bindAppEvents();
   },
@@ -58,9 +59,21 @@ export const RootSidebarController = {
     if (this.expanded) {
       if (layout.modernSidebar) {
         setModernSidebarExpanded(this.el, true);
+        const target = getModernSidebarSelectedNode(this.el);
+        if (target) {
+          this.el.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+          target.classList.add("focused");
+          focusWithoutAutoScroll(target);
+        }
       } else {
         setLegacySidebarExpanded(this.el, true);
         this._toggleShellClass(true);
+        const target = getLegacySidebarSelectedNode(this.el);
+        if (target) {
+          this.el.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+          target.classList.add("focused");
+          focusWithoutAutoScroll(target);
+        }
       }
     }
   },
@@ -94,6 +107,7 @@ export const RootSidebarController = {
       if (profile !== this.profile) {
         this.profile = profile;
         this._render();
+        this._callbacks[routeName]?.onAfterInject?.();
       }
     }).catch(() => {});
 
@@ -105,7 +119,9 @@ export const RootSidebarController = {
     const shell = this._currentShell;
     if (!shell) return;
     const sidebar = this.el?.querySelector(".home-sidebar");
-    const isCollapsible = sidebar?.dataset.collapsible === "true";
+    const isCollapsible = this.currentRoute === "home"
+      ? true
+      : sidebar?.dataset.collapsible === "true";
     shell.classList.toggle("sidebar-expanded-collapsible", expanded && isCollapsible);
     shell.classList.toggle("sidebar-expanded-fixed", expanded && !isCollapsible);
   },
@@ -141,10 +157,12 @@ export const RootSidebarController = {
         focusWithoutAutoScroll(target);
       }
     } else {
+      console.log("[expand] sidebar el:", this.el?.querySelector(".home-sidebar"));
+      console.log("[expand] selected node:", getLegacySidebarSelectedNode(this.el));
       setLegacySidebarExpanded(this.el, true);
       const target = getLegacySidebarSelectedNode(this.el);
       if (target) {
-        this.el.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+        document.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
         target.classList.add("focused");
         focusWithoutAutoScroll(target);
       }

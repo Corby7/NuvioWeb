@@ -3212,7 +3212,8 @@ export const HomeScreen = {
   },
 
   isSidebarNode(node) {
-    return String(node?.dataset?.navZone || "") === "sidebar";
+    return String(node?.dataset?.navZone || "") === "sidebar"
+      || Boolean(node?.closest?.("#root-nav-sidebar"));
   },
 
   isMainNode(node) {
@@ -6061,7 +6062,12 @@ export const HomeScreen = {
     ScreenUtils.show(this.container);
     this.ensureDelegatedEventsBound();
     RootSidebarController.register("home", {
-      onAfterInject: () => this.buildNavigationModel()
+      onAfterInject: () => {
+        this.buildNavigationModel();
+        if (RootSidebarController.expanded) {
+          requestAnimationFrame(() => RootSidebarController.expand());
+        }
+      }
     });
     this.pillIconOnly = false;
     this.homeRouteEnterPending = true;
@@ -7451,6 +7457,10 @@ export const HomeScreen = {
   },
 
   onKeyDown(event) {
+    const sidebarHasFocus = Boolean(
+      document.getElementById("root-nav-sidebar")?.querySelector(".focusable.focused")
+    );
+    if (sidebarHasFocus) return;
     const currentFocusedNode = this.container?.querySelector(".focusable.focused") || null;
     const code = Number(event?.keyCode || 0);
     if (this.suppressHoldMenuEnterUntilKeyUp && code === 13) {
