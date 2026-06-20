@@ -4913,6 +4913,11 @@ export const HomeScreen = {
         cancelAnimationFrame(this.homeTruncationFrame);
         this.homeTruncationFrame = null;
       }
+      this.container.querySelectorAll(".home-hero-description").forEach((node) => {
+        if (node instanceof HTMLElement && node.style.maxHeight) {
+          node.style.maxHeight = "";
+        }
+      });
       return;
     }
     this.homeTruncationScope = scope || null;

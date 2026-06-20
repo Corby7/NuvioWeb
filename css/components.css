@@ -15063,6 +15063,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .legacy-webos .home-screen-shell.home-layout-modern .home-hero-description {
   font-size: 22px;
+  line-height: 30px;
+  -webkit-line-clamp: 4;
+  max-height: 120px;
 }
 
 .legacy-webos #player,
@@ -15703,8 +15706,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .performance-constrained .home-screen-shell.home-layout-modern .home-hero-description {
-  max-height: none;
-  -webkit-line-clamp: 5;
+  -webkit-line-clamp: 4;
+  line-height: 36px;
+  max-height: 144px;
 }
 
 .performance-constrained .home-content-card.focused,
