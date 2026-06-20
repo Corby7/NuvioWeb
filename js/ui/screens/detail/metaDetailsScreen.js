@@ -505,27 +505,27 @@ function resolveEpisodeRuntimeForSeason(episodes = [], season = null) {
 }
 
 function renderPlayGlyph() {
-  return `<svg class="series-btn-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4086 9.35258C23.5305 10.5065 23.5305 13.4935 21.4086 14.6474L8.59662 21.6145C6.53435 22.736 4 21.2763 4 18.9671L4 5.0329C4 2.72368 6.53435 1.26402 8.59661 2.38548L21.4086 9.35258Z" fill="currentColor"/></svg>`;
+  return `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_play.svg');" aria-hidden="true"></span>`;
 }
 
 function renderTrailerGlyph() {
-  return `<svg class="series-btn-svg" viewBox="0 0 256 256" aria-hidden="true"><path d="M164.44,105.34l-48-32A8,8,0,0,0,104,80v64a8,8,0,0,0,12.44,6.66l48-32a8,8,0,0,0,0-13.32ZM120,129.05V95l25.58,17ZM216,40H40A16,16,0,0,0,24,56V168a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,128H40V56H216V168Zm16,40a8,8,0,0,1-8,8H32a8,8,0,0,1,0-16H224A8,8,0,0,1,232,208Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round" paint-order="stroke fill"/></svg>`;
+  return `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_trailer.svg');--series-icon-focused:url('/assets/icons/ic_detail_trailer_filled.svg');" aria-hidden="true"></span>`;
 }
 
 function renderLibraryGlyph(isSaved = false) {
   return isSaved
-    ? `<svg class="series-btn-svg" viewBox="0 0 256 256" aria-hidden="true"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z" fill="currentColor" stroke="currentColor" stroke-width="12" stroke-linejoin="round" paint-order="stroke fill"/></svg>`
-    : `<svg class="series-btn-svg" viewBox="0 0 256 256" aria-hidden="true"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z" fill="currentColor" stroke="currentColor" stroke-width="12" stroke-linejoin="round" paint-order="stroke fill"/></svg>`;
+    ? `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_library_saved.svg');--series-icon-focused:url('/assets/icons/ic_detail_library_saved_filled.svg');" aria-hidden="true"></span>`
+    : `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_library_add.svg');" aria-hidden="true"></span>`;
 }
 
 function renderWatchedBadgeGlyph(className = "series-watched-badge-svg") {
-  return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17Z" fill="currentColor"/></svg>`;
+  return `<span class="${className}" style="--series-icon:url('/assets/icons/ic_detail_series_watched.svg');" aria-hidden="true"></span>`;
 }
 
 function renderWatchedGlyph(isWatched = false) {
   return isWatched
-    ? `<svg class="series-btn-svg" viewBox="0 0 256 256" aria-hidden="true"><path d="M53.92,34.62A8,8,0,1,0,42.08,45.38L61.32,66.55C25,88.84,9.38,123.2,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208a127.11,127.11,0,0,0,52.07-10.83l22,24.21a8,8,0,1,0,11.84-10.76Zm47.33,75.84,41.67,45.85a32,32,0,0,1-41.67-45.85ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.16,133.16,0,0,1,25,128c4.69-8.79,19.66-33.39,47.35-49.38l18,19.75a48,48,0,0,0,63.66,70l14.73,16.2A112,112,0,0,1,128,192Zm6-95.43a8,8,0,0,1,3-15.72,48.16,48.16,0,0,1,38.77,42.64,8,8,0,0,1-7.22,8.71,6.39,6.39,0,0,1-.75,0,8,8,0,0,1-8-7.26A32.09,32.09,0,0,0,134,96.57Zm113.28,34.69c-.42.94-10.55,23.37-33.36,43.8a8,8,0,1,1-10.67-11.92A132.77,132.77,0,0,0,231.05,128a133.15,133.15,0,0,0-23.12-30.77C185.67,75.19,158.78,64,128,64a118.37,118.37,0,0,0-19.36,1.57A8,8,0,1,1,106,49.79,134,134,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41A8,8,0,0,1,247.31,131.26Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round" paint-order="stroke fill"/></svg>`
-    : `<svg class="series-btn-svg" viewBox="0 0 256 256" aria-hidden="true"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round" paint-order="stroke fill"/></svg>`;
+    ? `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_watched_off.svg');--series-icon-focused:url('/assets/icons/ic_detail_watched_off_filled.svg');" aria-hidden="true"></span>`
+    : `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_watched.svg');--series-icon-focused:url('/assets/icons/ic_detail_watched_filled.svg');" aria-hidden="true"></span>`;
 }
 
 function ratingToneClass(value) {
@@ -936,9 +936,7 @@ function renderEpisodeRuntimeLabel(runtimeMinutes = 0) {
   }
   return `
     <span class="series-episode-runtime">
-      <svg class="series-episode-runtime-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 10.1 3.3 3.3-1.4 1.4L11 12.9V6h2v6.1Z"></path>
-      </svg>
+      <span class="series-episode-runtime-icon" style="-webkit-mask-image:url('/assets/icons/ic_detail_runtime.svg');mask-image:url('/assets/icons/ic_detail_runtime.svg');" aria-hidden="true"></span>
       <span>${escapeHtml(runtime)}</span>
     </span>
   `;
@@ -2559,7 +2557,7 @@ export const MetaDetailsScreen = {
     return `
       <div class="series-insight-tabs" data-scroll-key="people-tabs:${kind}">
         ${normalized.map(([tab, label], index) => `
-          ${index > 0 ? '<span class="series-insight-divider" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 256 256"><path d="M136,24V232a8,8,0,0,1-16,0V24a8,8,0,0,1,16,0Z"/></svg></span>' : ""}
+          ${index > 0 ? '<span class="series-insight-divider" aria-hidden="true"><span class="series-insight-divider-icon" style="-webkit-mask-image:url(\'/assets/icons/ic_detail_divider.svg\');mask-image:url(\'/assets/icons/ic_detail_divider.svg\');"></span></span>' : ""}
           <button class="series-insight-tab focusable${activeTab === tab ? " selected" : ""}"
                   data-action="${kind === "series" ? "setSeriesInsightTab" : "setMovieInsightTab"}"
                   data-tab="${tab}">${escapeHtml(label)}</button>

@@ -12584,7 +12584,15 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   width: 28px;
   height: 28px;
   display: block;
-  filter: invert(0);
+  background-color: currentColor;
+  -webkit-mask-image: var(--series-icon);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-image: var(--series-icon);
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .series-detail-description {
@@ -13027,8 +13035,17 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   align-items: center;
 }
 
-.series-insight-divider svg {
-  fill: currentColor;
+.series-insight-divider-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .series-insight-tab.selected {
@@ -13820,11 +13837,26 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   width: 48px;
   height: 48px;
   display: block;
+  background-color: currentColor;
+  -webkit-mask-image: var(--series-icon);
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-image: var(--series-icon);
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .series-primary-btn .series-btn-svg {
   width: 36px;
   height: 36px;
+}
+
+.series-primary-btn.focused .series-btn-svg,
+.series-circle-btn.focused .series-btn-svg {
+  -webkit-mask-image: var(--series-icon-focused, var(--series-icon));
+  mask-image: var(--series-icon-focused, var(--series-icon));
 }
 
 .series-primary-btn.focused {
@@ -14180,7 +14212,13 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
-  fill: currentColor;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .series-episode-date {
@@ -14238,6 +14276,13 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   width: 28px;
   height: 28px;
   display: block;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
 }
 
 .series-episode-status.idle {
@@ -16682,6 +16727,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .series-btn-svg {
   width: 44px;
   height: 44px;
+  background-color: currentColor;
 }
 
 .series-primary-btn .series-btn-svg {
@@ -16818,6 +16864,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .series-episode-status.complete {
   font-size: 40px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .series-watched-badge-svg {
