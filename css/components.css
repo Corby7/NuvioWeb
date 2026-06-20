@@ -13734,6 +13734,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   pointer-events: none;
 }
 
+body:has(.detail-trailer-active) #root-nav-sidebar {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
 .series-primary-btn,
 .series-circle-btn {
   border: none;

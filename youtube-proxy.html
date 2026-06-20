@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+#player { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<script>
+(function () {
+  var player = null;
+  var targetOrigin = "*";
+  var pendingCommands = [];
+  var ready = false;
+
+  var params = new URLSearchParams(location.search);
+  var videoId = params.get("v") || "";
+  var autoplay = params.get("autoplay") !== "0" ? 1 : 0;
+  var muted = params.get("muted") !== "0" ? 1 : 0;
+  var loop = params.get("loop") !== "0" ? 1 : 0;
+
+  function post(msg) {
+    try {
+      msg.source = "nuvio-youtube-proxy";
+      window.parent.postMessage(msg, targetOrigin);
+    } catch (_) {}
+  }
+
+  function getState() {
+    if (!player) return { paused: true, muted: true, currentTime: 0, duration: 0, loading: true, controllable: true };
+    var state = player.getPlayerState();
+    var paused = state !== 1;
+    var loading = state === 3 || state === -1;
+    return {
+      paused: paused,
+      muted: Boolean(player.isMuted()),
+      currentTime: Number(player.getCurrentTime() || 0),
+      duration: Number(player.getDuration() || 0),
+      loading: loading,
+      controllable: true
+    };
+  }
+
+  function handleCommand(cmd, payload) {
+    if (!player) {
+      pendingCommands.push({ cmd: cmd, payload: payload });
+      return;
+    }
+    if (cmd === "play") { try { player.playVideo(); } catch (_) {} }
+    else if (cmd === "pause") { try { player.pauseVideo(); } catch (_) {} }
+    else if (cmd === "setMuted") { try { payload && payload.muted ? player.mute() : player.unMute(); } catch (_) {} }
+    else if (cmd === "seekTo") { try { player.seekTo(Number(payload && payload.seconds || 0), true); } catch (_) {} }
+    else if (cmd === "getState") { post({ type: "state", state: getState() }); }
+  }
+
+  window.addEventListener("message", function (event) {
+    var data = event.data;
+    if (!data || typeof data !== "object" || data.source !== "nuvio-detail-trailer" || data.type !== "command") return;
+    if (event.origin && event.origin !== "null") targetOrigin = event.origin;
+    handleCommand(data.command, data.payload);
+  });
+
+  function onPlayerReady() {
+    ready = true;
+    if (muted) { try { player.mute(); } catch (_) {} }
+    if (autoplay) { try { player.playVideo(); } catch (_) {} }
+    post({ type: "ready" });
+    while (pendingCommands.length) {
+      var c = pendingCommands.shift();
+      handleCommand(c.cmd, c.payload);
+    }
+  }
+
+  function onStateChange(event) {
+    post({ type: "state", state: getState() });
+  }
+
+  function onError() {
+    post({ type: "state", state: { paused: true, muted: true, currentTime: 0, duration: 0, loading: false, controllable: false } });
+  }
+
+  function loadYT() {
+    if (!videoId) return;
+    window.YT.ready(function () {
+      player = new window.YT.Player("player", {
+        videoId: videoId,
+        playerVars: {
+          autoplay: autoplay,
+          mute: muted,
+          controls: 0,
+          loop: loop,
+          playlist: loop ? videoId : undefined,
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          iv_load_policy: 3,
+          fs: 0,
+          disablekb: 1
+        },
+        events: {
+          onReady: onPlayerReady,
+          onStateChange: onStateChange,
+          onError: onError
+        }
+      });
+    });
+  }
+
+  if (window.YT && window.YT.Player) {
+    loadYT();
+  } else {
+    window.onYouTubeIframeAPIReady = loadYT;
+    var tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+  }
+})();
+</script>
+</body>
+</html>
