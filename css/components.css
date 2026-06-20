@@ -14277,9 +14277,11 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   height: 28px;
   display: block;
   background-color: currentColor;
+  -webkit-mask-image: var(--series-icon);
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
+  mask-image: var(--series-icon);
   mask-repeat: no-repeat;
   mask-position: center;
   mask-size: contain;
@@ -16858,8 +16860,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-episode-status {
-  width: 64px;
-  height: 64px;
+  width: 50px;
+  height: 50px;
 }
 
 .series-episode-status.complete {
