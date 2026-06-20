@@ -3548,7 +3548,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   right: 0;
   max-height: min(33.33vw, 640px); /* ATV 320dp -> 640px */
   padding: min(0.21vw, 4px) min(0.52vw, 10px);
-  border-radius: min(1.88vw, 36px);
+  border-radius: 64px;
   border: 1px solid rgb(255 255 255 / 0.08);
   background: var(--card-bg);
   box-shadow: 0 min(0.625vw, 12px) min(1.25vw, 24px) rgba(0, 0, 0, 0.38);
@@ -14077,6 +14077,87 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   color: var(--detail-focus-text);
 }
 
+.series-season-row {
+  overflow-x: visible;
+  overflow-y: visible;
+  scroll-snap-type: none;
+}
+
+.series-season-picker {
+  flex: none;
+}
+
+.series-season-row .library-picker-anchor {
+  background: var(--detail-bg-card);
+  color: var(--detail-text-primary);
+  border: 1px solid rgb(255 255 255 / 0.10);
+  border-radius: 64px;
+  min-height: 80px;
+  padding: 0 36px;
+  font-size: 30px;
+  font-weight: 600;
+  transition: border-color 160ms cubic-bezier(0.2, 0, 0, 1), box-shadow 160ms cubic-bezier(0.2, 0, 0, 1), background-color 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.series-season-row .library-picker-anchor.focused,
+.series-season-row .library-picker.open .library-picker-anchor {
+  border-color: rgb(255 255 255 / 0.10);
+  box-shadow: inset 0 0 0 3px rgb(255 255 255 / 0.96);
+  background: var(--focus-bg);
+}
+
+.series-season-row .library-picker-title {
+  font-size: 22px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.series-season-row .library-picker-value {
+  font-size: 30px;
+  font-weight: 600;
+}
+
+.series-season-row .series-season-eps {
+  color: var(--detail-text-secondary);
+  font-weight: 400;
+}
+
+.series-season-row .library-picker-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--detail-bg-card);
+  border-radius: 64px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.series-season-row .library-picker-menu::-webkit-scrollbar {
+  display: none;
+}
+
+.series-season-row .library-picker-option {
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--detail-text-primary);
+  padding: 20px 32px;
+}
+
+.series-season-row .library-picker-option.selected {
+  color: var(--detail-focus-fill);
+}
+
+.series-season-row .library-picker-option.focused {
+  background: var(--detail-focus-fill);
+  color: var(--detail-focus-text);
+  border-radius: 64px;
+}
+
 .series-episode-card {
   flex: 0 0 clamp(440px, 29vw, 540px);
   width: clamp(440px, 29vw, 540px);
@@ -14745,7 +14826,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .stream-route-left-inner {
-  width: min(80%, 420px);
+  width: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -14754,9 +14835,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .stream-route-logo {
   width: 100%;
-  max-height: 140px;
   object-fit: contain;
-  margin-bottom: 22px;
+  margin-bottom: 64px;
 }
 
 .stream-route-title {
@@ -14767,15 +14847,14 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .stream-route-episode-code {
-  font-size: clamp(30px, 2vw, 38px);
+  font-size: 32px;
   line-height: 1.35;
   font-weight: 500;
   color: var(--text-secondary);
 }
 
 .stream-route-subtitle {
-  margin-top: 6px;
-  font-size: var(--tv-subtitle-text);
+  font-size: 32px;
   line-height: 1.35;
   font-weight: 500;
   color: var(--text-color);

@@ -30,6 +30,7 @@ import {
   setLegacySidebarExpanded,
   setModernSidebarExpanded
 } from "../../components/sidebarNavigation.js";
+import { renderContentFilterPicker } from "../../components/filterPicker.js";
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const EPISODE_HOLD_DELAY_MS = 650;
@@ -1176,6 +1177,8 @@ export const MetaDetailsScreen = {
     this.selectedRatingSeason = 0;
     this.selectedSeason = 0;
     this.hasManualSeasonSelection = false;
+    this.seasonPickerOpen = false;
+    this.seasonPickerFocusIndex = 0;
     this.collectionItems = [];
     this.collectionName = "";
     this.commentsItems = [];
@@ -2173,7 +2176,7 @@ export const MetaDetailsScreen = {
         <div class="series-detail-content">
           <div id="detailHeroSection">${this.renderSeriesHeroMarkup(meta)}</div>
           <div id="detailSeasonRowMount">
-            <div class="series-season-row" data-scroll-key="season-tabs">${this.renderSeasonButtons()}</div>
+            <div class="series-season-row">${this.renderSeasonDropdown()}</div>
           </div>
           <div id="detailEpisodeTrackMount">
             <div class="series-episode-track" data-scroll-key="episodes:${this.selectedSeason || 1}">${this.renderEpisodeCards()}</div>
@@ -2437,7 +2440,7 @@ export const MetaDetailsScreen = {
 
     const seasonMount = this.container.querySelector("#detailSeasonRowMount");
     if (isSeries && seasonMount) {
-      seasonMount.innerHTML = `<div class="series-season-row" data-scroll-key="season-tabs">${this.renderSeasonButtons()}</div>`;
+      seasonMount.innerHTML = `<div class="series-season-row">${this.renderSeasonDropdown()}</div>`;
     }
 
     const episodeMount = this.container.querySelector("#detailEpisodeTrackMount");
@@ -2617,18 +2620,53 @@ export const MetaDetailsScreen = {
     `;
   },
 
-  renderSeasonButtons() {
+  renderSeasonDropdown() {
     if (!this.episodes?.length) {
       return `<p>${escapeHtml(t("detail.noEpisodesFound", {}, "No episodes found."))}</p>`;
     }
-    const seasons = Array.from(new Set(this.episodes.map((episode) => episode.season)));
-    return seasons.map((season) => `
-      <button class="series-season-btn focusable${season === this.selectedSeason ? " selected" : ""}"
-              data-action="selectSeason"
-              data-season="${season}">
-        ${escapeHtml(`S${season}`)}
-      </button>
-    `).join("");
+    const seasons = Array.from(new Set(this.episodes.map((ep) => ep.season)));
+    const options = seasons.map((season) => {
+      const count = this.episodes.filter((ep) => ep.season === season).length;
+      const label = `Season ${season} · ${count} ${count === 1 ? "Ep" : "Eps"}`;
+      return { label, value: String(season) };
+    });
+    const selectedIndex = Math.max(0, seasons.indexOf(this.selectedSeason));
+    const currentOption = options[selectedIndex] || options[0];
+    const [mainPart, epsPart] = (currentOption?.label ?? "").split(" · ");
+    const valueHtml = epsPart
+      ? `${escapeHtml(mainPart)} <span class="series-season-eps">· ${escapeHtml(epsPart)}</span>`
+      : escapeHtml(currentOption?.label ?? "");
+    return renderContentFilterPicker({
+      picker: "season",
+      title: "",
+      value: currentOption?.label ?? "",
+      valueHtml,
+      options,
+      open: this.seasonPickerOpen === true,
+      focusIndex: this.seasonPickerFocusIndex ?? selectedIndex,
+      selectedIndex,
+      wrapperExtraClass: "series-season-picker"
+    });
+  },
+
+  applySeasonPickerFocus() {
+    const options = Array.from(
+      this.container?.querySelectorAll('.library-picker.open .library-picker-option.focusable[data-picker="season"]') || []
+    );
+    if (!options.length) return false;
+    const focusIndex = Math.max(0, Math.min(options.length - 1, this.seasonPickerFocusIndex || 0));
+    options.forEach((node, i) => {
+      const active = i === focusIndex;
+      node.classList.toggle("focused", active);
+      node.classList.toggle("library-picker-option-target", active);
+    });
+    const target = options[focusIndex] || options[0];
+    if (!target) return false;
+    this.container.querySelectorAll(".focusable.focused").forEach((n) => {
+      if (n !== target) n.classList.remove("focused");
+    });
+    target.focus({ preventScroll: true });
+    return true;
   },
 
   renderEpisodeCards() {
@@ -2919,7 +2957,7 @@ export const MetaDetailsScreen = {
     if (!season) {
       return false;
     }
-    const focusRestore = { selector: `.series-season-btn[data-season="${season}"]` };
+    const focusRestore = { selector: ".series-season-row .library-picker-anchor.focusable" };
     this.destroyDetailHoldDialog();
     this.detailHoldDialog = new NuvioDialog({
       title: t("detail.seasonLabel", { season }, "Season {{season}}"),
@@ -3005,8 +3043,8 @@ export const MetaDetailsScreen = {
     return Boolean(node?.matches?.(".series-episode-card.focusable"));
   },
 
-  isSeasonHoldTarget(node) {
-    return Boolean(node?.matches?.(".series-season-btn.focusable"));
+  isSeasonHoldTarget(_node) {
+    return false;
   },
 
   isPosterHoldTarget(node) {
@@ -3450,7 +3488,7 @@ export const MetaDetailsScreen = {
     this.seasonHoldMenu = null;
     this.destroyDetailHoldDialog();
     if (restoreFocus) {
-      this.focusDetailDescriptor({ selector: `.series-season-btn[data-season="${season}"]` });
+      this.focusDetailDescriptor({ selector: `.series-season-row .library-picker-anchor.focusable` });
     }
     return true;
   },
@@ -4017,8 +4055,7 @@ export const MetaDetailsScreen = {
       return this.getEpisodeFocusDescriptor(this.episodeHoldMenu?.videoId);
     }
     if (this.seasonHoldMenu) {
-      const season = Number(this.seasonHoldMenu.season || this.selectedSeason || 1);
-      return { selector: `.series-season-btn[data-season="${season}"]` };
+      return { selector: ".series-season-row .library-picker-anchor.focusable" };
     }
     if (this.posterOptionsController?.dialog) {
       return this.posterOptionsFocusRestore || null;
@@ -4039,9 +4076,14 @@ export const MetaDetailsScreen = {
       return null;
     }
     const action = String(target.dataset.action || "");
+    if (action === "togglePicker" && target.dataset.picker === "season") {
+      return { selector: ".series-season-row .library-picker-anchor.focusable" };
+    }
+    if (action === "selectPickerOption" && target.dataset.picker === "season") {
+      return { selector: ".series-season-row .library-picker-anchor.focusable" };
+    }
     if (action === "selectSeason") {
-      const season = Number(target.dataset.season || 0);
-      return season > 0 ? { selector: `.series-season-btn[data-season="${season}"]` } : null;
+      return { selector: ".series-season-row .library-picker-anchor.focusable" };
     }
     if (action === "setSeriesInsightTab" || action === "setMovieInsightTab") {
       const tab = String(target.dataset.tab || "");
@@ -4967,6 +5009,15 @@ export const MetaDetailsScreen = {
   },
 
   consumeBackRequest() {
+    if (this.seasonPickerOpen) {
+      this.seasonPickerOpen = false;
+      const seasonMount = this.container?.querySelector("#detailSeasonRowMount");
+      if (seasonMount) {
+        seasonMount.innerHTML = `<div class="series-season-row">${this.renderSeasonDropdown()}</div>`;
+        this.focusDetailDescriptor({ selector: ".series-season-row .library-picker-anchor.focusable" });
+      }
+      return true;
+    }
     if (this.seasonHoldMenu) {
       this.closeSeasonHoldMenu();
       return true;
@@ -5624,7 +5675,7 @@ export const MetaDetailsScreen = {
     }
 
     const actions = Array.from(this.container.querySelectorAll(".series-detail-actions .focusable"));
-    const seasons = Array.from(this.container.querySelectorAll(".series-season-row .series-season-btn.focusable"));
+    const seasons = Array.from(this.container.querySelectorAll("#detailSeasonRowMount .library-picker-anchor.focusable"));
     const episodes = Array.from(this.container.querySelectorAll(".series-episode-track .series-episode-card.focusable"));
     const insightTabs = Array.from(this.container.querySelectorAll(".series-insight-tabs .series-insight-tab.focusable"));
     const castCards = Array.from(this.container.querySelectorAll(".series-cast-track .series-cast-card.focusable"));
@@ -5685,13 +5736,28 @@ export const MetaDetailsScreen = {
         return this.focusInList(episodes, this.getRememberedEpisodeIndex(episodes));
       }
       if (seasons.length) {
-        return this.focusInList(seasons, Math.min(index, seasons.length - 1));
+        return this.focusInList(seasons, 0);
       }
       if (actions.length) {
         return this.focusInList(actions, Math.min(index, actions.length - 1));
       }
       return false;
     };
+
+    if (this.seasonPickerOpen && (direction === "up" || direction === "down")) {
+      event.preventDefault?.();
+      const pickerOptions = Array.from(
+        this.container.querySelectorAll('.library-picker.open .library-picker-option.focusable[data-picker="season"]')
+      );
+      const maxIdx = pickerOptions.length - 1;
+      if (direction === "up") {
+        this.seasonPickerFocusIndex = Math.max(0, (this.seasonPickerFocusIndex || 0) - 1);
+      } else {
+        this.seasonPickerFocusIndex = Math.min(maxIdx, (this.seasonPickerFocusIndex || 0) + 1);
+      }
+      this.applySeasonPickerFocus();
+      return true;
+    }
 
     if (typeof event.preventDefault === "function") {
       event.preventDefault();
@@ -5728,8 +5794,8 @@ export const MetaDetailsScreen = {
 
     const seasonIndex = seasons.indexOf(current);
     if (seasonIndex >= 0) {
-      if (direction === "left") return this.focusLeftInList(seasons, seasonIndex) || this.openRootSidebar() || true;
-      if (direction === "right") return this.focusInList(seasons, seasonIndex + 1) || true;
+      if (direction === "left") return this.openRootSidebar() || true;
+      if (direction === "right") return true;
       if (direction === "up") {
         if (actions.length) {
           const detailContent = this.getDetailContentScroller();
@@ -5738,14 +5804,14 @@ export const MetaDetailsScreen = {
             detailContent.scrollTop = 0;
             setTimeout(() => { detailContent.style.scrollBehavior = ""; }, 700);
           }
-          return this.focusInList(actions, Math.min(seasonIndex, actions.length - 1), { animated: false }) || true;
+          return this.focusInList(actions, Math.min(0, actions.length - 1), { animated: false }) || true;
         }
       }
       if (direction === "down") {
         if (episodes.length) {
           return this.focusInList(episodes, this.getRememberedEpisodeIndex(episodes)) || true;
         }
-        if (focusFirstSeriesSectionBelowHero(seasonIndex)) {
+        if (focusFirstSeriesSectionBelowHero(0)) {
           return true;
         }
       }
@@ -6337,6 +6403,43 @@ export const MetaDetailsScreen = {
       return;
     }
 
+    if (action === "togglePicker" && current.dataset.picker === "season") {
+      if (this.seasonPickerOpen) {
+        this.seasonPickerOpen = false;
+        const seasonMount = this.container?.querySelector("#detailSeasonRowMount");
+        if (seasonMount) {
+          seasonMount.innerHTML = `<div class="series-season-row">${this.renderSeasonDropdown()}</div>`;
+          this.focusDetailDescriptor({ selector: ".series-season-row .library-picker-anchor.focusable" });
+        }
+      } else {
+        const allSeasons = Array.from(new Set(this.episodes?.map((ep) => ep.season) || []));
+        this.seasonPickerFocusIndex = Math.max(0, allSeasons.indexOf(this.selectedSeason));
+        this.seasonPickerOpen = true;
+        const seasonMount = this.container?.querySelector("#detailSeasonRowMount");
+        if (seasonMount) {
+          seasonMount.innerHTML = `<div class="series-season-row">${this.renderSeasonDropdown()}</div>`;
+          this.applySeasonPickerFocus();
+        }
+      }
+      return;
+    }
+
+    if (action === "selectPickerOption" && current.dataset.picker === "season") {
+      const optionIndex = Number(current.dataset.optionIndex || 0);
+      const allSeasons = Array.from(new Set(this.episodes?.map((ep) => ep.season) || []));
+      const season = allSeasons[optionIndex];
+      if (season != null && season !== this.selectedSeason) {
+        this.hasManualSeasonSelection = true;
+        this.selectedSeason = season;
+      }
+      this.seasonPickerOpen = false;
+      this.seasonPickerFocusIndex = optionIndex;
+      this.updateRenderedDetailSections(this.meta, {
+        selector: ".series-season-row .library-picker-anchor.focusable"
+      });
+      return;
+    }
+
     if (action === "setSeriesInsightTab") {
       const tab = String(current.dataset.tab || "cast");
       if (tab !== this.seriesInsightTab) {
@@ -6543,6 +6646,7 @@ export const MetaDetailsScreen = {
     this.destroyDetailHoldDialog();
     this.episodeHoldMenu = null;
     this.seasonHoldMenu = null;
+    this.seasonPickerOpen = false;
     this.heroPlayMenu = null;
     this.libraryListMenu = null;
     this.stopTrailerPlayback({ keepDom: false, restartAutoplay: false });
