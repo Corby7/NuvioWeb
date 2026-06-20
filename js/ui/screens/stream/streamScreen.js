@@ -1638,9 +1638,7 @@ export const StreamScreen = {
           ${topBadges || ""}
           <div class="stream-route-card-heading">${escapeHtml(headline)}</div>
           ${!badges ? `<div class="stream-route-card-quality">${escapeHtml(quality)}</div>` : ""}
-          ${descriptionLines.map((line, lineIndex) => `<div class="stream-route-card-line${lineIndex > 0 ? " secondary" : ""}">${escapeHtml(line)}</div>`).join("")}
-          ${bottomBadges || ""}
-          ${meta ? `<div class="stream-route-card-meta">${meta}</div>` : ""}
+          ${descriptionLines.map((line, lineIndex) => `<div class="stream-route-card-line${lineIndex < descriptionLines.length - 1 ? " secondary" : ""}">${escapeHtml(line)}</div>`).join("")}          ${bottomBadges || ""}
         </div>
       </article>
     `;

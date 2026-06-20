@@ -1945,6 +1945,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .home-sidebar:not(.content-expanded) .home-nav-item {
   pointer-events: none;
 }
+.home-sidebar:not(.content-expanded) .home-nav-item .home-nav-icon-wrap {
+  pointer-events: auto;
+}
 
 
 .home-nav-item.focused {
@@ -1953,12 +1956,14 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   box-shadow: none !important;
 }
 
-.home-sidebar.content-expanded .home-nav-item.focused {
+.home-sidebar.content-expanded .home-nav-item.focused,
+.home-sidebar.content-expanded .home-nav-item:hover {
   background: var(--focus-bg);
   color: var(--text-color);
 }
 
-.home-sidebar.content-expanded .home-nav-item.selected.focused {
+.home-sidebar.content-expanded .home-nav-item.selected.focused,
+.home-sidebar.content-expanded .home-nav-item.selected:hover {
   background: var(--focus-bg);
   color: var(--text-color);
 }
@@ -2315,19 +2320,23 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   color: #10151f;
 }
 
-.modern-sidebar-nav-item.focused {
+.modern-sidebar-nav-item.focused,
+.modern-sidebar-shell.panel-visible .modern-sidebar-nav-item:hover {
   background: rgba(255, 255, 255, 0.18);
   border-color: rgba(255, 255, 255, 0.4) !important;
   transform: scale(1.06);
 }
 
-.modern-sidebar-nav-item.selected.focused {
+.modern-sidebar-nav-item.selected.focused,
+.modern-sidebar-shell.panel-visible .modern-sidebar-nav-item.selected:hover {
   background: #fff;
   color: #10151f;
   border-color: rgba(255, 255, 255, 0.4) !important;
+  transform: scale(1.06);
 }
 
-.modern-sidebar-nav-item.selected.focused .modern-sidebar-nav-icon-circle {
+.modern-sidebar-nav-item.selected.focused .modern-sidebar-nav-icon-circle,
+.modern-sidebar-shell.panel-visible .modern-sidebar-nav-item.selected:hover .modern-sidebar-nav-icon-circle {
   background: #e7e2ef;
 }
 
@@ -14845,18 +14854,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .stream-route-card {
   width: 100%;
-  min-height: 214px;
-  padding: 28px 32px;
+  padding: 24px 32px;
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.09);
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 30px;
-  transform-origin: center;
-  transition: transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 200ms ease, border-color 200ms ease, background 200ms ease;
 }
 
 .stream-route-card:focus {
@@ -15852,6 +15855,11 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .stream-route-card-copy {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: start;
+  gap: 24px;
 }
 
 .stream-route-card-heading {
@@ -15876,8 +15884,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 10px 0 8px;
+  gap: 12px;
   max-width: 100%;
 }
 
@@ -15891,8 +15898,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .stream-route-stream-badge {
   min-height: 22px;
-  padding: 0 7px;
-  border-radius: 6px;
+  padding: 0 12px;
+  border-radius: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -15908,18 +15915,15 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .stream-route-stream-badge.image {
-  padding: 2px 5px;
-  min-width: 38px;
-  max-width: 104px;
   line-height: 0;
   overflow: hidden;
   background: transparent;
+  height: 40px;
 }
 
 .stream-route-stream-badge.image img {
   display: block;
-  max-height: 18px;
-  max-width: 96px;
+  max-height: 24px;
   object-fit: contain;
 }
 

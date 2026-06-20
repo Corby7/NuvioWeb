@@ -277,12 +277,16 @@ export const RootSidebarController = {
       }
     });
 
-    // Pointer hover: expand visually on enter, collapse on leave if pointer-opened.
-    this.el.addEventListener("mouseenter", () => {
+    // Pointer hover: expand visually only when the pointer is within the collapsed
+    // rail. Use the inner sidebar shell's rendered right edge as the threshold so
+    // it adapts to whatever the actual layout is, no hardcoded pixel values.
+    this.el.addEventListener("mouseover", (event) => {
       if (!this._isManaged(this.currentRoute)) return;
       this._pointerInSidebar = true;
-      if (this.openedBy === 'dpad') return;
-      if (!this.expanded) this._expandVisualOnly();
+      if (this.expanded || this.openedBy === 'dpad') return;
+      if (event.target?.closest(".home-nav-icon-wrap, .modern-sidebar-pill")) {
+        this._expandVisualOnly();
+      }
     });
 
     this.el.addEventListener("mouseleave", () => {
