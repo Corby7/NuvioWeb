@@ -13555,8 +13555,28 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .detail-trailer-control-btn.is-primary {
-  background: rgb(var(--secondary-color-rgb) / 0.18);
-  color: var(--text-color);
+  width: clamp(64px, 4.5vw, 84px);
+  min-width: clamp(64px, 4.5vw, 84px);
+  height: clamp(64px, 4.5vw, 84px);
+  padding: 0;
+  background: rgb(255 255 255 / 0.15);
+  color: #ffffff;
+  backdrop-filter: blur(14px);
+}
+
+.detail-trailer-control-btn.is-primary .player-control-icon-mask {
+  width: clamp(28px, 2.2vw, 40px);
+  height: clamp(28px, 2.2vw, 40px);
+  background-color: #ffffff;
+}
+
+.detail-trailer-control-btn.is-primary.focused {
+  background: #ffffff;
+  color: #000000;
+}
+
+.detail-trailer-control-btn.is-primary.focused .player-control-icon-mask {
+  background-color: #000000;
 }
 
 .detail-trailer-control-btn:disabled {
