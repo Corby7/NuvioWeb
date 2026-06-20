@@ -13556,12 +13556,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .detail-trailer-control-btn.is-primary {
   width: clamp(64px, 4.5vw, 84px);
-  min-width: clamp(64px, 4.5vw, 84px);
-  height: clamp(64px, 4.5vw, 84px);
+  height: 48px;
   padding: 0;
-  background: rgb(255 255 255 / 0.15);
   color: #ffffff;
-  backdrop-filter: blur(14px);
 }
 
 .detail-trailer-control-btn.is-primary .player-control-icon-mask {

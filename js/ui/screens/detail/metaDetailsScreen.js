@@ -4758,7 +4758,7 @@ export const MetaDetailsScreen = {
                 <img class="player-control-icon" data-trailer-play-icon src="assets/icons/ic_player_pause.svg" alt="" />
               </button>
             </div>
-            <div class="detail-trailer-time" data-trailer-time-label>0:00 / 0:00</div>
+            <div class="player-time-label" data-trailer-time-label>0:00 / 0:00</div>
           </div>
         </div>
       </div>
