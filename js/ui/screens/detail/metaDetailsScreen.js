@@ -2181,6 +2181,7 @@ export const MetaDetailsScreen = {
           <div id="detailEpisodeTrackMount">
             <div class="series-episode-track" data-scroll-key="episodes:${this.selectedSeason || 1}">${this.renderEpisodeCards()}</div>
           </div>
+          <div id="detailEpisodeDescMount" class="series-episode-desc-row"></div>
           <div id="detailInsightSectionMount">${this.renderSeriesInsightSection()}</div>
           <div id="detailCommentsSectionMount">${this.renderStandaloneCommentsSection()}</div>
           <div id="detailCompanySectionsMount">${this.renderCompanySections(meta)}</div>
@@ -2195,6 +2196,9 @@ export const MetaDetailsScreen = {
       ScreenUtils.setInitialFocus(this.container);
     }
     this.bindDetailChrome();
+    if (isSeriesDetailMeta(meta, this.episodes)) {
+      this.seedEpisodeDesc();
+    }
   },
   renderHeroSection({ meta, playLabel, creditLine = "", creditPrefix = "", showWatchedButton = false }) {
     const logoOrTitle = meta.logo
@@ -2466,6 +2470,9 @@ export const MetaDetailsScreen = {
     ScreenUtils.indexFocusables(this.container);
     this.pendingFocusRestore = focusRestore;
     this.bindDetailChrome();
+    if (isSeries) {
+      this.seedEpisodeDesc();
+    }
   },
   renderMovieInsightSection(meta) {
     const trailerItems = resolveTrailerItems(meta);
@@ -2709,7 +2716,8 @@ export const MetaDetailsScreen = {
       return `
         <article class="series-episode-card focusable${isWatched ? " watched" : ""}"
              data-action="openEpisodeStreams"
-             data-video-id="${episode.id}">
+             data-video-id="${episode.id}"
+             data-overview="${escapeHtml(episode.overview || "")}">
           <div class="series-episode-thumb"${episode.thumbnail ? ` style="background-image:url('${episode.thumbnail.replace(/'/g, "%27")}')"` : ""}>
             <div class="series-episode-overlay"></div>
             <div class="series-episode-copy">
@@ -2720,9 +2728,8 @@ export const MetaDetailsScreen = {
               </div>
 
               <div class="series-episode-content-container">
-                <div class="series-episode-title">${escapeHtml(normalizeEpisodeTitle(episode.title, episode.episode))}</div>
-                <div class="series-episode-overview">${escapeHtml(episode.overview || t("episodes_episode", {}, "Episode"))}</div>
                   ${metaParts ? `<div class="series-episode-meta">${metaParts}</div>` : ""}
+                <div class="series-episode-title">${escapeHtml(normalizeEpisodeTitle(episode.title, episode.episode))}</div>
                   ${progressRatio > 0.02 && progressRatio < 0.98 ? `<div class="series-episode-progress"><span style="width:${Math.round(progressRatio * 100)}%"></span></div>` : ""}
                 </div>
               </div>
@@ -2730,6 +2737,21 @@ export const MetaDetailsScreen = {
         </article>
       `;
     }).join("");
+  },
+
+  syncEpisodeDesc(card) {
+    const descMount = this.container?.querySelector("#detailEpisodeDescMount");
+    if (!(descMount instanceof HTMLElement)) return;
+    const overview = String(card?.dataset?.overview || "");
+    descMount.textContent = overview;
+  },
+
+  seedEpisodeDesc() {
+    const descMount = this.container?.querySelector("#detailEpisodeDescMount");
+    if (!(descMount instanceof HTMLElement)) return;
+    const focused = this.container?.querySelector(".series-episode-track .series-episode-card.focused");
+    const first = focused || this.container?.querySelector(".series-episode-track .series-episode-card");
+    descMount.textContent = String(first?.dataset?.overview || "");
   },
 
   syncSeriesHeroPlayButtonLabel() {
@@ -3933,6 +3955,10 @@ export const MetaDetailsScreen = {
     this.detailFocusHandler = (event) => {
       const target = event?.target;
       if (!(target instanceof HTMLElement) || !this.container?.contains(target)) {
+        return;
+      }
+      if (target.matches(".series-episode-card.focusable")) {
+        this.syncEpisodeDesc(target);
         return;
       }
       if (target.matches(".series-season-btn.focusable")) {

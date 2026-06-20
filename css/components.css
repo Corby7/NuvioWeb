@@ -13634,7 +13634,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   height: 70vh;
   z-index: 2;
   pointer-events: none;
-  background: linear-gradient(180deg, transparent 0%, rgba(4, 6, 10, 0.82) 70%, rgba(4, 6, 10, 0.96) 100%);
+  background: linear-gradient(180deg, transparent 0%, rgb(4 6 10 / 93%) 70%, rgba(4, 6, 10, 0.96) 100%);
   opacity: 0;
   transition: opacity 400ms ease;
 }
@@ -14203,6 +14203,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   overflow: hidden;
 }
 
+.detail-trailer-card.focused .detail-morelike-poster-wrap {
+  filter: brightness(1);
+}
+
 .series-episode-overlay {
   position: absolute;
   top: 0;
@@ -14261,15 +14265,16 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-episode-overview {
-  margin-top: 0;
-  max-height: none;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 28px;
+  display: none;
+}
+
+.series-episode-desc-row {
+  padding: 0 64px 32px;
+  font-size: 32px;
   line-height: 44px;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  min-height: 132px;
+  width: 60%;
 }
 
 .series-episode-meta {
@@ -14303,10 +14308,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-episode-date {
-  margin-left: auto;
   min-width: 0;
   overflow: hidden;
-  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -16905,7 +16908,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 .series-episode-title {
   min-height: 56px;
   font-size: 32px;
-  line-height: 56px;
   flex: 1;
 }
 
@@ -16913,7 +16915,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   gap: 24px;
   font-size: 20px;
   line-height: 28px;
-  margin-top: 8px;
 }
 
 .series-episode-runtime {
@@ -16939,7 +16940,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 }
 
 .series-episode-progress {
-  margin-top: 4px;
   height: 8px;
 }
 
@@ -17052,6 +17052,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .detail-trailer-card .detail-morelike-poster-wrap {
   position: relative;
+  filter: brightness(0.6);
 }
 
 .detail-trailer-play-badge {
