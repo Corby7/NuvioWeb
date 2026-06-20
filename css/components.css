@@ -14887,10 +14887,15 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   overflow-x: auto;
   box-sizing: border-box;
   scrollbar-width: none;
+  padding-left: 24px;
 }
 
 .stream-route-chip-track::-webkit-scrollbar {
   display: none;
+} 
+
+.detail-company-section {
+  padding-left: 64px;
 }
 
 .stream-route-chip {
@@ -14966,7 +14971,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
 
 .stream-route-list {
   overflow-y: auto;
-  padding: 16px 48px 48px 0;
+  padding: 16px 48px 48px 24px;
   box-sizing: border-box;
   scrollbar-width: none;
   gap: 24px;

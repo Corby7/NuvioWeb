@@ -2469,15 +2469,21 @@ export const MetaDetailsScreen = {
   },
   renderMovieInsightSection(meta) {
     const trailerItems = resolveTrailerItems(meta);
+    const hasMovieRatings = resolveImdbRating(meta) != null || Number.isFinite(Number(meta?.tmdbRating));
     const tabItems = [
-      ["cast", t("detail.creatorCast", {}, "Creator and Cast")],
-      ["ratings", t("detail.ratings", {}, "Ratings")],
-      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
+      ...(this.collectionItems.length ? [["collection", this.collectionName || "Collection"]] : []),
       ...(trailerItems.length ? [["trailer", t("detail_tab_trailer", {}, "Trailer")]] : []),
-      ...(this.collectionItems.length ? [["collection", this.collectionName || "Collection"]] : [])
+      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
+      ...(hasMovieRatings ? [["ratings", t("detail.ratings", {}, "Ratings")]] : []),
+      ...(this.castItems?.length ? [["cast", t("detail.creatorCast", {}, "Creator and Cast")]] : [])
     ];
-    const tabs = tabItems.length > 1 ? this.renderPeopleTabs("movie", this.movieInsightTab, tabItems) : "";
-    if (this.movieInsightTab === "ratings") {
+    const validTabKeys = tabItems.map(([key]) => key);
+    const activeMovieTab = validTabKeys.includes(this.movieInsightTab) ? this.movieInsightTab : (validTabKeys[0] ?? "cast");
+    if (activeMovieTab !== this.movieInsightTab) {
+      this.movieInsightTab = activeMovieTab;
+    }
+    const tabs = tabItems.length > 0 ? this.renderPeopleTabs("movie", activeMovieTab, tabItems) : "";
+    if (activeMovieTab === "ratings") {
       const imdbValue = resolveImdbRating(meta);
       const imdb = imdbValue != null && String(imdbValue).trim() !== "" ? String(imdbValue) : "-";
       const tmdb = Number.isFinite(Number(meta?.tmdbRating)) ? String(meta.tmdbRating) : "-";
@@ -2497,7 +2503,7 @@ export const MetaDetailsScreen = {
         </section>
       `;
     }
-    if (this.movieInsightTab === "collection") {
+    if (activeMovieTab === "collection") {
       return `
         <section class="series-insight-section">
           ${tabs}
@@ -2505,7 +2511,7 @@ export const MetaDetailsScreen = {
         </section>
       `;
     }
-    if (this.movieInsightTab === "morelike") {
+    if (activeMovieTab === "morelike") {
       return `
         <section class="series-insight-section">
           ${tabs}
@@ -2513,7 +2519,7 @@ export const MetaDetailsScreen = {
         </section>
       `;
     }
-    if (this.movieInsightTab === "trailer") {
+    if (activeMovieTab === "trailer") {
       return `
         <section class="series-insight-section is-switching">
           ${tabs}
@@ -2531,24 +2537,30 @@ export const MetaDetailsScreen = {
 
   renderSeriesInsightSection() {
     const trailerItems = resolveTrailerItems(this.meta);
+    const hasSeriesRatings = Object.keys(this.seriesRatingsBySeason || {}).some((k) => (this.seriesRatingsBySeason[k]?.length ?? 0) > 0);
     const tabItems = [
-      ["cast", t("detail.creatorCast", {}, "Creator and Cast")],
-      ["ratings", t("detail.ratings", {}, "Ratings")],
-      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
+      ...(this.collectionItems.length ? [["collection", this.collectionName || "Collection"]] : []),
       ...(trailerItems.length ? [["trailer", t("detail_tab_trailer", {}, "Trailer")]] : []),
-      ...(this.collectionItems.length ? [["collection", this.collectionName || "Collection"]] : [])
+      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
+      ...(hasSeriesRatings ? [["ratings", t("detail.ratings", {}, "Ratings")]] : []),
+      ...(this.castItems?.length ? [["cast", t("detail.creatorCast", {}, "Creator and Cast")]] : [])
     ];
-    const tabs = tabItems.length > 1 ? this.renderPeopleTabs("series", this.seriesInsightTab, tabItems) : "";
+    const validTabKeys = tabItems.map(([key]) => key);
+    const activeTab = validTabKeys.includes(this.seriesInsightTab) ? this.seriesInsightTab : (validTabKeys[0] ?? "cast");
+    if (activeTab !== this.seriesInsightTab) {
+      this.seriesInsightTab = activeTab;
+    }
+    const tabs = tabItems.length > 0 ? this.renderPeopleTabs("series", activeTab, tabItems) : "";
     return `
       <section class="series-insight-section is-switching">
         ${tabs}
-        ${this.seriesInsightTab === "ratings"
+        ${activeTab === "ratings"
           ? this.renderSeriesRatingsPanel()
-          : this.seriesInsightTab === "collection"
+          : activeTab === "collection"
             ? this.renderPreviewRail(this.collectionItems, "series", "collection:series")
-          : this.seriesInsightTab === "morelike"
+          : activeTab === "morelike"
             ? this.renderPreviewRail(this.moreLikeThisItems, "series", "morelike:series")
-          : this.seriesInsightTab === "trailer"
+          : activeTab === "trailer"
             ? this.renderTrailerRail(trailerItems, "series")
             : this.renderSeriesCastTrack("series")}
       </section>
