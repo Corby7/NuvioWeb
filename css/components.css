@@ -13583,13 +13583,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .series-detail-shell::
   opacity: 0.42;
 }
 
-.detail-trailer-control-text {
-  font-size: var(--tv-secondary-text);
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-}
-
 .detail-trailer-time {
   margin-left: auto;
   color: var(--text-color);

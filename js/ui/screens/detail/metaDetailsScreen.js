@@ -3082,7 +3082,7 @@ export const MetaDetailsScreen = {
   },
 
   isPosterHoldTarget(node) {
-    return Boolean(node?.matches?.(".detail-morelike-card.focusable"));
+    return Boolean(node?.matches?.(".detail-morelike-card.focusable:not(.detail-trailer-card)"));
   },
 
   isHeroHoldTarget(node) {
@@ -4756,11 +4756,6 @@ export const MetaDetailsScreen = {
             <div class="detail-trailer-buttons">
               <button class="player-control-btn detail-trailer-control-btn is-primary" type="button" data-trailer-control="playPause" aria-label="${escapeAttribute(t("detail.trailerPause", {}, "Pause"))}">
                 <img class="player-control-icon" data-trailer-play-icon src="assets/icons/ic_player_pause.svg" alt="" />
-                <span class="detail-trailer-control-text" data-trailer-play-label>${escapeHtml(t("detail.trailerPause", {}, "Pause"))}</span>
-              </button>
-              <button class="player-control-btn detail-trailer-control-btn" type="button" data-trailer-control="mute" aria-label="${escapeAttribute(t("detail.trailerMute", {}, "Mute"))}">
-                <img class="player-control-icon" data-trailer-mute-icon src="assets/icons/ic_player_audio_outline.svg" alt="" />
-                <span class="detail-trailer-control-text" data-trailer-mute-label>${escapeHtml(t("detail.trailerMute", {}, "Mute"))}</span>
               </button>
             </div>
             <div class="detail-trailer-time" data-trailer-time-label>0:00 / 0:00</div>
