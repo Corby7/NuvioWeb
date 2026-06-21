@@ -216,6 +216,62 @@ const PREFERRED_SUBTITLE_LANGUAGE_OPTIONS = [
   ...AVAILABLE_LANGUAGES
 ];
 
+const SUBTITLE_SIZE_OPTIONS = [
+  { id: 70, label: "70%" },
+  { id: 85, label: "85%" },
+  { id: 100, label: "100%" },
+  { id: 115, label: "115%" },
+  { id: 130, label: "130%" },
+  { id: 150, label: "150%" },
+  { id: 180, label: "180%" }
+];
+
+const SUBTITLE_OFFSET_OPTIONS = [
+  { id: -12, label: "Lowest" },
+  { id: -8, label: "Lower" },
+  { id: -4, label: "Low" },
+  { id: 0, label: "Default" },
+  { id: 4, label: "High" },
+  { id: 8, label: "Higher" },
+  { id: 12, label: "Highest" }
+];
+
+const SUBTITLE_TEXT_COLOR_OPTIONS = [
+  { id: "#FFFFFF", label: "White" },
+  { id: "#D9D9D9", label: "Silver" },
+  { id: "#FFD700", label: "Gold" },
+  { id: "#00E5FF", label: "Cyan" },
+  { id: "#FF5C5C", label: "Red" },
+  { id: "#00FF88", label: "Green" }
+];
+
+const SUBTITLE_OUTLINE_COLOR_OPTIONS = [
+  { id: "#000000", label: "Black" },
+  { id: "#FFFFFF", label: "White" },
+  { id: "#00E5FF", label: "Cyan" },
+  { id: "#FF5C5C", label: "Red" }
+];
+
+const STREAM_AUTOPLAY_MODE_OPTIONS = [
+  { id: "MANUAL", label: "Off (choose manually)" },
+  { id: "FIRST_STREAM", label: "First stream" },
+  { id: "REGEX_MATCH", label: "Regex match" }
+];
+
+const STREAM_AUTOPLAY_SOURCE_OPTIONS = [
+  { id: "ALL_SOURCES", label: "All sources" },
+  { id: "INSTALLED_ADDONS_ONLY", label: "Installed addons only" },
+  { id: "ENABLED_PLUGINS_ONLY", label: "Enabled plugins only" }
+];
+
+const STREAM_AUTOPLAY_TIMEOUT_OPTIONS = [
+  { id: 0, label: "Instant" },
+  { id: 3, label: "3 seconds" },
+  { id: 5, label: "5 seconds" },
+  { id: 10, label: "10 seconds" },
+  { id: 15, label: "15 seconds" }
+];
+
 // Preferred audio language previously only offered System / English / Italian.
 // The selected value is matched generically against each stream's audio tracks,
 // so the full shared language catalogue can be offered.
@@ -574,6 +630,23 @@ function labelForPlaybackLanguage(language) {
 function labelForDebridProvider(providerId) {
   const provider = DebridProviders.byId(providerId);
   return provider?.displayName || t("common.none", {}, "None");
+}
+
+function normalizeSubtitleStyleHex(value, fallback) {
+  const hex = String(value || "").trim().toUpperCase();
+  return /^#[0-9A-F]{6}$/.test(hex) ? hex : fallback;
+}
+
+function clampSubtitleSize(value) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return 100;
+  return Math.min(180, Math.max(70, parsed));
+}
+
+function clampSubtitleOffset(value) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(12, Math.max(-12, parsed));
 }
 
 function labelForOption(options, value, fallback = "") {
@@ -1936,6 +2009,9 @@ export const SettingsScreen = {
       mode: "management",
       returnRoute: "settings"
     }));
+    this.actionMap.set("profiles:rememberLast", () => {
+      ProfileManager.setRememberLastProfileEnabled(!ProfileManager.isRememberLastProfileEnabled());
+    });
 
     return `
       ${this.renderSectionHeader(SECTION_META.find((item) => item.id === "profiles"))}
@@ -1947,6 +2023,16 @@ export const SettingsScreen = {
       subtitle: "",
       icon: null,
       classes: "settings-profile-manage-row"
+    })}
+          ${this.renderToggleRow({
+      focusKey: "profiles:rememberLast",
+      title: t("settings.profiles.rememberLast.title", {}, "Remember Last Profile"),
+      subtitle: t(
+        "settings.profiles.rememberLast.subtitle",
+        {},
+        "Skip the profile picker at startup and use the last selected profile. Profiles with a PIN are always asked."
+      ),
+      checked: ProfileManager.isRememberLastProfileEnabled()
     })}
         </div>
       </div>
@@ -3234,6 +3320,101 @@ export const SettingsScreen = {
       });
     });
 
+    const updateSubtitleStyle = (partial) => {
+      const current = PlayerSettingsStore.get();
+      PlayerSettingsStore.set({ subtitleStyle: { ...current.subtitleStyle, ...partial } });
+    };
+
+    this.actionMap.set("playback:subtitleSize", () => {
+      this.openOptionDialog({
+        title: t("settings.playback.subtitleSize.title", {}, "Subtitle size"),
+        options: SUBTITLE_SIZE_OPTIONS,
+        selectedId: clampSubtitleSize(PlayerSettingsStore.get().subtitleStyle?.fontSize ?? 100),
+        returnFocusKey: "playback:subtitleSize",
+        onSelect: (option) => { updateSubtitleStyle({ fontSize: clampSubtitleSize(option.id) }); }
+      });
+    });
+
+    this.actionMap.set("playback:subtitleOffset", () => {
+      this.openOptionDialog({
+        title: t("settings.playback.subtitleOffset.title", {}, "Subtitle position"),
+        options: SUBTITLE_OFFSET_OPTIONS,
+        selectedId: clampSubtitleOffset(PlayerSettingsStore.get().subtitleStyle?.verticalOffset ?? 0),
+        returnFocusKey: "playback:subtitleOffset",
+        onSelect: (option) => { updateSubtitleStyle({ verticalOffset: clampSubtitleOffset(option.id) }); }
+      });
+    });
+
+    this.actionMap.set("playback:subtitleBold", () => {
+      updateSubtitleStyle({ bold: !PlayerSettingsStore.get().subtitleStyle?.bold });
+    });
+
+    this.actionMap.set("playback:subtitleTextColor", () => {
+      this.openOptionDialog({
+        title: t("settings.playback.subtitleTextColor.title", {}, "Subtitle color"),
+        options: SUBTITLE_TEXT_COLOR_OPTIONS,
+        selectedId: normalizeSubtitleStyleHex(PlayerSettingsStore.get().subtitleStyle?.textColor, "#FFFFFF"),
+        returnFocusKey: "playback:subtitleTextColor",
+        onSelect: (option) => { updateSubtitleStyle({ textColor: normalizeSubtitleStyleHex(option.id, "#FFFFFF") }); }
+      });
+    });
+
+    this.actionMap.set("playback:subtitleOutline", () => {
+      updateSubtitleStyle({ outlineEnabled: !PlayerSettingsStore.get().subtitleStyle?.outlineEnabled });
+    });
+
+    this.actionMap.set("playback:subtitleOutlineColor", () => {
+      this.openOptionDialog({
+        title: t("settings.playback.subtitleOutlineColor.title", {}, "Outline color"),
+        options: SUBTITLE_OUTLINE_COLOR_OPTIONS,
+        selectedId: normalizeSubtitleStyleHex(PlayerSettingsStore.get().subtitleStyle?.outlineColor, "#000000"),
+        returnFocusKey: "playback:subtitleOutlineColor",
+        onSelect: (option) => { updateSubtitleStyle({ outlineColor: normalizeSubtitleStyleHex(option.id, "#000000") }); }
+      });
+    });
+
+    this.actionMap.set("playback:autoStreamMode", () => {
+      this.openOptionDialog({
+        title: t("settings.playback.autoStream.title", {}, "Auto Stream Selection"),
+        options: STREAM_AUTOPLAY_MODE_OPTIONS,
+        selectedId: PlayerSettingsStore.get().streamAutoPlayMode,
+        returnFocusKey: "playback:autoStreamMode",
+        onSelect: (option) => { PlayerSettingsStore.set({ streamAutoPlayMode: option.id }); }
+      });
+    });
+
+    this.actionMap.set("playback:autoStreamTimeout", () => {
+      this.openOptionDialog({
+        title: t("settings.playback.autoStreamTimeout.title", {}, "Auto-play countdown"),
+        options: STREAM_AUTOPLAY_TIMEOUT_OPTIONS,
+        selectedId: PlayerSettingsStore.get().streamAutoPlayTimeoutSeconds,
+        returnFocusKey: "playback:autoStreamTimeout",
+        onSelect: (option) => { PlayerSettingsStore.set({ streamAutoPlayTimeoutSeconds: Number(option.id) }); }
+      });
+    });
+
+    this.actionMap.set("playback:autoStreamSource", () => {
+      this.openOptionDialog({
+        title: t("settings.playback.autoStreamSource.title", {}, "Auto-play source"),
+        options: STREAM_AUTOPLAY_SOURCE_OPTIONS,
+        selectedId: PlayerSettingsStore.get().streamAutoPlaySource,
+        returnFocusKey: "playback:autoStreamSource",
+        onSelect: (option) => { PlayerSettingsStore.set({ streamAutoPlaySource: option.id }); }
+      });
+    });
+
+    this.actionMap.set("playback:autoStreamRegex", () => {
+      this.openTextDialog({
+        title: t("settings.playback.autoStreamRegex.title", {}, "Auto-play regex"),
+        value: PlayerSettingsStore.get().streamAutoPlayRegex || "",
+        returnFocusKey: "playback:autoStreamRegex",
+        onSubmit: (value) => {
+          PlayerSettingsStore.set({ streamAutoPlayRegex: String(value || "").trim() });
+          return true;
+        }
+      });
+    });
+
     const generalBody = `
       <div class="settings-stack">
         ${this.renderToggleRow({
@@ -3265,6 +3446,32 @@ export const SettingsScreen = {
       subtitle: t("settings.playback.preferredAudio.subtitle"),
       value: labelForPlaybackLanguage(model.player.preferredAudioLanguage)
     })}
+        ${this.renderActionRow({
+      focusKey: "playback:autoStreamMode",
+      title: t("settings.playback.autoStream.title", {}, "Auto Stream Selection"),
+      subtitle: t("settings.playback.autoStream.subtitle", {}, "Automatically play a stream when you press play"),
+      value: labelForOption(STREAM_AUTOPLAY_MODE_OPTIONS, model.player.streamAutoPlayMode, "Off (choose manually)")
+    })}
+        ${String(model.player.streamAutoPlayMode || "MANUAL") !== "MANUAL" ? `
+        ${this.renderActionRow({
+      focusKey: "playback:autoStreamTimeout",
+      title: t("settings.playback.autoStreamTimeout.title", {}, "Auto-play countdown"),
+      subtitle: t("settings.playback.autoStreamTimeout.subtitle", {}, "How long to wait before playing the selected stream"),
+      value: labelForOption(STREAM_AUTOPLAY_TIMEOUT_OPTIONS, model.player.streamAutoPlayTimeoutSeconds, `${model.player.streamAutoPlayTimeoutSeconds}s`)
+    })}
+        ${this.renderActionRow({
+      focusKey: "playback:autoStreamSource",
+      title: t("settings.playback.autoStreamSource.title", {}, "Auto-play source"),
+      subtitle: t("settings.playback.autoStreamSource.subtitle", {}, "Which sources auto-play can pick from"),
+      value: labelForOption(STREAM_AUTOPLAY_SOURCE_OPTIONS, model.player.streamAutoPlaySource, "All sources")
+    })}` : ""}
+        ${String(model.player.streamAutoPlayMode || "MANUAL") === "REGEX_MATCH" ? `
+        ${this.renderActionRow({
+      focusKey: "playback:autoStreamRegex",
+      title: t("settings.playback.autoStreamRegex.title", {}, "Auto-play regex"),
+      subtitle: t("settings.playback.autoStreamRegex.subtitle", {}, "Play the first stream whose details match this pattern"),
+      value: String(model.player.streamAutoPlayRegex || "").trim() || t("common.notSet", {}, "Not set")
+    })}` : ""}
       </div>
     `;
 
@@ -3294,6 +3501,42 @@ export const SettingsScreen = {
       subtitle: t("settings.playback.renderMode.subtitle"),
       value: renderModeLabel(model.player.subtitleRenderMode)
     })}
+        ${this.renderActionRow({
+      focusKey: "playback:subtitleSize",
+      title: t("settings.playback.subtitleSize.title", {}, "Subtitle size"),
+      subtitle: t("settings.playback.subtitleSize.subtitle", {}, "Adjust the size of subtitle text"),
+      value: labelForOption(SUBTITLE_SIZE_OPTIONS, clampSubtitleSize(model.player.subtitleStyle?.fontSize ?? 100), "100%")
+    })}
+        ${this.renderActionRow({
+      focusKey: "playback:subtitleOffset",
+      title: t("settings.playback.subtitleOffset.title", {}, "Subtitle position"),
+      subtitle: t("settings.playback.subtitleOffset.subtitle", {}, "Adjust the vertical position of subtitles"),
+      value: labelForOption(SUBTITLE_OFFSET_OPTIONS, clampSubtitleOffset(model.player.subtitleStyle?.verticalOffset ?? 0), "Default")
+    })}
+        ${this.renderToggleRow({
+      focusKey: "playback:subtitleBold",
+      title: t("settings.playback.subtitleBold.title", {}, "Bold subtitles"),
+      subtitle: t("settings.playback.subtitleBold.subtitle", {}, "Display subtitle text in bold"),
+      checked: Boolean(model.player.subtitleStyle?.bold)
+    })}
+        ${this.renderActionRow({
+      focusKey: "playback:subtitleTextColor",
+      title: t("settings.playback.subtitleTextColor.title", {}, "Subtitle color"),
+      subtitle: t("settings.playback.subtitleTextColor.subtitle", {}, "Choose the subtitle text color"),
+      value: labelForOption(SUBTITLE_TEXT_COLOR_OPTIONS, normalizeSubtitleStyleHex(model.player.subtitleStyle?.textColor, "#FFFFFF"), "White")
+    })}
+        ${this.renderToggleRow({
+      focusKey: "playback:subtitleOutline",
+      title: t("settings.playback.subtitleOutline.title", {}, "Subtitle outline"),
+      subtitle: t("settings.playback.subtitleOutline.subtitle", {}, "Add an outline around subtitle text for readability"),
+      checked: Boolean(model.player.subtitleStyle?.outlineEnabled)
+    })}
+        ${Boolean(model.player.subtitleStyle?.outlineEnabled) ? this.renderActionRow({
+      focusKey: "playback:subtitleOutlineColor",
+      title: t("settings.playback.subtitleOutlineColor.title", {}, "Outline color"),
+      subtitle: t("settings.playback.subtitleOutlineColor.subtitle", {}, "Choose the subtitle outline color"),
+      value: labelForOption(SUBTITLE_OUTLINE_COLOR_OPTIONS, normalizeSubtitleStyleHex(model.player.subtitleStyle?.outlineColor, "#000000"), "Black")
+    }) : ""}
       </div>
     `;
 

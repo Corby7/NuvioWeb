@@ -4896,7 +4896,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .home-screen-shell .home-poster-expanded-gradient,
 .home-screen-shell .home-poster-expanded-brand,
-.home-screen-shell .home-poster-expanded-copy,
 .home-screen-shell .home-poster-trailer-layer {
   display: none;
 }
@@ -4974,29 +4973,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6);
 }
 
-.home-screen-shell .home-poster-expanded-copy {
-  padding-top: 8px;
-}
-
-.home-screen-shell .home-poster-expanded-meta {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 12px;
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
-}
-
-.home-screen-shell .home-poster-expanded-description {
-  margin-top: 4px;
-  color: #fff;
-  font-size: 14px;
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
 
 .home-inline-trailer-frame,
 .home-inline-trailer-video {
@@ -6460,8 +6436,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .home-screen-shell.home-layout-modern .home-poster-card.is-expanded .home-poster-expanded-gradient,
-.home-screen-shell.home-layout-modern .home-poster-card.is-expanded .home-poster-expanded-brand,
-.home-screen-shell.home-layout-modern .home-poster-card.is-expanded .home-poster-expanded-copy {
+.home-screen-shell.home-layout-modern .home-poster-card.is-expanded .home-poster-expanded-brand {
   display: block;
 }
 
@@ -6550,8 +6525,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   transform: none;
 }
 
-.home-screen-shell.home-layout-modern .home-poster-copy,
-.home-screen-shell.home-layout-modern .home-poster-expanded-copy {
+.home-screen-shell.home-layout-modern .home-poster-copy {
   box-sizing: border-box;
   min-height: var(--home-poster-copy-height);
   height: var(--home-poster-copy-height);
@@ -14837,6 +14811,56 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   box-sizing: border-box;
 }
 
+.stream-route-autoplay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 64px;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.stream-route-autoplay-card {
+  min-width: 520px;
+  max-width: 70%;
+  padding: 24px 36px;
+  border-radius: 18px;
+  background: rgb(var(--card-bg-rgb) / 0.96);
+  border: 1px solid var(--secondary-color);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.stream-route-autoplay-title {
+  font-size: 20px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.stream-route-autoplay-name {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stream-route-autoplay-count {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--secondary-color);
+  margin-bottom: 10px;
+}
+
+.stream-route-autoplay-hint {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
 .stream-route-left,
 .stream-route-right {
   min-width: 0;
@@ -15114,8 +15138,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .performance-constrained .home-screen-shell .home-poster-title,
-.performance-constrained .home-screen-shell .home-poster-subtitle,
-.performance-constrained .home-screen-shell .home-poster-expanded-meta {
+.performance-constrained .home-screen-shell .home-poster-subtitle {
   text-overflow: ellipsis;
 }
 

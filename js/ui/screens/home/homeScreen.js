@@ -1703,30 +1703,6 @@ function buildPosterSubtitle(item, layoutMode) {
   return firstNonEmpty(extractYear(normalized), normalized.releaseInfo, "");
 }
 
-function buildExpandedPosterMeta(item) {
-  if (isCollectionFolderItem(item)) {
-    return "";
-  }
-  const normalized = normalizeCatalogItem(item);
-  const parts = [];
-  const typeLabel = toTitleCase(normalized.type || normalized.apiType || "movie");
-  if (typeLabel) {
-    parts.push(typeLabel);
-  }
-  if (normalized.genres?.[0]) {
-    parts.push(normalized.genres[0]);
-  }
-  const year = extractYear(normalized);
-  if (year) {
-    parts.push(year);
-  }
-  const imdb = resolveImdbRating(normalized);
-  if (imdb) {
-    parts.push(`IMDb ${imdb}`);
-  }
-  return parts.join("  ·  ");
-}
-
 function renderRowHeader(title, subtitle = "") {
   return `
     <div class="home-row-head">
@@ -2046,7 +2022,6 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
   const isLoading = Boolean(item?.isLoading);
   const normalized = normalizeCatalogItem(item, itemType);
   const subtitle = buildPosterSubtitle(normalized, layoutMode);
-  const expandedMeta = buildExpandedPosterMeta(normalized);
   const preferredLandscapePosterSrc = firstNonEmpty(normalized.landscapePoster);
   const useLandscapePoster = layoutMode === "modern" && preferLandscapePoster;
   const landscapeVisualSrc = firstNonEmpty(
@@ -2114,12 +2089,6 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
           </div>
         ` : ""}
       </div>
-      ${suppressPosterText ? "" : `
-        <div class="home-poster-expanded-copy">
-          ${(!isLoading && expandedMeta) ? `<div class="home-poster-expanded-meta">${escapeHtml(expandedMeta)}</div>` : ""}
-          ${(!isLoading && normalized.description) ? `<div class="home-poster-expanded-description">${escapeHtml(normalized.description)}</div>` : ""}
-        </div>
-      `}
       ${shouldShowLabels ? `
         <div class="home-poster-copy">
           <div class="home-poster-title">${escapeHtml(normalized.name || "Untitled")}</div>
@@ -4939,7 +4908,7 @@ export const HomeScreen = {
     this.homeTruncationScope = null;
     this.applyModernHeroDescriptionBounds(root);
     const nodes = root.querySelectorAll(
-      ".home-hero-description, .home-poster-title, .home-poster-subtitle, .home-poster-expanded-meta, .home-poster-expanded-description"
+      ".home-hero-description, .home-poster-title, .home-poster-subtitle"
     );
     nodes.forEach((node) => {
       if (!(node instanceof HTMLElement)) {
