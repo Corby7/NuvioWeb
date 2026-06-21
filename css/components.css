@@ -15020,6 +15020,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .stream-route-list {
+  height: 100%;
   overflow-y: auto;
   padding: 16px 48px 48px 24px;
   box-sizing: border-box;
@@ -15034,6 +15035,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .stream-route-card {
+  flex-shrink: 0;
   width: 100%;
   padding: 24px 32px;
   border-radius: 24px;
@@ -16033,7 +16035,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 
 .stream-route-card.skeleton {
   display: block;
-  min-height: 160px;
+  min-height: 200px;
 }
 
 .stream-route-card-copy {
@@ -16156,11 +16158,12 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .stream-route-card-line {
+  display: none;
   margin-top: 8px;
   font-size: 19px;
   line-height: 1.28;
   color: var(--text-secondary);
-  display: -webkit-box;
+  /* display: -webkit-box; */
   -webkit-line-clamp: 2;
   line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -16168,6 +16171,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .stream-route-card-line.secondary {
+  display: -webkit-box;
   margin-top: 4px;
 }
 
@@ -16267,27 +16271,47 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   text-align: center;
 }
 
+.stream-route-skeleton-badges {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.stream-route-skeleton-badge {
+  width: 58px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(56, 56, 56, 0.5), rgba(96, 96, 96, 0.85), rgba(56, 56, 56, 0.5));
+  background-size: 220% 100%;
+  animation: detailLoadingShimmer 2.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.stream-route-skeleton-badge.wide {
+  width: 76px;
+}
+
+.stream-route-skeleton-badge.narrow {
+  width: 44px;
+}
+
 .stream-route-skeleton-line {
   height: 16px;
   border-radius: 999px;
   background: linear-gradient(90deg, rgba(56, 56, 56, 0.5), rgba(96, 96, 96, 0.85), rgba(56, 56, 56, 0.5));
   background-size: 220% 100%;
   animation: detailLoadingShimmer 2.2s ease-in-out infinite;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
-.stream-route-skeleton-line.wide {
-  width: 34%;
+.stream-route-skeleton-line.title {
+  width: 62%;
   height: 22px;
 }
 
-.stream-route-skeleton-line.short {
-  width: 12%;
-  height: 18px;
-}
-
-.stream-route-skeleton-line:last-child {
-  width: 56%;
+.stream-route-skeleton-line.secondary {
+  width: 22%;
+  height: 16px;
   margin-bottom: 0;
 }
 

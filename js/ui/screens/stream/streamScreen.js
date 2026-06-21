@@ -1654,14 +1654,18 @@ export const StreamScreen = {
     `;
   },
 
-  renderLoadingCards(count = 3) {
+  renderLoadingCards(count = 6) {
     const safeCount = Math.max(1, Number(count || 0));
     return Array.from({ length: safeCount }).map(() => `
       <div class="stream-route-card skeleton">
-        <div class="stream-route-skeleton-line wide"></div>
-        <div class="stream-route-skeleton-line short"></div>
-        <div class="stream-route-skeleton-line"></div>
-        <div class="stream-route-skeleton-line"></div>
+        <div class="stream-route-skeleton-badges">
+          <div class="stream-route-skeleton-badge"></div>
+          <div class="stream-route-skeleton-badge wide"></div>
+          <div class="stream-route-skeleton-badge"></div>
+          <div class="stream-route-skeleton-badge narrow"></div>
+        </div>
+        <div class="stream-route-skeleton-line title"></div>
+        <div class="stream-route-skeleton-line secondary"></div>
       </div>
     `).join("");
   },
