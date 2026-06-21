@@ -5414,13 +5414,11 @@ export const PlayerScreen = {
       title: t("audio_dialog_title", {}, "Audio")
     });
 
-    base.push({ action: "source", icon: "assets/icons/ic_player_source.svg", title: t("sources_title", {}, "Sources") });
-
     if (Array.isArray(uiState.episodesAll) && uiState.episodesAll.length) {
       base.push({ action: "episodes", icon: "assets/icons/ic_player_episodes.svg", title: t("episodes_panel_title", {}, "Episodes") });
     }
 
-    base.push({ action: "more", label: this.moreActionsVisible ? "<" : ">", title: t("player_more_actions_title", {}, "More Actions") });
+    base.push({ action: "more", icon: "assets/icons/ic_player_more.svg", title: t("player_more_actions_title", {}, "More Actions") });
 
     if (!this.moreActionsVisible) {
       return base;
@@ -5430,7 +5428,8 @@ export const PlayerScreen = {
       ...base.slice(0, Math.max(0, base.length - 1)),
       { action: "speed", label: `${Number(PlayerController.video?.playbackRate || 1).toFixed(Number(PlayerController.video?.playbackRate || 1) % 1 ? 2 : 0)}x`, title: t("player_playback_speed", {}, "Playback speed") },
       { action: "aspect", icon: "assets/icons/ic_player_aspect_ratio.svg", title: t("player_more_aspect_ratio", {}, "Aspect Ratio") },
-      { action: "backFromMore", label: "<", title: t("player_go_back", {}, "Back") }
+      { action: "source", icon: "assets/icons/ic_player_source.svg", title: t("sources_title", {}, "Sources") },
+      { action: "backFromMore", icon: "assets/icons/ic_player_collapse_left.svg", title: t("player_go_back", {}, "Back") }
     ];
   },
 

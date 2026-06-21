@@ -10449,6 +10449,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-control-btn {
+  position: relative;
   width: var(--player-control-size);
   min-width: var(--player-control-size);
   height: var(--player-control-size);
@@ -10463,6 +10464,29 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.player-control-btn::after {
+  content: attr(title);
+  position: absolute;
+  top: calc(100% + 16px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 20px;
+  font-weight: bold;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 10;
+}
+
+.player-control-btn.focused::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .player-control-buttons .player-control-btn:first-child span {
@@ -10492,7 +10516,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-control-label {
-  font-size: clamp(15px, 0.95vw, 18px);
+  font-size: 24px;
   font-weight: 700;
 }
 
