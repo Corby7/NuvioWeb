@@ -3691,7 +3691,7 @@ export const PlayerScreen = {
       timeLabelText: "",
       seekWidth: "",
       seekPreviewText: "",
-      seekDirectionText: "",
+      seekDirectionIcon: "",
       progressFocused: false
     };
     this.refreshLoadingOverlayPresentation();
@@ -5985,14 +5985,14 @@ export const PlayerScreen = {
     overlay.classList.toggle("hidden", !shouldShowOverlay);
     const uiState = this.lastUiTickState || (this.lastUiTickState = {});
     const nextPreviewText = `${formatTime(currentPreview)} / ${formatTime(duration)}`;
-    const nextDirectionText = this.seekPreviewDirection < 0 ? "<<" : this.seekPreviewDirection > 0 ? ">>" : "";
+    const nextDirectionIcon = this.seekPreviewDirection < 0 ? "assets/icons/ic_player_fast_backward.svg" : this.seekPreviewDirection > 0 ? "assets/icons/ic_player_fast_forward.svg" : "";
     if (uiState.seekPreviewText !== nextPreviewText) {
       previewNode.textContent = nextPreviewText;
       uiState.seekPreviewText = nextPreviewText;
     }
-    if (uiState.seekDirectionText !== nextDirectionText) {
-      directionNode.textContent = nextDirectionText;
-      uiState.seekDirectionText = nextDirectionText;
+    if (uiState.seekDirectionIcon !== nextDirectionIcon) {
+      directionNode.innerHTML = nextDirectionIcon ? `<img src="${nextDirectionIcon}" alt="" aria-hidden="true" class="player-seek-direction-icon" />` : "";
+      uiState.seekDirectionIcon = nextDirectionIcon;
     }
 
     const percent = duration > 0 ? clamp(currentPreview / duration, 0, 1) : 0;

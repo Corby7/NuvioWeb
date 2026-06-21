@@ -10647,6 +10647,13 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   letter-spacing: 0.2px;
 }
 
+.player-seek-direction-icon {
+  width: 2em;
+  height: 2em;
+  vertical-align: middle;
+  filter: brightness(0) invert(1);
+}
+
 .player-seek-preview {
   font-size: var(--tv-secondary-text);
   font-weight: 600;
