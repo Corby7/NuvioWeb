@@ -506,27 +506,27 @@ function resolveEpisodeRuntimeForSeason(episodes = [], season = null) {
 }
 
 function renderPlayGlyph() {
-  return `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_play.svg');" aria-hidden="true"></span>`;
+  return `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_play.svg');" aria-hidden="true"></span>`;
 }
 
 function renderTrailerGlyph() {
-  return `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_trailer.svg');--series-icon-focused:url('/assets/icons/ic_detail_trailer_filled.svg');" aria-hidden="true"></span>`;
+  return `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_trailer.svg');--series-icon-focused:url('../assets/icons/ic_detail_trailer_filled.svg');" aria-hidden="true"></span>`;
 }
 
 function renderLibraryGlyph(isSaved = false) {
   return isSaved
-    ? `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_library_saved.svg');--series-icon-focused:url('/assets/icons/ic_detail_library_saved_filled.svg');" aria-hidden="true"></span>`
-    : `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_library_add.svg');" aria-hidden="true"></span>`;
+    ? `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_library_saved.svg');--series-icon-focused:url('../assets/icons/ic_detail_library_saved_filled.svg');" aria-hidden="true"></span>`
+    : `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_library_add.svg');" aria-hidden="true"></span>`;
 }
 
 function renderWatchedBadgeGlyph(className = "series-watched-badge-svg") {
-  return `<span class="${className}" style="--series-icon:url('/assets/icons/ic_detail_series_watched.svg');" aria-hidden="true"></span>`;
+  return `<span class="${className}" style="--series-icon:url('../assets/icons/ic_detail_series_watched.svg');" aria-hidden="true"></span>`;
 }
 
 function renderWatchedGlyph(isWatched = false) {
   return isWatched
-    ? `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_watched_off.svg');--series-icon-focused:url('/assets/icons/ic_detail_watched_off_filled.svg');" aria-hidden="true"></span>`
-    : `<span class="series-btn-svg" style="--series-icon:url('/assets/icons/ic_detail_watched.svg');--series-icon-focused:url('/assets/icons/ic_detail_watched_filled.svg');" aria-hidden="true"></span>`;
+    ? `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_watched_off.svg');--series-icon-focused:url('../assets/icons/ic_detail_watched_off_filled.svg');" aria-hidden="true"></span>`
+    : `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_watched.svg');--series-icon-focused:url('../assets/icons/ic_detail_watched_filled.svg');" aria-hidden="true"></span>`;
 }
 
 function ratingToneClass(value) {
@@ -937,7 +937,7 @@ function renderEpisodeRuntimeLabel(runtimeMinutes = 0) {
   }
   return `
     <span class="series-episode-runtime">
-      <span class="series-episode-runtime-icon" style="-webkit-mask-image:url('/assets/icons/ic_detail_runtime.svg');mask-image:url('/assets/icons/ic_detail_runtime.svg');" aria-hidden="true"></span>
+      <span class="series-episode-runtime-icon" style="-webkit-mask-image:url('assets/icons/ic_detail_runtime.svg');mask-image:url('assets/icons/ic_detail_runtime.svg');" aria-hidden="true"></span>
       <span>${escapeHtml(runtime)}</span>
     </span>
   `;
@@ -2579,7 +2579,7 @@ export const MetaDetailsScreen = {
     return `
       <div class="series-insight-tabs" data-scroll-key="people-tabs:${kind}">
         ${normalized.map(([tab, label], index) => `
-          ${index > 0 ? '<span class="series-insight-divider" aria-hidden="true"><span class="series-insight-divider-icon" style="-webkit-mask-image:url(\'/assets/icons/ic_detail_divider.svg\');mask-image:url(\'/assets/icons/ic_detail_divider.svg\');"></span></span>' : ""}
+          ${index > 0 ? '<span class="series-insight-divider" aria-hidden="true"><span class="series-insight-divider-icon" style="-webkit-mask-image:url(\'assets/icons/ic_detail_divider.svg\');mask-image:url(\'assets/icons/ic_detail_divider.svg\');"></span></span>' : ""}
           <button class="series-insight-tab focusable${activeTab === tab ? " selected" : ""}"
                   data-action="${kind === "series" ? "setSeriesInsightTab" : "setMovieInsightTab"}"
                   data-tab="${tab}">${escapeHtml(label)}</button>
@@ -5831,13 +5831,7 @@ export const MetaDetailsScreen = {
       if (direction === "right") return true;
       if (direction === "up") {
         if (actions.length) {
-          const detailContent = this.getDetailContentScroller();
-          if (detailContent) {
-            detailContent.style.scrollBehavior = "smooth";
-            detailContent.scrollTop = 0;
-            setTimeout(() => { detailContent.style.scrollBehavior = ""; }, 700);
-          }
-          return this.focusInList(actions, Math.min(0, actions.length - 1), { animated: false }) || true;
+          return this.focusInList(actions, 0, { animated: true }) || true;
         }
       }
       if (direction === "down") {

@@ -10713,13 +10713,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   right: 0;
   bottom: 0;
   left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
   background:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.28) 0%, rgba(0, 0, 0, 0.56) 46%, rgba(0, 0, 0, 0.82) 100%),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.72) 34%, rgba(0, 0, 0, 0.36) 62%, rgba(0, 0, 0, 0.12) 100%);
+    linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.18) 40%, rgba(0, 0, 0, 0.72) 72%, rgba(0, 0, 0, 0.92) 100%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.64) 30%, rgba(0, 0, 0, 0.28) 58%, rgba(0, 0, 0, 0.04) 100%);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -10750,31 +10746,42 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .player-pause-overlay-content {
   position: absolute;
   left: var(--tv-safe-gutter);
-  top: 50%;
-  transform: translateY(-50%);
-  right: var(--tv-safe-gutter);
-  max-width: none;
+  bottom: var(--tv-safe-gutter);
+  max-width: min(52vw, 860px);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 14px;
-  text-shadow: 0 4px 22px rgba(0, 0, 0, 0.62);
+  gap: 10px;
+  text-shadow: 0 4px 22px rgba(0, 0, 0, 0.72);
+}
+
+.player-pause-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.player-pause-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .player-pause-kicker {
   font-size: var(--tv-caption-text);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.64);
+  color: rgba(255, 255, 255, 0.52);
+  margin-bottom: 2px;
 }
 
 .player-pause-logo {
-  max-width: min(38vw, 520px);
-  max-height: 120px;
+  max-width: min(34vw, 460px);
+  max-height: 100px;
   object-fit: contain;
   object-position: left center;
-  filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.58));
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.7));
 }
 
 .player-pause-title {
@@ -10786,26 +10793,28 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .player-pause-meta-line {
   font-size: var(--tv-secondary-text);
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.72);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.02em;
 }
 
 .player-pause-episode-title {
-  font-size: clamp(28px, 1.9vw, 38px);
-  font-weight: 650;
-  line-height: 1.12;
-  color: rgba(255, 255, 255, 0.94);
+  font-size: clamp(26px, 1.7vw, 34px);
+  font-weight: 600;
+  line-height: 1.15;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .player-pause-description {
   max-width: 100%;
-  font-size: clamp(20px, 1.3vw, 26px);
-  line-height: 1.42;
-  color: rgba(255, 255, 255, 0.8);
+  font-size: clamp(18px, 1.2vw, 24px);
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.58);
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   overflow: hidden;
+  margin-top: 2px;
 }
 
 .player-pause-cast-section {
