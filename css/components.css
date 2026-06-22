@@ -10993,11 +10993,13 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   display: flex;
   align-items: center;
   gap: clamp(14px, 1vw, 20px);
-  padding: clamp(12px, 1vw, 18px);
+  padding: clamp(14px, 1.1vw, 20px);
   border-radius: clamp(18px, 1.2vw, 24px);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(25, 25, 25, 0.89);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 14, 18, 0.72);
+  backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
+  -webkit-backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.48);
 }
 
 .player-next-episode-card-inner.is-playable {
@@ -14359,12 +14361,12 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .series-episode-desc-row {
-  padding: 0 64px 32px;
+  padding: 0 0 32px 64px;
   font-size: 32px;
   line-height: 44px;
   overflow: hidden;
   min-height: 132px;
-  width: 60%;
+  width: 70%;
 }
 
 .series-episode-meta {

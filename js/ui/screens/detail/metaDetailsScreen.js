@@ -1120,6 +1120,12 @@ export const MetaDetailsScreen = {
         this.updateTrailerOverlay();
         return;
       }
+      if (data.type === "error") {
+        this.stopTrailerProxyLoadingTimer();
+        this.trailerYoutubeFallbackActive = true;
+        this.updateTrailerOverlay();
+        return;
+      }
       if (data.type === "state") {
         const nextState = normalizeTrailerProxyStatePayload(data, this.trailerMuted);
         if (nextState.loading === false || Number(nextState.duration || 0) > 0 || Number(nextState.currentTime || 0) > 0) {
@@ -5406,14 +5412,14 @@ export const MetaDetailsScreen = {
   openRootSidebar() {
     const sidebarEl = document.getElementById("root-nav-sidebar");
     if (!sidebarEl) return false;
-    const target = sidebarEl.querySelector([
-      ".modern-sidebar-panel .modern-sidebar-nav-item.selected",
-      ".modern-sidebar-panel .modern-sidebar-nav-item",
-      ".modern-sidebar-panel .focusable",
-      ".home-sidebar .home-nav-item.selected",
-      ".home-sidebar .home-nav-item",
-      ".home-sidebar .focusable"
-    ].join(", "));
+    const target = (
+      sidebarEl.querySelector(".modern-sidebar-panel .modern-sidebar-nav-item.selected") ||
+      sidebarEl.querySelector(".modern-sidebar-panel .modern-sidebar-nav-item") ||
+      sidebarEl.querySelector(".modern-sidebar-panel .focusable") ||
+      sidebarEl.querySelector(".home-sidebar .home-nav-item.selected") ||
+      sidebarEl.querySelector(".home-sidebar .home-nav-item") ||
+      sidebarEl.querySelector(".home-sidebar .focusable")
+    );
     if (!target) return false;
     this._lastDetailFocused = this.container?.querySelector(".focusable") || null;
     this.container?.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
@@ -5802,18 +5808,7 @@ export const MetaDetailsScreen = {
       if (direction === "right") return this.focusInList(actions, actionIndex + 1) || true;
       if (direction === "down") {
         if (seasons.length) {
-          const detailContent = this.getDetailContentScroller();
-          const isHeroTransition = detailContent && detailContent.scrollTop < 50;
-          if (isHeroTransition) {
-            const seasonMount = this.container?.querySelector("#detailSeasonRowMount");
-            if (detailContent && seasonMount) {
-              detailContent.style.scrollBehavior = "smooth";
-              detailContent.scrollTop = seasonMount.offsetTop;
-              setTimeout(() => { detailContent.style.scrollBehavior = ""; }, 700);
-            }
-            return this.focusInList(seasons, this.getSelectedSeasonIndex(seasons), { animated: false }) || true;
-          }
-          return this.focusInList(seasons, this.getSelectedSeasonIndex(seasons)) || true;
+          return this.focusInList(seasons, this.getSelectedSeasonIndex(seasons), { animated: true }) || true;
         }
         if (episodes.length) {
           return this.focusInList(episodes, this.getRememberedEpisodeIndex(episodes)) || true;

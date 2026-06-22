@@ -301,7 +301,7 @@ const SUBTITLE_VERTICAL_OFFSET_STEP = 1;
 const AUDIO_AMPLIFICATION_MIN_DB = 0;
 const AUDIO_AMPLIFICATION_MAX_DB = 10;
 const PLAYER_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-const NEXT_EPISODE_THRESHOLD_PERCENT = 0.97;
+const NEXT_EPISODE_THRESHOLD_PERCENT = 0.985;
 const NEXT_EPISODE_PREFETCH_PERCENT = 0.9;
 const SKIP_INTERVAL_CHECK_MS = 250;
 const PARENTAL_GUIDE_ROW_HEIGHT = 36;
@@ -7478,6 +7478,7 @@ export const PlayerScreen = {
   clearMountedExternalSubtitleTracks() {
     this.externalTrackNodes.forEach((node) => node.remove());
     this.externalTrackNodes = [];
+    this._lastExternalSubtitleVttRaw = null;
     this.revokeExternalSubtitleObjectUrls();
   },
 
@@ -7601,6 +7602,39 @@ export const PlayerScreen = {
     return this.applySubtitleAssAlignmentToVtt(`WEBVTT\n\n${normalized}`);
   },
 
+  shiftVttTimestamps(vttText, delayMs) {
+    if (!delayMs || !vttText) return vttText;
+    const delaySec = delayMs / 1000;
+    return String(vttText).replace(
+      /(\d{1,2}:\d{2}:\d{2}[.,]\d{3}|\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{3}|\d{2}:\d{2}[.,]\d{3})/g,
+      (match, start, end) => {
+        const shift = (ts) => {
+          const parts = ts.replace(",", ".").split(":");
+          let sec = parts.length === 3
+            ? Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2])
+            : Number(parts[0]) * 60 + Number(parts[1]);
+          sec = Math.max(0, sec + delaySec);
+          const h = Math.floor(sec / 3600);
+          const m = Math.floor((sec % 3600) / 60);
+          const sFloor = Math.floor(sec % 60);
+          const ms = Math.round((sec % 1) * 1000);
+          return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sFloor).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+        };
+        const arrow = match.match(/\s*-->\s*/)?.[0] || " --> ";
+        return `${shift(start)}${arrow}${shift(end)}`;
+      }
+    );
+  },
+
+  applySubtitleDelayToTrackNodes() {
+    const vttRaw = this._lastExternalSubtitleVttRaw;
+    if (!vttRaw || !this.externalTrackNodes.length) return;
+    const shifted = this.shiftVttTimestamps(vttRaw, this.subtitleDelayMs);
+    const objectUrl = URL.createObjectURL(new Blob([shifted], { type: "text/vtt" }));
+    this.externalSubtitleObjectUrls.push(objectUrl);
+    this.externalTrackNodes.forEach((node) => { node.src = objectUrl; });
+  },
+
   async resolveSubtitlePlaybackUrl(url, { timeoutMs = 0 } = {}) {
     const original = String(url || "").trim();
     if (!original) {
@@ -7643,7 +7677,9 @@ export const PlayerScreen = {
         || contentType.includes("subrip")
         || (!contentType.includes("vtt") && !/^\s*WEBVTT/i.test(body));
       const vttText = shouldConvertToVtt ? this.convertSrtToVtt(body) : this.applySubtitleAssAlignmentToVtt(body);
-      const objectUrl = URL.createObjectURL(new Blob([vttText], { type: "text/vtt" }));
+      this._lastExternalSubtitleVttRaw = vttText;
+      const vttWithDelay = this.shiftVttTimestamps(vttText, this.subtitleDelayMs);
+      const objectUrl = URL.createObjectURL(new Blob([vttWithDelay], { type: "text/vtt" }));
       this.externalSubtitleObjectUrls.push(objectUrl);
       return objectUrl;
     } catch (_) {
@@ -8759,6 +8795,10 @@ export const PlayerScreen = {
     const style = { ...(this.subtitleStyleSettings || {}) };
     if (controlId === "delay") {
       this.subtitleDelayMs = clamp(Number(this.subtitleDelayMs || 0) + (delta * SUBTITLE_DELAY_STEP_MS), -5000, 5000);
+      this.persistPlayerPresentationSettings();
+      this.applySubtitleDelayToTrackNodes();
+      this.renderSubtitleDialog();
+      return;
     } else if (controlId === "fontSize") {
       style.fontSize = normalizeSubtitleFontSize(Number(style.fontSize || 100) + (delta * SUBTITLE_FONT_STEP));
     } else if (controlId === "bold" && delta !== 0) {
@@ -8778,6 +8818,7 @@ export const PlayerScreen = {
       this.subtitleDelayMs = 0;
       this.subtitleStyleSettings = { ...defaults };
       this.persistPlayerPresentationSettings();
+      this.applySubtitleDelayToTrackNodes();
       this.applySubtitlePresentationSettings({ refreshTrackRendering: true });
       this.renderSubtitleDialog();
       return;
