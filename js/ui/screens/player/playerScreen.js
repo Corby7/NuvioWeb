@@ -5072,6 +5072,7 @@ export const PlayerScreen = {
       }
       this.lastPlaybackErrorAt = 0;
       this.sourcesError = "";
+      const wasAlreadyStarted = this.hasPresentedPlaybackFrame;
       this.hasPresentedPlaybackFrame = true;
       this.markPlaybackProgress();
       this.clearPlaybackStallGuard();
@@ -5086,7 +5087,7 @@ export const PlayerScreen = {
       this.applyAspectMode({ showToast: false });
       this.attemptPendingPlaybackRestore();
       this.updateUiTick();
-      this.scheduleLoadingCompletionCheck(900);
+      this.scheduleLoadingCompletionCheck(wasAlreadyStarted ? 80 : 900);
       if (this.stickyProgressFocus && this.controlsVisible) {
         this.focusProgressBar();
       }
@@ -5389,7 +5390,7 @@ export const PlayerScreen = {
         action: "playPause",
         label: this.paused ? ">" : "II",
         icon: this.paused ? "assets/icons/ic_player_play.svg" : "assets/icons/ic_player_pause.svg",
-        title: "Play/Pause",
+        title: this.paused ? t("player_play", {}, "Play") : t("player_pause", {}, "Pause"),
         primary: true
       }
     ];
@@ -5517,6 +5518,7 @@ export const PlayerScreen = {
     this.updateSkipIntroCountdown(Date.now());
     this.renderSkipIntroButton();
     if (this.controlsVisible) {
+      this.renderSeekOverlay();
       this.renderControlButtons();
       if (focus) {
         this.focusFirstControl();
@@ -9997,7 +9999,6 @@ export const PlayerScreen = {
     this.subtitleDialogVisible = false;
     this.audioDialogVisible = false;
     this.speedDialogVisible = false;
-    this.moreActionsVisible = false;
 
     const filters = this.getSourceFilters();
     this.sourcesFocus = { zone: "filter", index: clamp(filters.indexOf(this.sourceFilter), 0, Math.max(0, filters.length - 1)) };
