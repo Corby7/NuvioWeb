@@ -10562,12 +10562,15 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   top: 0;
   width: clamp(560px, 36vw, 760px);
   height: 100%;
-  overflow-y: auto;
   z-index: 35;
   border-radius: var(--tv-card-radius) 0 0 var(--tv-card-radius);
   padding: clamp(28px, 2.2vw, 40px);
   background: var(--player-background-elevated);
   border-left: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .player-episode-panel-title {
@@ -10577,22 +10580,34 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .player-episode-panel-hint {
   margin-top: 4px;
-  margin-bottom: 12px;
   color: rgba(232, 239, 246, 0.72);
   font-size: var(--tv-secondary-text);
+}
+
+.player-episode-panel-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.player-episode-panel-list::-webkit-scrollbar {
+  display: none;
 }
 
 .player-episode-item {
   border-radius: var(--tv-card-radius);
   padding: clamp(14px, 1vw, 20px);
   margin-bottom: 10px;
-  background: transparent;
+  background: var(--player-background-card);
   border: 1px solid transparent;
+  transition: border-color 120ms ease, transform 120ms ease;
+  scroll-margin-block: 10px;
 }
 
 .player-episode-item.selected {
-  border-color: var(--player-focus-ring);
-  background: var(--player-focus-background);
+  border-color: var(--secondary-color);
+  transform: scale(1.01);
 }
 
 .player-episode-item-title {
@@ -10604,6 +10619,11 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   margin-top: 3px;
   color: rgba(232, 239, 246, 0.72);
   font-size: var(--tv-caption-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .player-seek-overlay {
@@ -11566,6 +11586,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 0 24px;
 }
 
 .player-sources-top-btn {
@@ -11620,7 +11641,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-sources-list {
-  margin-top: 12px;
+  margin-top: 16px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -11661,6 +11682,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .player-source-main {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .player-source-title {
@@ -11784,7 +11808,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-audio-track-list .player-dialog-item-check {
-  font-size: 20px;
+  font-size: 0;
 }
 
 .player-speed-modal .player-dialog-list {
@@ -12132,13 +12156,14 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-audio-control-card.focused {
-  border-color: var(--player-focus-ring);
-  background: transparent;
+  border-color: var(--secondary-color);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .player-audio-control-card.selected {
-  background: var(--player-secondary);
-  color: var(--player-on-secondary);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--secondary-color);
+  color: var(--player-atv-text-primary);
 }
 
 .player-audio-control-title {
@@ -12159,8 +12184,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .player-sources-panel,
 .player-episode-panel {
   width: var(--player-panel-width);
-  padding: var(--player-panel-padding);
-  border-radius: min(1.67vw, 32px) 0 0 min(1.67vw, 32px); /* ATV 16dp -> 32px */
+  padding: 48px 24px;
+  border-radius: 64px;
   transform: translateX(0);
   transition: opacity 120ms ease, transform 220ms ease;
 }
@@ -12172,16 +12197,17 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .player-sources-header {
   gap: min(1.46vw, 28px);
+  padding: 0 24px;
 }
 
 .player-sources-actions {
-  gap: min(0.83vw, 16px);
+  gap: 32px;
 }
 
 .player-sources-top-btn {
   height: min(4.17vw, 80px);
-  padding: 0 min(1.67vw, 32px);
-  border-radius: min(1.25vw, 24px);
+  padding: 0 36px;
+  border-radius: 64px;
   background: var(--player-background-card);
   color: var(--player-atv-text-primary);
   font-size: min(1.46vw, 28px);
@@ -12224,13 +12250,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-sources-list {
-  margin-top: min(1.67vw, 32px);
-  padding: min(1.46vw, 28px) min(0.83vw, 16px) min(0.83vw, 16px);
+  padding: 16px 24px;
 }
 
 .player-source-card {
   padding: min(1.67vw, 32px); /* ATV 16dp -> 32px */
-  margin-bottom: min(0.83vw, 16px);
+  margin-bottom: 24px;
   border-radius: min(1.25vw, 24px); /* ATV 12dp -> 24px */
   border-width: min(0.104vw, 2px); /* ATV 1dp -> 2px */
   background: var(--player-background-elevated);
@@ -12287,28 +12312,39 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .player-episode-panel {
   z-index: 37;
   background: var(--player-background-elevated);
+  padding: 48px 24px;
+  border-radius: min(1.67vw, 32px) 0 0 min(1.67vw, 32px);
+}
+
+.player-episode-panel-header {
+  margin-bottom: 24px;
+  padding: 0 24px;
 }
 
 .player-episode-panel-hint {
-  margin: min(1.67vw, 32px) 0 min(1.67vw, 32px); /* ATV 16dp spacers -> 32px */
+  margin-top: min(0.42vw, 8px);
+}
+
+.player-episode-panel-list {
+  padding: 16px 24px;
 }
 
 .player-episode-item {
   display: flex;
-  align-items: flex-start;
-  gap: min(1.46vw, 28px); /* ATV 14dp -> 28px */
-  padding: min(1.04vw, 20px); /* ATV 10dp -> 20px */
-  margin-bottom: min(1.25vw, 24px); /* ATV 12dp -> 24px */
-  border-radius: min(1.67vw, 32px); /* ATV 16dp -> 32px */
-  border-width: min(0.21vw, 4px); /* ATV 2dp -> 4px */
+  align-items: center;
+  gap: min(1.46vw, 28px);
+  padding: min(1.04vw, 20px);
+  margin-bottom: min(1.25vw, 24px);
+  border-radius: min(1.67vw, 32px);
+  border: min(0.104vw, 2px) solid transparent;
   background: var(--player-background-card);
   transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 
 .player-episode-item.selected {
-  background: var(--player-focus-background);
-  border-color: var(--player-focus-ring);
-  transform: scale(1.01);
+  background: var(--player-background-card);
+  border-color: var(--secondary-color);
+  transform: scale(1.02);
 }
 
 .player-episode-thumb-wrap {

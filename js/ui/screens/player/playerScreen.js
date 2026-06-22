@@ -5429,7 +5429,7 @@ export const PlayerScreen = {
       { action: "speed", label: `${Number(PlayerController.video?.playbackRate || 1).toFixed(Number(PlayerController.video?.playbackRate || 1) % 1 ? 2 : 0)}x`, title: t("player_playback_speed", {}, "Playback speed") },
       { action: "aspect", icon: "assets/icons/ic_player_aspect_ratio.svg", title: t("player_more_aspect_ratio", {}, "Aspect Ratio") },
       { action: "source", icon: "assets/icons/ic_player_source.svg", title: t("sources_title", {}, "Sources") },
-      { action: "backFromMore", icon: "assets/icons/ic_player_collapse_left.svg", title: t("player_go_back", {}, "Back") }
+      { action: "backFromMore", icon: "assets/icons/ic_player_collapse_left.svg", title: t("player_collapse", {}, "Collapse") }
     ];
   },
 
@@ -10141,15 +10141,6 @@ export const PlayerScreen = {
                   <div class="player-source-title">${escapeHtml(stream.label || "Stream")}</div>
                   <div class="player-source-desc">${escapeHtml(stream.description || stream.addonName || "")}</div>
                   ${bottomBadges}
-                  <div class="player-source-tags${badges ? " muted" : ""}">
-                    <span class="player-source-tag">${escapeHtml(qualityLabelFromText(`${stream.label} ${stream.description}`))}</span>
-                    <span class="player-source-tag">${escapeHtml(String(stream.sourceType || "stream") || "stream")}</span>
-                  </div>
-                </div>
-                <div class="player-source-side">
-                  ${addonLogoUrl ? `<img class="player-source-logo" src="${escapeAttribute(addonLogoUrl)}" alt="" decoding="async" loading="lazy" />` : ""}
-                  <div class="player-source-addon">${escapeHtml(stream.addonName || t("nav_addons", {}, "Addon"))}</div>
-                  ${isCurrent ? `<div class="player-source-playing">${escapeHtml(t("sources_playing", {}, "Playing"))}</div>` : ""}
                 </div>
               </article>
             `;
@@ -10635,7 +10626,7 @@ export const PlayerScreen = {
           </div>
           <div class="player-episode-copy">
             <div class="player-episode-item-title">${escapeHtml(episode.title || t("episodes_episode", {}, "Episode"))}</div>
-            ${episode.released ? `<div class="player-episode-date">${escapeHtml(episode.released)}</div>` : ""}
+            ${episode.released ? `<div class="player-episode-date">${escapeHtml(String(episode.released).slice(0, 10))}</div>` : ""}
             <div class="player-episode-item-subtitle">${escapeHtml(episode.overview || "")}</div>
           </div>
         </div>
@@ -10643,11 +10634,19 @@ export const PlayerScreen = {
     }).join("");
 
     panel.innerHTML = `
-      <div class="player-episode-panel-title">${escapeHtml(t("episodes_panel_title", {}, "Episodes"))}</div>
-      <div class="player-episode-panel-hint">${escapeHtml(buildEpisodePanelHint())}</div>
-      ${cards}
+      <div class="player-episode-panel-header">
+        <div class="player-episode-panel-title">${escapeHtml(t("episodes_panel_title", {}, "Episodes"))}</div>
+      </div>
+      <div class="player-episode-panel-list">
+        ${cards}
+      </div>
     `;
-    this.container.appendChild(panel);
+    const uiRoot = this.container.querySelector("#playerUiRoot") || this.container;
+    uiRoot.appendChild(panel);
+    const selectedCard = panel.querySelector(".player-episode-item.selected");
+    if (selectedCard) {
+      selectedCard.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
   },
 
   hideEpisodePanel() {
