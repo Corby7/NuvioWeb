@@ -53,13 +53,24 @@ class SubtitleRepository {
         continue;
       }
 
-      const subtitles = (result.data?.subtitles || []).map((subtitle) => ({
-        id: subtitle.id || `${subtitle.lang || "unk"}-${this.makeDeterministicId(subtitle.url || "")}`,
-        url: subtitle.url,
-        lang: subtitle.lang || "unknown",
-        addonName: addon.displayName,
-        addonLogo: addon.logo
-      })).filter((subtitle) => Boolean(subtitle.url));
+      const ID_PREFIX_LABELS = { "v3+": "Pro v3", "v3": "OpenSubtitles" };
+      const subtitles = (result.data?.subtitles || []).map((subtitle) => {
+        const rawId = String(subtitle.id || "");
+        const idPrefix = rawId.includes("|") ? rawId.split("|")[0] : null;
+        const providerFromId = idPrefix ? (ID_PREFIX_LABELS[idPrefix] || null) : null;
+        const subtitleUrl = String(subtitle.url || "");
+        const providerFromUrl = subtitleUrl.includes("subdl") ? "SubDL"
+          : subtitleUrl.includes("opensubtitles") ? "Pro v3"
+          : null;
+        return {
+          id: subtitle.id || `${subtitle.lang || "unk"}-${this.makeDeterministicId(subtitle.url || "")}`,
+          url: subtitle.url,
+          lang: subtitle.lang || "unknown",
+          title: subtitle.title || null,
+          addonName: subtitle.name || providerFromId || providerFromUrl || addon.displayName,
+          addonLogo: addon.logo
+        };
+      }).filter((subtitle) => Boolean(subtitle.url));
 
       subtitles.forEach((subtitle) => {
         const key = `${subtitle.url}::${String(subtitle.lang || "").toLowerCase()}`;
