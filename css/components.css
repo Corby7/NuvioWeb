@@ -10750,7 +10750,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   max-width: min(52vw, 860px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 64px;
   text-shadow: 0 4px 22px rgba(0, 0, 0, 0.72);
 }
 
@@ -10763,7 +10763,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .player-pause-details {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
   margin-top: 6px;
 }
 
@@ -10778,7 +10778,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .player-pause-logo {
   max-width: min(34vw, 460px);
-  max-height: 100px;
+  max-height: 300px;
   object-fit: contain;
   object-position: left center;
   filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.7));
@@ -10812,7 +10812,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   color: rgba(255, 255, 255, 0.58);
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
   overflow: hidden;
   margin-top: 2px;
 }
@@ -10972,10 +10971,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .player-next-episode-card {
   position: absolute;
-  right: var(--tv-safe-gutter);
-  bottom: clamp(32px, 3vh, 46px);
+  right: 64px;
+  bottom: 232px;
   z-index: 29;
-  width: clamp(470px, 34vw, 640px);
   pointer-events: none;
   transition: bottom 180ms ease, opacity 180ms ease;
 }
@@ -10992,19 +10990,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .player-next-episode-card-inner {
   display: flex;
   align-items: center;
-  gap: clamp(14px, 1vw, 20px);
-  padding: clamp(14px, 1.1vw, 20px);
-  border-radius: clamp(18px, 1.2vw, 24px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 24px;
+  border-radius: 24px;
   background: rgba(12, 14, 18, 0.72);
   backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
   -webkit-backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.48);
-}
-
-.player-next-episode-card-inner.is-playable {
-  pointer-events: auto;
-  cursor: pointer;
 }
 
 .player-next-episode-card-inner.is-selected {
@@ -11014,10 +11005,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .player-next-episode-thumb-wrap {
   position: relative;
-  width: clamp(140px, 10vw, 180px);
-  min-width: clamp(140px, 10vw, 180px);
-  height: clamp(80px, 5.8vw, 102px);
-  border-radius: clamp(12px, 0.8vw, 16px);
+  width: 300px;
+  height: 200px;
+  border-radius: 24px 0 0 24px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.06);
 }
@@ -11039,53 +11029,85 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-next-episode-copy {
-  flex: 1;
   min-width: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: space-between;
+  align-items: start;
+  padding: 20px 24px 20px 0;
 }
 
 .player-next-episode-kicker {
   color: rgba(255, 255, 255, 0.8);
-  font-size: clamp(14px, 0.85vw, 17px);
+  font-size: 18px;
   font-weight: 500;
 }
 
 .player-next-episode-title {
-  margin-top: 2px;
   color: #ffffff;
-  font-size: clamp(18px, 1.2vw, 24px);
+  font-size: 28px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.player-next-episode-pill {
+.player-next-episode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-next-episode-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.player-next-episode-dismiss,
+.player-next-episode-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 8px 14px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
+  background: none;
   color: rgba(255, 255, 255, 0.72);
+  font-size: clamp(13px, 0.85vw, 16px);
+  font-weight: 500;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
-.player-next-episode-pill.is-playable {
+.player-next-episode-play {
   color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
-.player-next-episode-card-inner.is-selected .player-next-episode-pill.is-playable {
+.player-next-episode-play.is-selected {
   background: #ffffff;
   border-color: #ffffff;
   color: #000000;
+  font-weight: bold;
 }
 
 .player-next-episode-pill-icon {
-  font-size: clamp(14px, 0.95vw, 18px);
-  line-height: 1;
-}
-
-.player-next-episode-pill-text {
-  font-size: clamp(14px, 0.95vw, 18px);
+  display: inline-block;
+  width: clamp(13px, 0.85vw, 16px);
+  height: clamp(13px, 0.85vw, 16px);
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask-image: url('../assets/icons/ic_player_skip_next.svg');
+  mask-image: url('../assets/icons/ic_player_skip_next.svg');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
 
 .player-aspect-toast {
@@ -15062,6 +15084,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   background: var(--secondary-color);
   border-color: transparent;
   color: var(--on-secondary);
+  font-weight: bold;
 }
 
 .stream-route-chip.loading {
@@ -15369,8 +15392,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 
 .legacy-webos .player-control-label,
 .legacy-webos .player-skip-intro-label,
-.legacy-webos .player-next-episode-pill,
-.legacy-webos .player-next-episode-pill-text {
+.legacy-webos .player-next-episode-dismiss,
+.legacy-webos .player-next-episode-play {
   font-size: 16px;
 }
 

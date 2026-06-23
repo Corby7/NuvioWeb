@@ -22,8 +22,8 @@
     --focus-bg: #303030;
     --border-color: #333333;
     --app-font-family: "Inter", "Segoe UI", Arial, sans-serif;
-    --tv-safe-gutter: 32px;
-    --tv-safe-gutter: clamp(28px, 3vw, 56px);
+    --tv-safe-gutter: 64px;
+    --tv-safe-gutter: 64px;
     --tv-safe-gutter-wide: 40px;
     --tv-safe-gutter-wide: clamp(32px, 3.6vw, 72px);
     --tv-card-radius: 16px;
