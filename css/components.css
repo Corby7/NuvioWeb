@@ -10972,18 +10972,17 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .player-next-episode-card {
   position: absolute;
   right: 64px;
-  bottom: 232px;
-  z-index: 29;
+  bottom: 236px;
+  z-index: 40;
   pointer-events: none;
-  transition: bottom 180ms ease, opacity 180ms ease;
-}
-
-.player-controls-overlay:not(.hidden) ~ .player-next-episode-card {
-  bottom: clamp(138px, 15vh, 176px);
+  transform: translateX(0);
+  opacity: 1;
+  transition: bottom 180ms ease, opacity 220ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .player-next-episode-card.hidden {
   opacity: 0;
+  transform: translateX(120%);
   pointer-events: none;
 }
 
@@ -11076,7 +11075,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: none;
   color: rgba(255, 255, 255, 0.72);
-  font-size: clamp(13px, 0.85vw, 16px);
+  font-size: 20px;
   font-weight: 500;
   cursor: pointer;
   pointer-events: auto;
@@ -11087,7 +11086,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   border-color: rgba(255, 255, 255, 0.35);
 }
 
-.player-next-episode-play.is-selected {
+.player-next-episode-play.is-selected,
+.player-next-episode-dismiss.is-selected {
   background: #ffffff;
   border-color: #ffffff;
   color: #000000;
@@ -17144,8 +17144,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .series-watched-badge-svg {
-  width: 40px;
-  height: 40px;
+  width: 50px;
+  height: 50px;
 }
 
 .series-episode-unavailable {

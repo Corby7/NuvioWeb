@@ -301,7 +301,7 @@ const SUBTITLE_VERTICAL_OFFSET_STEP = 1;
 const AUDIO_AMPLIFICATION_MIN_DB = 0;
 const AUDIO_AMPLIFICATION_MAX_DB = 10;
 const PLAYER_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-const NEXT_EPISODE_THRESHOLD_PERCENT = 0.0; // DEV: show card immediately
+const NEXT_EPISODE_THRESHOLD_PERCENT = 0.985;
 const NEXT_EPISODE_PREFETCH_PERCENT = 0.9;
 const SKIP_INTERVAL_CHECK_MS = 250;
 const PARENTAL_GUIDE_ROW_HEIGHT = 36;
@@ -1620,6 +1620,7 @@ export const PlayerScreen = {
     this.nextEpisodeLaunching = false;
     this.nextEpisodeCardDismissed = false;
     this.nextEpisodeBackExitArmed = false;
+    this.nextEpisodeCardFocus = "play";
 
     this.parentalWarnings = normalizeParentalWarnings(params.parentalWarnings || params.parentalGuide);
     this.parentalGuideVisible = false;
@@ -5689,7 +5690,7 @@ export const PlayerScreen = {
 
   resetControlsAutoHide() {
     this.clearControlsAutoHide();
-    if (!this.controlsVisible || this.paused || this.isDialogOpen() || this.seekOverlayVisible) {
+    if (!this.controlsVisible || this.paused || this.isDialogOpen() || this.seekOverlayVisible || this.isNextEpisodeCardVisible()) {
       return;
     }
     this.controlsHideTimer = setTimeout(() => {
@@ -5862,6 +5863,7 @@ export const PlayerScreen = {
     const nextEpisode = this.resolveNextEpisodeInfo();
     const hidden = !this.isNextEpisodeCardVisible();
 
+    const isFirstAppearance = card.innerHTML === "";
     card.classList.toggle("hidden", hidden);
     if (hidden) {
       if (card.innerHTML !== "") {
@@ -5871,13 +5873,19 @@ export const PlayerScreen = {
       return;
     }
 
+    if (isFirstAppearance && this.controlFocusZone !== "nextEpisodeCard") {
+      this.controlFocusZone = "nextEpisodeCard";
+      this.nextEpisodeCardFocus = "play";
+    }
+
     const titleLine = [nextEpisode.episodeLabel, nextEpisode.episodeTitle].filter(Boolean).join(" • ");
     const statusText = nextEpisode.hasAired
       ? t("next_episode_play", {}, "Play")
       : t("next_episode_unaired", {}, "Unaired");
     const thumb = this.episodes.find((entry) => String(entry?.id || "") === String(nextEpisode.videoId || ""))?.thumbnail || "";
-    const isSelected = !this.controlsVisible;
-    const renderKey = `${nextEpisode.videoId}|${titleLine}|${thumb}|${nextEpisode.hasAired}|${isSelected}|${statusText}`;
+    const isCardZoneActive = this.controlFocusZone === "nextEpisodeCard";
+    const focusedButton = this.nextEpisodeCardFocus || "play";
+    const renderKey = `${nextEpisode.videoId}|${titleLine}|${thumb}|${nextEpisode.hasAired}|${isCardZoneActive}|${focusedButton}|${statusText}`;
 
     if (this._nextEpisodeCardRenderKey === renderKey) {
       return;
@@ -5885,7 +5893,7 @@ export const PlayerScreen = {
     this._nextEpisodeCardRenderKey = renderKey;
 
     card.innerHTML = `
-      <div class="player-next-episode-card-inner${isSelected ? " is-selected" : ""}">
+      <div class="player-next-episode-card-inner${isCardZoneActive ? " is-selected" : ""}">
         <div class="player-next-episode-thumb-wrap">
           ${thumb ? `<img class="player-next-episode-thumb" src="${escapeHtml(thumb)}" alt="" aria-hidden="true" />` : `<div class="player-next-episode-thumb player-next-episode-thumb-fallback"></div>`}
           <div class="player-next-episode-thumb-shade"></div>
@@ -5896,12 +5904,12 @@ export const PlayerScreen = {
             <div class="player-next-episode-title">${escapeHtml(titleLine || t("next_episode_label", {}, "Next episode"))}</div>
           </div>
           <div class="player-next-episode-actions">
-            <button class="player-next-episode-dismiss" type="button" tabindex="-1" data-player-pointer-action="dismissNextEpisode">
+            <button class="player-next-episode-dismiss${isCardZoneActive && focusedButton === "dismiss" ? " is-selected" : ""}" type="button" tabindex="-1" data-player-pointer-action="dismissNextEpisode">
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/></svg>
               <span>Dismiss</span>
             </button>
             ${nextEpisode.hasAired ? `
-            <button class="player-next-episode-play${isSelected ? " is-selected" : ""}" type="button" tabindex="-1" data-player-pointer-action="nextEpisode">
+            <button class="player-next-episode-play${isCardZoneActive && focusedButton === "play" ? " is-selected" : ""}" type="button" tabindex="-1" data-player-pointer-action="nextEpisode">
               <span class="player-next-episode-pill-icon" aria-hidden="true"></span>
               <span>Watch now</span>
             </button>
@@ -5910,6 +5918,10 @@ export const PlayerScreen = {
         </div>
       </div>
     `;
+
+    if (isFirstAppearance) {
+      this.setControlsVisible(true, { focus: false });
+    }
   },
 
   updateUiTick() {
@@ -11348,13 +11360,33 @@ export const PlayerScreen = {
       }
     }
 
-    if (!this.controlsVisible && this.isNextEpisodeCardVisible()) {
-      if (keyCode === 13) {
-        await this.playNextEpisode();
+    if (this.controlFocusZone === "nextEpisodeCard" && this.isNextEpisodeCardVisible()) {
+      if (keyCode === 37) {
+        this.nextEpisodeCardFocus = this.nextEpisodeCardFocus === "play" ? "dismiss" : "play";
+        this.renderNextEpisodeCard();
         return;
       }
-      if (keyCode === 38 || keyCode === 40) {
-        this.setControlsVisible(true, { focus: true });
+      if (keyCode === 39) {
+        this.nextEpisodeCardFocus = this.nextEpisodeCardFocus === "dismiss" ? "play" : "dismiss";
+        this.renderNextEpisodeCard();
+        return;
+      }
+      if (keyCode === 40) {
+        this.controlFocusZone = "buttons";
+        this.controlFocusIndex = 0;
+        this.renderNextEpisodeCard();
+        this.renderControlButtons();
+        return;
+      }
+      if (keyCode === 13) {
+        if (this.nextEpisodeCardFocus === "dismiss") {
+          this.dismissNextEpisodeCard();
+        } else {
+          await this.playNextEpisode();
+        }
+        return;
+      }
+      if (keyCode === 38) {
         return;
       }
     }
@@ -11424,6 +11456,12 @@ export const PlayerScreen = {
       if (keyCode === 38) {
         this.stickyProgressFocus = false;
         this.autoHideControlsAfterSeek = false;
+        if (this.isNextEpisodeCardVisible()) {
+          this.controlFocusZone = "nextEpisodeCard";
+          this.nextEpisodeCardFocus = "play";
+          this.renderNextEpisodeCard();
+          return;
+        }
         if (this.focusSkipIntroButton()) {
           return;
         }
