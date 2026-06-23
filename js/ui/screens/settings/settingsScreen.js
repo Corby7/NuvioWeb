@@ -1071,7 +1071,7 @@ function getVisibleSections(model) {
   });
 }
 
-function scrollSettingsRailItem(node) {
+function scrollSettingsRailItem(node, options = {}) {
   const rail = node?.closest?.(".settings-sidebar");
   if (!rail || !node) {
     return;
@@ -1090,6 +1090,15 @@ function scrollSettingsRailItem(node) {
   const nextScrollTop = clamp(rail.scrollTop + itemCenterInViewport - targetCenter, 0, maxScroll);
 
   if (Math.abs(rail.scrollTop - nextScrollTop) < 1) {
+    return;
+  }
+  if (options.immediate) {
+    if (rail.settingsScrollAnimationFrame) {
+      cancelAnimationFrame(rail.settingsScrollAnimationFrame);
+      rail.settingsScrollAnimationFrame = null;
+    }
+    rail.scrollTop = nextScrollTop;
+    updateSettingsRailIndicators(rail);
     return;
   }
   animateSettingsRailScroll(rail, nextScrollTop);
@@ -1282,7 +1291,8 @@ function readSettingsUiState() {
     contentFocusKey: typeof state?.contentFocusKey === "string" ? state.contentFocusKey : null,
     appearanceThemeFocusKey: typeof state?.appearanceThemeFocusKey === "string" ? state.appearanceThemeFocusKey : null,
     integrationView: typeof state?.integrationView === "string" ? state.integrationView : "hub",
-    expandedSections: normalizeExpandedSections(state?.expandedSections)
+    expandedSections: normalizeExpandedSections(state?.expandedSections),
+    railScrollTop: Number.isFinite(state?.railScrollTop) ? state.railScrollTop : null
   };
 }
 
@@ -1316,7 +1326,7 @@ export const SettingsScreen = {
     `;
   },
 
-  async mount() {
+  async mount(_params = {}, navigationContext = {}) {
     this.container = document.getElementById("settings");
     ScreenUtils.show(this.container);
     if (!this.handleWheelBound) {
@@ -1329,6 +1339,7 @@ export const SettingsScreen = {
     }
     this.settingsRouteEnterPending = true;
     const persistedUiState = readSettingsUiState();
+    const isBackNav = navigationContext?.isBack === true;
     this.activeSection = persistedUiState.activeSection || this.activeSection || null;
     this.focusZone = "nav";
     this.sidebarFocusIndex = Number.isFinite(this.sidebarFocusIndex) ? this.sidebarFocusIndex : 0;
@@ -1351,11 +1362,29 @@ export const SettingsScreen = {
       onExpand: () => this.openSidebar(),
       onCollapse: () => this.closeSidebarToNav()
     });
+    if (isBackNav && Number.isFinite(persistedUiState.railScrollTop)) {
+      this.suppressNextRailFocusScroll = true;
+    }
     await this.render({ refreshModel: false });
+    if (isBackNav && Number.isFinite(persistedUiState.railScrollTop)) {
+      const navSlot = this.container?.querySelector("[data-settings-nav]");
+      if (navSlot) {
+        const maxScroll = Math.max(0, navSlot.scrollHeight - navSlot.clientHeight);
+        navSlot.scrollTop = clamp(Number(persistedUiState.railScrollTop), 0, maxScroll);
+        updateSettingsRailIndicators(navSlot);
+      }
+    }
   },
 
   ensureExpandedState(sectionId) {
     this.expandedSections[sectionId] = normalizeExpandedState(sectionId, this.expandedSections[sectionId]);
+  },
+
+  getCurrentRailScrollTop() {
+    const navSlot = this.container?.querySelector("[data-settings-nav]");
+    const value = Number(navSlot?.scrollTop || 0);
+    this.railScrollTop = value;
+    return value;
   },
 
   persistUiState() {
@@ -1365,7 +1394,8 @@ export const SettingsScreen = {
       contentFocusKey: this.contentFocusKey || null,
       appearanceThemeFocusKey: this.appearanceThemeFocusKey || null,
       integrationView: this.integrationView || "hub",
-      expandedSections: normalizeExpandedSections(this.expandedSections)
+      expandedSections: normalizeExpandedSections(this.expandedSections),
+      railScrollTop: this.getCurrentRailScrollTop()
     });
   },
 
@@ -3705,10 +3735,10 @@ export const SettingsScreen = {
       ? Math.max(0, ((Number(auth.createdAt) + Number(auth.expiresIn)) * 1000) - Date.now())
       : 0;
 
-    if (isAwaitingApproval) {
+    if (isAwaitingApproval && !this.deferTraktAutoWork?.("polling")) {
       this.startTraktPolling();
     }
-    if (isConnected && !this.traktStats && !this.traktStatsLoading) {
+    if (isConnected && !this.traktStats && !this.traktStatsLoading && !this.deferTraktAutoWork?.("stats")) {
       void this.loadTraktStats(false).then(() => {
         if (this.container && this.activeSection === "trakt") {
           void this.render();
@@ -4034,7 +4064,10 @@ export const SettingsScreen = {
       if (this.railScrollNode && this.handleRailScrollBound) {
         this.railScrollNode.removeEventListener("scroll", this.handleRailScrollBound);
       }
-      this.handleRailScrollBound = () => updateSettingsRailIndicators(navSlot);
+      this.handleRailScrollBound = () => {
+        updateSettingsRailIndicators(navSlot);
+        this.railScrollTop = Number(navSlot.scrollTop || 0);
+      };
       navSlot.addEventListener("scroll", this.handleRailScrollBound, { passive: true });
       this.railScrollNode = navSlot;
     }
@@ -4076,7 +4109,11 @@ export const SettingsScreen = {
     this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
     const selectedNode = this.container.querySelector(".settings-nav-item.selected");
     if (selectedNode && this.focusZone !== "nav") {
-      scrollSettingsRailItem(selectedNode);
+      if (this.suppressNextRailFocusScroll) {
+        this.suppressNextRailFocusScroll = false;
+      } else {
+        scrollSettingsRailItem(selectedNode);
+      }
     }
 
     if (this.optionDialog) {

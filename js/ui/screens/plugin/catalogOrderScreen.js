@@ -242,6 +242,8 @@ export const CatalogOrderScreen = {
     }
 
     if (code === 13) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
       await this.activateFocused();
     }
   },

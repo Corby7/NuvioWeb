@@ -7220,7 +7220,10 @@ export const HomeScreen = {
         return cachedItem;
       }
       try {
-        const meta = await this.fetchMetaForContinueWatching(
+        const preFetched = !options?.forceRefreshMetadata && item.enrichedMeta?.status === "success" && item.enrichedMeta?.data
+          ? item.enrichedMeta.data
+          : null;
+        const meta = preFetched ?? await this.fetchMetaForContinueWatching(
           item.contentType || "movie",
           item.contentId,
           options?.metaTimeoutMs || 1800

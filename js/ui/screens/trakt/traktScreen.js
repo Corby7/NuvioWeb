@@ -33,6 +33,8 @@ function restoreTraktScrollState(container, scrollState) {
   }
 }
 
+const TRAKT_ROUTE_ENTER_DURATION_MS = 350;
+
 function formatCountdown(valueMs) {
   const totalSeconds = Math.max(0, Math.floor(Number(valueMs || 0) / 1000));
   const days = Math.floor(totalSeconds / 86400);
@@ -55,12 +57,13 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
     this.optionDialog = this.optionDialog || null;
     this.dialogFocusIndex = Number.isFinite(this.dialogFocusIndex) ? this.dialogFocusIndex : 0;
     this.traktRouteEnterPending = true;
+    this.traktRouteAutoWorkDeferred = true;
     if (!this.handleClickBound) {
       this.handleClickBound = this.handleClickEvent.bind(this);
       this.container.addEventListener("click", this.handleClickBound);
     }
     await this.render();
-    this.startTraktClock();
+    this.deferTraktAutoWork("clock");
   },
 
   async render({ refreshModel = true } = {}) {
@@ -112,6 +115,50 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
     }
     clearInterval(this.traktClockTimer);
     this.traktClockTimer = null;
+  },
+
+  deferTraktAutoWork(kind) {
+    if (!this.traktRouteAutoWorkDeferred || Router.getCurrent() !== "trakt") {
+      return false;
+    }
+    if (!this.pendingTraktAutoWork) {
+      this.pendingTraktAutoWork = {};
+    }
+    this.pendingTraktAutoWork[kind] = true;
+    this.scheduleTraktRouteAutoWork();
+    return true;
+  },
+
+  scheduleTraktRouteAutoWork() {
+    if (this.traktRouteAutoWorkTimer) {
+      return;
+    }
+    this.traktRouteAutoWorkTimer = setTimeout(() => {
+      this.traktRouteAutoWorkTimer = null;
+      this.runTraktRouteAutoWork();
+    }, TRAKT_ROUTE_ENTER_DURATION_MS + 80);
+  },
+
+  runTraktRouteAutoWork() {
+    if (Router.getCurrent() !== "trakt") {
+      return;
+    }
+    this.traktRouteAutoWorkDeferred = false;
+    const pending = this.pendingTraktAutoWork || {};
+    this.pendingTraktAutoWork = {};
+    if (pending.clock) {
+      this.startTraktClock();
+    }
+    if (pending.polling) {
+      this.startTraktPolling();
+    }
+    if (pending.stats && !this.traktStats && !this.traktStatsLoading) {
+      void this.loadTraktStats(false).then(() => {
+        if (this.container && Router.getCurrent() === "trakt") {
+          void this.render();
+        }
+      });
+    }
   },
 
   updateTraktCountdowns() {
@@ -352,6 +399,12 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
   cleanup() {
     this.stopTraktPolling?.();
     this.stopTraktClock();
+    if (this.traktRouteAutoWorkTimer) {
+      clearTimeout(this.traktRouteAutoWorkTimer);
+      this.traktRouteAutoWorkTimer = null;
+    }
+    this.traktRouteAutoWorkDeferred = false;
+    this.pendingTraktAutoWork = {};
     if (this.container && this.handleClickBound) {
       this.container.removeEventListener("click", this.handleClickBound);
     }
