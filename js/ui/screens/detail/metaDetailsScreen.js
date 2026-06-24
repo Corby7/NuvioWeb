@@ -3831,8 +3831,7 @@ export const MetaDetailsScreen = {
     if (!this.commentsItems.length) {
       return `
         <div class="detail-comments-section">
-          <div class="detail-comments-heading"><img src="assets/icons/trakt_tv_glyph.svg" alt="" /><span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span></div>
-          <p class="detail-comments-subtitle">${escapeHtml(subtitle)}</p>
+          <div class="detail-comments-heading"><span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span></div>
           ${modeButtons}
           <p class="series-insight-empty">${escapeHtml(t("detail_comments_empty", {}, "No Trakt comments yet."))}</p>
         </div>

@@ -16,7 +16,7 @@ class MetaRepository {
     this.inFlightMetaAll = new Map();
   }
 
-  async getMeta(addonBaseUrl, type, id) {
+  async getMeta(addonBaseUrl, type, id, signal) {
     const normalizedType = String(type || "").trim();
     const normalizedId = String(id || "").trim();
     const cacheKey = `${addonRepository.canonicalizeUrl(addonBaseUrl)}:${normalizedType}:${normalizedId}`;
@@ -30,7 +30,7 @@ class MetaRepository {
 
     const request = (async () => {
       const url = this.buildMetaUrl(addonBaseUrl, normalizedType, normalizedId);
-      const result = await safeApiCall(() => MetaApi.getMeta(url));
+      const result = await safeApiCall(() => MetaApi.getMeta(url, signal));
       if (result.status !== "success") {
         return result;
       }
@@ -52,7 +52,7 @@ class MetaRepository {
     }
   }
 
-  async getMetaFromAllAddons(type, id) {
+  async getMetaFromAllAddons(type, id, signal) {
     const requestedType = this.inferCanonicalType(String(type || "").trim(), id);
     const inferredType = requestedType;
     const cacheKey = `all:${requestedType}:${inferredType}:${String(id || "").trim()}`;
@@ -105,7 +105,9 @@ class MetaRepository {
       }
 
       for (const { addon, type: candidateType } of candidates) {
-        const result = await this.getMeta(addon.baseUrl, candidateType, id);
+        if (signal?.aborted) break;
+        const result = await this.getMeta(addon.baseUrl, candidateType, id, signal);
+        if (signal?.aborted) break;
         if (result.status === "success") {
           this.metaCache.set(cacheKey, result.data);
           return result;

@@ -1986,7 +1986,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
       ? `<img class="home-poster-focus-gif" data-src="${escapeAttribute(collectionItem.focusGifUrl)}" alt="" aria-hidden="true" />`
       : "";
     const contentMarkup = visualSrc
-      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" loading="lazy" alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
+      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" loading="lazy" fetchpriority="low" alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
       : (collectionItem.coverEmoji
         ? `<div class="home-collection-emoji" aria-hidden="true">${escapeHtml(collectionItem.coverEmoji)}</div>`
         : '<div class="content-poster placeholder"></div>');
@@ -2068,16 +2068,16 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
              data-logo-src="${escapeAttribute(normalized.logo || "")}"`}>
       <div class="home-poster-frame">
         ${(!isLoading && posterSrc)
-      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" loading="lazy" alt="" aria-label="${escapeAttribute(normalized.name || "")}" />`
+      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" loading="lazy" fetchpriority="low" alt="" aria-label="${escapeAttribute(normalized.name || "")}" />`
       : '<div class="content-poster placeholder"></div>'}
         ${(!isLoading && expandedVisualSrc)
-      ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}" decoding="async" loading="lazy" alt="" aria-hidden="true" />`
+      ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}" decoding="async" loading="lazy" fetchpriority="low" alt="" aria-hidden="true" />`
       : '<div class="home-poster-expanded-backdrop placeholder" aria-hidden="true"></div>'}
         <div class="home-poster-trailer-layer"></div>
         <div class="home-poster-expanded-gradient"></div>
         <div class="home-poster-expanded-brand">
           ${(!isLoading && normalized.logo)
-      ? `<img class="home-poster-expanded-logo" data-src="${escapeAttribute(normalized.logo)}" decoding="async" loading="lazy" alt="${escapeAttribute(normalized.name || "content")}" />`
+      ? `<img class="home-poster-expanded-logo" data-src="${escapeAttribute(normalized.logo)}" decoding="async" loading="lazy" fetchpriority="low" alt="${escapeAttribute(normalized.name || "content")}" />`
       : `<div class="home-poster-expanded-title">${escapeHtml(normalized.name || "Untitled")}</div>`}
         </div>
         ${(!isLoading && useLandscapePoster && !suppressPosterText) ? `
@@ -4179,9 +4179,12 @@ export const HomeScreen = {
       this.applyHeroToDom();
       if (shouldEnrichModernHero(hero)) {
         const heroId = String(hero.id);
+        console.log("[hero] scheduling enrich for", heroId);
         setTimeout(() => {
           if (String(this.heroItem?.id || "") === heroId) {
             this.enrichCurrentHeroAsync(this.heroItem || hero);
+          } else {
+            console.warn("[hero] enrich skipped — hero already changed to", this.heroItem?.id, "from", heroId);
           }
         }, 0);
       }
@@ -4222,10 +4225,11 @@ export const HomeScreen = {
     const itemId = String(hero.id);
     const itemType = String(hero.type || hero.apiType || "movie");
     if (this._heroMetaCache.has(itemId) || this._heroPrefetchPending.has(itemId)) return;
+    if (this._heroPrefetchPending.size >= 1) return;
     this._heroPrefetchPending.add(itemId);
     Promise.race([
       metaRepository.getMetaFromAllAddons(itemType, itemId),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("prefetch-timeout")), 5000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error("prefetch-timeout")), 2500))
     ])
       .then((result) => {
         this._heroPrefetchPending.delete(itemId);
@@ -4245,20 +4249,45 @@ export const HomeScreen = {
     }
     // Defer if a scroll animation is active; camera-follow landing retries via scheduleModernHeroUpdate
     if (this.shouldSuspendModernViewportFocusSync()) {
+      console.warn("[hero] suspended (scroll active), will retry via fallback timer", hero.id);
+      if (!this.heroEnrichSuspendFallbackTimer) {
+        this.heroEnrichSuspendFallbackTimer = setTimeout(() => {
+          this.heroEnrichSuspendFallbackTimer = null;
+          const current = this.heroItem;
+          if (current && !current.heroMetaEnriched) {
+            void this.enrichCurrentHeroAsync(current);
+          }
+        }, 800);
+      }
       return;
     }
+    if (this.heroEnrichSuspendFallbackTimer) {
+      clearTimeout(this.heroEnrichSuspendFallbackTimer);
+      this.heroEnrichSuspendFallbackTimer = null;
+    }
+    this.heroEnrichAbortController?.abort();
+    const heroEnrichAbortController = new AbortController();
+    this.heroEnrichAbortController = heroEnrichAbortController;
     const itemId = String(hero.id);
     const itemType = String(hero.type || hero.apiType || "movie");
     const token = (this.heroEnrichmentToken = (Number(this.heroEnrichmentToken || 0) + 1));
     try {
       const cachedMeta = this._heroMetaCache?.get(itemId);
+      let heroEnrichTimeoutId;
       const result = cachedMeta !== undefined
         ? (cachedMeta ? { status: "success", data: cachedMeta } : { status: "error" })
         : await Promise.race([
-            metaRepository.getMetaFromAllAddons(itemType, itemId),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("hero-enrich-timeout")), 4000))
+            metaRepository.getMetaFromAllAddons(itemType, itemId, heroEnrichAbortController.signal),
+            new Promise((_, reject) => {
+              heroEnrichTimeoutId = setTimeout(() => {
+                heroEnrichAbortController.abort();
+                reject(new Error("hero-enrich-timeout"));
+              }, 4000);
+            })
           ]);
+      clearTimeout(heroEnrichTimeoutId);
       if (Number(this.heroEnrichmentToken) !== token) {
+        console.warn("[hero] token superseded, discarding result for", itemId, "— current token:", this.heroEnrichmentToken, "ours:", token);
         if (!this.heroCopyFadeInRaf) {
           const stuckNode = this.container?.querySelector(".home-hero-card");
           if (stuckNode?.classList.contains("is-hero-copy-updating")) {
@@ -7722,6 +7751,14 @@ export const HomeScreen = {
     this.endModernVerticalFastScroll({ land: false });
     this.stopHeroRotation();
     this.cancelPendingHeroFocus();
+    if (this.heroEnrichSuspendFallbackTimer) {
+      clearTimeout(this.heroEnrichSuspendFallbackTimer);
+      this.heroEnrichSuspendFallbackTimer = null;
+    }
+    if (this.heroEnrichAbortController) {
+      this.heroEnrichAbortController.abort();
+      this.heroEnrichAbortController = null;
+    }
     this.cancelFocusedPosterFlow();
     this.clearFocusedPosterFlowState();
     this.collapseFocusedPoster();
