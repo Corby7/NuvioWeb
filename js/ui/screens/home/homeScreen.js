@@ -68,7 +68,7 @@ const HOME_ROW_TIMEOUT_MS = 3500;
 const HOME_ROW_RETRY_TIMEOUT_MS = 12000;
 const HOME_BACKGROUND_RENDER_DELAY_MS = 120;
 const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;
-const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 400;
+const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 200;
 const CW_META_TIMEOUT_MS = 1800;
 const CW_META_TIMEOUT_TV_MS = 4200;
 const CW_NEXT_UP_META_TIMEOUT_MS = 2200;
@@ -2513,18 +2513,19 @@ export const HomeScreen = {
       return;
     }
 
-    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+    const easeOutQuad = (t) => t * (2 - t);
     const easing = typeof options?.easing === "function"
       ? options.easing
-      : easeOutCubic;
+      : easeOutQuad;
     const map = this.scrollAnimations || (this.scrollAnimations = new WeakMap());
     const existing = map.get(container) || {};
     if (existing[key]) {
       cancelAnimationFrame(existing[key]);
     }
 
-    const startTime = performance.now();
+    let startTime = null;
     const tick = (now) => {
+      if (startTime === null) startTime = now;
       const progress = Math.min(1, (now - startTime) / effectiveDuration);
       container[property] = Math.round(startValue + ((nextValue - startValue) * easing(progress)));
       if (progress < 1) {
@@ -5697,7 +5698,7 @@ export const HomeScreen = {
       if (Math.abs(Number(next.container.scrollLeft || 0) - Number(next.value || 0)) <= 1) {
         return;
       }
-      this.animateScroll(next.container, "x", next.value, this.getScrollDuration(160));
+      this.animateScroll(next.container, "x", next.value, this.isLegacyTvRuntime() ? 0 : (this.isPerformanceConstrained() ? 160 : 300));
       return;
     }
 

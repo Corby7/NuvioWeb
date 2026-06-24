@@ -4425,7 +4425,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   overflow-y: visible;
   padding-bottom: 4px;
   scrollbar-width: none;
-  will-change: scroll-position;
 }
 
 .home-track::-webkit-scrollbar {
@@ -5876,13 +5875,14 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .home-screen-shell.home-layout-modern .home-hero-backdrop {
   object-position: 100% 0;
   opacity: 1;
-  transition: opacity 400ms ease-in-out;
+  transition: opacity 400ms ease-out;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-enter {
   opacity: 0;
   transition-duration: 400ms;
   transition-timing-function: ease-out;
+  will-change: opacity;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-enter.is-visible {
@@ -5891,11 +5891,11 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost {
   opacity: 1;
-  transition: opacity 400ms ease-in;
+  transition: none;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost.is-fading-out {
-  opacity: 0;
+  opacity: 1;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-trailer-layer {
@@ -5999,7 +5999,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   top: 0;
   opacity: 1;
   pointer-events: none;
-  transition: opacity 400ms ease;
+  transition: opacity 200ms ease;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-logo-transition-ghost.is-fading-out {
@@ -12761,7 +12761,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   scrollbar-width: none;
   gap: 48px;
   margin-top: -16px;
-  will-change: scroll-position;
 }
 
 .series-episode-track::-webkit-scrollbar {

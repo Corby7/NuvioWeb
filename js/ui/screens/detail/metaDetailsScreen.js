@@ -4222,22 +4222,7 @@ export const MetaDetailsScreen = {
       return;
     }
 
-    const ease = (t) => {
-      const p1x = 0.4;
-      const p1y = 0;
-      const p2x = 0.2;
-      const p2y = 1;
-      const sampleCurveX = (x) => ((1 - 3 * p2x + 3 * p1x) * x + (3 * p2x - 6 * p1x)) * x * x + (3 * p1x) * x;
-      const sampleCurveY = (x) => ((1 - 3 * p2y + 3 * p1y) * x + (3 * p2y - 6 * p1y)) * x * x + (3 * p1y) * x;
-      const sampleDerivativeX = (x) => (3 * (1 - 3 * p2x + 3 * p1x) * x + 2 * (3 * p2x - 6 * p1x)) * x + (3 * p1x);
-      let x = t;
-      for (let i = 0; i < 4; i += 1) {
-        const derivative = sampleDerivativeX(x);
-        if (Math.abs(derivative) < 0.001) break;
-        x -= (sampleCurveX(x) - t) / derivative;
-      }
-      return sampleCurveY(Math.max(0, Math.min(1, x)));
-    };
+    const ease = (t) => t * (2 - t);
     const map = this.scrollAnimations || (this.scrollAnimations = new WeakMap());
     const key = axis === "y" ? "y" : "x";
     const existing = map.get(container) || {};
@@ -4245,8 +4230,9 @@ export const MetaDetailsScreen = {
       cancelAnimationFrame(existing[key]);
     }
 
-    const startTime = performance.now();
+    let startTime = null;
     const tick = (now) => {
+      if (startTime === null) startTime = now;
       const progress = Math.min(1, (now - startTime) / effectiveDuration);
       container[property] = Math.round(startValue + ((nextValue - startValue) * ease(progress)));
       if (progress < 1) {
