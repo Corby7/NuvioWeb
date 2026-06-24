@@ -167,8 +167,6 @@ export const RootSidebarController = {
         focusWithoutAutoScroll(target);
       }
     } else {
-      console.log("[expand] sidebar el:", this.el?.querySelector(".home-sidebar"));
-      console.log("[expand] selected node:", getLegacySidebarSelectedNode(this.el));
       setLegacySidebarExpanded(this.el, true);
       const target = getLegacySidebarSelectedNode(this.el);
       if (target) {
@@ -200,7 +198,6 @@ export const RootSidebarController = {
   },
 
   collapse() {
-    console.log("[rootSidebarController] collapse() called");
     if (!this.expanded) return;
     const wasPointerOpen = this.openedBy === 'pointer';
     this.expanded = false;

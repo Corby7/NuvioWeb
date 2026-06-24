@@ -6007,7 +6007,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .home-screen-shell.home-layout-modern .home-hero-title-text {
   max-width: min(100%, var(--modern-hero-title-max-width));
-  font-size: var(--modern-hero-title-size);
+  font-size: 64px;
   line-height: 0.94;
 }
 
@@ -13159,7 +13159,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .series-insight-empty {
   color: rgba(223, 233, 245, 0.66);
   font-size: 18px;
-  padding-left: 16px;
+  padding-left: 64px;
 }
 
 .series-rating-seasons {
@@ -14506,7 +14506,6 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 
 .series-insight-section {
   margin-top: 0;
-  padding-left: 64px;
 }
 
 .series-insight-tabs {
@@ -14514,7 +14513,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   align-items: center;
   gap: 0;
   margin-bottom: 0;
-  padding: 48px 48px 32px 0;
+  padding: 48px 48px 32px 64px;
   overflow-x: auto;
 }
 
@@ -14702,7 +14701,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 .detail-morelike-track {
   gap: 48px;
   overflow-x: auto;
-  padding: 16px 48px 48px 16px; 
+  padding: 16px 48px 48px 64px; 
 }
 
 .detail-morelike-card {
@@ -17263,20 +17262,15 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   filter: brightness(0) invert(1);
 }
 
-.detail-comments-section {
-  padding-top: 40px;
-  padding-bottom: 16px;
-}
-
 .detail-comments-heading {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 var(--detail-safe-x);
   color: var(--detail-text-primary);
   font-size: var(--detail-section-title-size);
   line-height: 1.25;
   font-weight: 500;
+  padding: 48px 48px 32px 64px;
 }
 
 .detail-comments-heading img {
@@ -17298,7 +17292,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   display: flex;
   gap: 24px;
   overflow-x: auto;
-  padding: 24px var(--detail-safe-x) 20px;
+  padding: 16px 48px 24px 64px;
   scrollbar-width: none;
 }
 
@@ -17332,17 +17326,16 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 
 .detail-comments-track {
   display: flex;
-  gap: 24px;
+  gap: 48px;
   overflow-x: auto;
-  padding: 12px var(--detail-safe-x) 16px;
+  padding: 16px 48px 48px 64px; 
   box-sizing: border-box;
   scrollbar-width: none;
 }
 
 .detail-comment-card {
-  flex: 0 0 720px;
+  flex: 0 0 auto;
   width: 720px;
-  height: 460px;
   padding: 36px;
   box-sizing: border-box;
   border-radius: 32px;

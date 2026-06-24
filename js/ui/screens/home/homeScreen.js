@@ -174,6 +174,10 @@ function getImageFallbackErrorHandler() {
   return "var q=(this.dataset.fallbackSrcs||'').split('|').filter(Boolean);var next=q.shift();if(next){this.dataset.fallbackSrcs=q.join('|');this.src=decodeURIComponent(next);return;}this.removeAttribute('src');this.classList.add('placeholder');";
 }
 
+function getLogoErrorHandler() {
+  return "this.style.display='none';var t=this.parentNode&&this.parentNode.querySelector('.home-hero-title-text');if(t)t.classList.remove('is-hidden');";
+}
+
 function renderHeroBackdropImage(display) {
   if (!display?.backdrop) {
     return '<div class="home-hero-backdrop placeholder"></div>';
@@ -557,6 +561,7 @@ function animateModernHeroLogoSwap(logoNode, nextSrc, nextAlt = "") {
     if (!loaded) {
       finalize();
       logoNode._heroLogoOrigSrc = normalizedSrc;
+      logoNode.style.display = "";
       logoNode.setAttribute("src", normalizedSrc);
       logoNode.setAttribute("alt", normalizedAlt);
       applyLogoTrim(logoNode);
@@ -574,6 +579,7 @@ function animateModernHeroLogoSwap(logoNode, nextSrc, nextAlt = "") {
 
     logoNode.classList.add("home-hero-logo-transition-enter");
     logoNode._heroLogoOrigSrc = normalizedSrc;
+    logoNode.style.display = "";
     logoNode.setAttribute("src", normalizedSrc);
     logoNode.setAttribute("alt", normalizedAlt);
     applyLogoTrim(logoNode);
@@ -1678,7 +1684,7 @@ function renderHeroMarkup(layoutMode, heroItem, heroCandidates) {
         </div>
         <div class="home-hero-copy">
           <div class="home-hero-brand">
-            ${display.logo ? `<img class="home-hero-logo" src="${escapeAttribute(display.logo)}" alt="${escapeAttribute(display.title)}" decoding="async" fetchpriority="high" />` : ""}
+            ${display.logo ? `<img class="home-hero-logo" src="${escapeAttribute(display.logo)}" alt="${escapeAttribute(display.title)}" decoding="async" fetchpriority="high" onerror="${getLogoErrorHandler()}" />` : ""}
             <h1 class="home-hero-title-text${display.logo ? " is-hidden" : ""}">${escapeHtml(display.title)}</h1>
           </div>
           <div class="home-hero-meta-primary${display.metaPrimary.length ? "" : " is-empty"}">${renderMetaTokens(display.metaPrimary)}</div>
@@ -3083,17 +3089,18 @@ export const HomeScreen = {
           brandNode?.querySelectorAll(".home-hero-logo-transition-ghost").forEach((n) => n.remove());
           logoNode.classList.remove("home-hero-logo-transition-enter", "is-visible");
           logoNode._heroLogoOrigSrc = display.logo;
+          logoNode.style.display = "";
           logoNode.setAttribute("src", display.logo);
           logoNode.setAttribute("alt", display.title || "logo");
           applyLogoTrim(logoNode);
         } else if (brandNode) {
-          brandNode.insertAdjacentHTML("afterbegin", `<img class="home-hero-logo" src="${escapeAttribute(display.logo)}" alt="${escapeAttribute(display.title || "logo")}" decoding="async" fetchpriority="high" />`);
+          brandNode.insertAdjacentHTML("afterbegin", `<img class="home-hero-logo" src="${escapeAttribute(display.logo)}" alt="${escapeAttribute(display.title || "logo")}" decoding="async" fetchpriority="high" onerror="${getLogoErrorHandler()}" />`);
           applyLogoTrim(brandNode.querySelector(".home-hero-logo"));
         }
       } else if (logoNode) {
         animateModernHeroLogoSwap(logoNode, display.logo, display.title || "logo");
       } else if (brandNode) {
-        brandNode.insertAdjacentHTML("afterbegin", `<img class="home-hero-logo home-hero-logo-transition-enter" src="${escapeAttribute(display.logo)}" alt="${escapeAttribute(display.title || "logo")}" decoding="async" fetchpriority="high" />`);
+        brandNode.insertAdjacentHTML("afterbegin", `<img class="home-hero-logo home-hero-logo-transition-enter" src="${escapeAttribute(display.logo)}" alt="${escapeAttribute(display.title || "logo")}" decoding="async" fetchpriority="high" onerror="${getLogoErrorHandler()}" />`);
         const insertedLogo = brandNode.querySelector(".home-hero-logo");
         applyLogoTrim(insertedLogo);
         requestAnimationFrame(() => {
@@ -4179,7 +4186,6 @@ export const HomeScreen = {
       this.applyHeroToDom();
       if (shouldEnrichModernHero(hero)) {
         const heroId = String(hero.id);
-        console.log("[hero] scheduling enrich for", heroId);
         setTimeout(() => {
           if (String(this.heroItem?.id || "") === heroId) {
             this.enrichCurrentHeroAsync(this.heroItem || hero);
@@ -4308,6 +4314,9 @@ export const HomeScreen = {
         return;
       }
       const meta = result.data;
+      if (meta.videos) delete meta.videos;
+      if (meta.episodes) delete meta.episodes;
+      metaRepository.purgeFromCache(itemId);
       if (!this._heroMetaCache) this._heroMetaCache = new Map();
       if (!this._heroMetaCache.has(itemId)) this._heroMetaCache.set(itemId, meta);
       const enrichedImdb = resolveImdbRating(meta);

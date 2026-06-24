@@ -3858,8 +3858,7 @@ export const MetaDetailsScreen = {
     const loadingMore = this.commentsLoadingMore ? `<article class="detail-comment-card is-loading"><span></span><span></span><span></span></article>` : "";
     return `
       <div class="detail-comments-section">
-        <div class="detail-comments-heading"><img src="assets/icons/trakt_tv_glyph.svg" alt="" /><span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span></div>
-        <p class="detail-comments-subtitle">${escapeHtml(subtitle)}</p>
+        <div class="detail-comments-heading"><span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span></div>
         ${modeButtons}
         <div class="detail-comments-track" data-scroll-key="comments:${escapeHtml(this.commentsMode)}">${cards}${loadingMore}</div>
       </div>

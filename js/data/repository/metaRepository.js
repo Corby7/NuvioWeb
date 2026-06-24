@@ -190,6 +190,13 @@ class MetaRepository {
     };
   }
 
+  purgeFromCache(id) {
+    const suffix = `:${String(id || "").trim()}`;
+    for (const key of [...this.metaCache.keys()]) {
+      if (key.endsWith(suffix)) this.metaCache.delete(key);
+    }
+  }
+
   clearCache() {
     this.metaCache.clear();
     this.inFlightMeta.clear();
