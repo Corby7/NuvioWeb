@@ -222,10 +222,10 @@ export const FocusEngine = {
       return;
     }
     const run = () => {
-      this.pointerMoveFrame = null;
       const pendingEvent = this.pendingPointerMoveEvent;
       this.pendingPointerMoveEvent = null;
       this.processPointerMove(pendingEvent);
+      this.pointerMoveFrame = null;
     };
     if (typeof requestAnimationFrame === "function") {
       this.pointerMoveFrame = requestAnimationFrame(run);

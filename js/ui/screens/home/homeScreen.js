@@ -68,7 +68,7 @@ const HOME_ROW_TIMEOUT_MS = 3500;
 const HOME_ROW_RETRY_TIMEOUT_MS = 12000;
 const HOME_BACKGROUND_RENDER_DELAY_MS = 120;
 const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;
-const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 200;
+const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 400;
 const CW_META_TIMEOUT_MS = 1800;
 const CW_META_TIMEOUT_TV_MS = 4200;
 const CW_NEXT_UP_META_TIMEOUT_MS = 2200;
@@ -474,19 +474,21 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
     return;
   }
 
-  preloadImageSource(normalizedSrc).then((loaded) => {
+  // Preload the new image in a hidden Image() before touching the DOM.
+  // The current backdrop stays fully visible (no ghost, no opacity changes) during
+  // the network fetch and GPU decode. Only when the image is ready do we create
+  // the ghost and start the crossfade — eliminating the blank-frame flicker.
+  const preloadImg = new Image();
+  let swapSettled = false;
+
+  const doSwap = () => {
+    if (swapSettled) {
+      return;
+    }
+    swapSettled = true;
     if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
       return;
     }
-
-    if (!loaded) {
-      finalize();
-      backdrop.setAttribute("src", normalizedSrc);
-      backdrop.setAttribute("alt", normalizedAlt);
-      backdrop.classList.remove("placeholder");
-      return;
-    }
-
     clearGhosts();
     const parent = backdrop.parentElement;
     let ghost = null;
@@ -505,18 +507,27 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
       if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
         return;
       }
-      requestAnimationFrame(() => {
-        if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-          return;
-        }
-        backdrop.classList.add("is-visible");
-        ghost?.classList?.add("is-fading-out");
-        setTimeout(() => {
-          finalize();
-        }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS);
-      });
+      backdrop.classList.add("is-visible");
+      setTimeout(() => {
+        finalize();
+      }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS);
     });
-  });
+  };
+
+  const onLoaded = () => {
+    if (typeof preloadImg.decode === "function") {
+      preloadImg.decode().catch(() => null).then(doSwap);
+    } else {
+      doSwap();
+    }
+  };
+
+  preloadImg.onload = onLoaded;
+  preloadImg.onerror = doSwap;
+  preloadImg.src = normalizedSrc;
+  if (preloadImg.complete) {
+    onLoaded();
+  }
 }
 
 function animateModernHeroLogoSwap(logoNode, nextSrc, nextAlt = "") {
@@ -3051,13 +3062,34 @@ export const HomeScreen = {
     if (backdrop) {
       const src = display.backdrop || "";
       if ((isHiding || this.isPerformanceConstrained()) && backdrop instanceof HTMLImageElement) {
-        backdrop.heroBackdropTransitionToken = (Number(backdrop.heroBackdropTransitionToken) || 0) + 1;
+        const nextToken = (Number(backdrop.heroBackdropTransitionToken) || 0) + 1;
+        backdrop.heroBackdropTransitionToken = nextToken;
         heroNode.querySelectorAll(".home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
         backdrop.classList.remove("home-hero-backdrop-transition-enter", "is-visible");
         if (src) {
-          backdrop.setAttribute("src", src);
-          backdrop.setAttribute("alt", display.title || "featured");
-          backdrop.classList.remove("placeholder");
+          if (this.isPerformanceConstrained() && !isHiding) {
+            // Preload + decode before swapping so cold images (e.g. continue watching
+            // episode thumbnails) don't flash blank while the browser fetches/decodes them.
+            const preloadImg = new Image();
+            preloadImg.src = src;
+            const ready = typeof preloadImg.decode === "function"
+              ? preloadImg.decode().catch(() => null)
+              : new Promise((resolve) => {
+                  preloadImg.onload = resolve;
+                  preloadImg.onerror = resolve;
+                  if (preloadImg.complete) resolve();
+                });
+            ready.then(() => {
+              if (Number(backdrop.heroBackdropTransitionToken) !== nextToken) return;
+              backdrop.setAttribute("src", src);
+              backdrop.setAttribute("alt", display.title || "featured");
+              backdrop.classList.remove("placeholder");
+            });
+          } else {
+            backdrop.setAttribute("src", src);
+            backdrop.setAttribute("alt", display.title || "featured");
+            backdrop.classList.remove("placeholder");
+          }
         } else {
           backdrop.removeAttribute("src");
           backdrop.classList.add("placeholder");
@@ -4168,6 +4200,10 @@ export const HomeScreen = {
     if (!hero || !hero.id) {
       return;
     }
+    if (this._lastScheduledHeroId === String(hero.id)) {
+      return;
+    }
+    this._lastScheduledHeroId = String(hero.id);
     this.cancelPendingHeroFocus();
     const now = Date.now();
     const previous = Number(this.lastModernHeroNavAt || 0);

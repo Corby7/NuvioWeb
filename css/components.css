@@ -14327,7 +14327,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   right: 0;
   bottom: 0;
   left: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.18) 22%, rgba(0, 0, 0, 0.62) 52%, rgba(0, 0, 0, 0.86) 82%, rgba(0, 0, 0, 0.95) 100%);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.18) 22%, rgb(0 0 0 / 0%) 52%, rgb(0 0 0 / 77%) 82%, rgba(0, 0, 0, 0.95) 100%);
 }
 
 .series-episode-copy {
