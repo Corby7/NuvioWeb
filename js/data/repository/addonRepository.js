@@ -356,6 +356,7 @@ class AddonRepository {
       }) === cacheKey) {
         this.installedAddonsCache = displayAddons;
         this.installedAddonsCacheKey = cacheKey;
+        this._preconnectAddonOrigins(displayAddons);
       }
       return [...displayAddons];
     })();
@@ -370,6 +371,24 @@ class AddonRepository {
         this.installedAddonsPromiseKey = "";
       }
     }
+  }
+
+  _preconnectAddonOrigins(addons) {
+    if (typeof document === "undefined") return;
+    const already = new Set(
+      Array.from(document.querySelectorAll("link[rel='preconnect']")).map((l) => l.href.replace(/\/$/, ""))
+    );
+    addons.forEach((addon) => {
+      try {
+        const origin = new URL(addon.baseUrl).origin;
+        if (already.has(origin)) return;
+        already.add(origin);
+        const link = document.createElement("link");
+        link.rel = "preconnect";
+        link.href = origin;
+        document.head.appendChild(link);
+      } catch (_) {}
+    });
   }
 
   async addAddon(url) {
