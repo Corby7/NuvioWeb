@@ -4202,10 +4202,6 @@ export const MetaDetailsScreen = {
     if (!container) {
       return;
     }
-    if (!this.isLegacyTvRuntime()) {
-      this.animateSpringScroll(container, axis, targetValue);
-      return;
-    }
     const property = axis === "y" ? "scrollTop" : "scrollLeft";
     const max = axis === "y"
       ? Math.max(0, container.scrollHeight - container.clientHeight)

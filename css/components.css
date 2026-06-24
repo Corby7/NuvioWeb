@@ -4425,6 +4425,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   overflow-y: visible;
   padding-bottom: 4px;
   scrollbar-width: none;
+  will-change: scroll-position;
 }
 
 .home-track::-webkit-scrollbar {
@@ -12760,6 +12761,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   scrollbar-width: none;
   gap: 48px;
   margin-top: -16px;
+  will-change: scroll-position;
 }
 
 .series-episode-track::-webkit-scrollbar {

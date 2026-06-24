@@ -5697,7 +5697,7 @@ export const HomeScreen = {
       if (Math.abs(Number(next.container.scrollLeft || 0) - Number(next.value || 0)) <= 1) {
         return;
       }
-      this.animateSpringScroll(next.container, "x", next.value);
+      this.animateScroll(next.container, "x", next.value, this.getScrollDuration(160));
       return;
     }
 
