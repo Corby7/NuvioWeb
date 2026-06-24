@@ -2538,11 +2538,16 @@ export const SettingsScreen = {
   },
 
   renderPluginsSection(model) {
+    this.actionMap.set("plugins:addons", () => Router.navigate("plugin"));
     return `
       ${this.renderSectionHeader(SECTION_META.find((item) => item.id === "plugins"))}
       <div class="settings-group-card settings-group-card-fill">
-        <div class="settings-empty-state settings-empty-state-plugins">
-          <p class="settings-plugin-soon-text">Plugin support is coming soon.</p>
+        <div class="settings-stack">
+          ${this.renderActionRow({
+      focusKey: "plugins:addons",
+      title: t("settings.plugins.addons.label", {}, "Addons"),
+      subtitle: t("settings.plugins.addons.subtitle", {}, "Manage your installed addons and sources.")
+    })}
         </div>
       </div>
     `;

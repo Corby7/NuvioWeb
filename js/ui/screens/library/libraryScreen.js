@@ -1419,7 +1419,7 @@ export const LibraryScreen = {
       }
       return;
     }
-    if (action === "gotoSearch" || action === "gotoLibrary" || action === "gotoPlugin" || action === "gotoSettings" || action === "gotoAccount") {
+    if (action === "gotoSearch" || action === "gotoLibrary" || action === "gotoSettings" || action === "gotoAccount") {
       activateLegacySidebarAction(action, "library");
       if (isSelectedSidebarAction(action, "library")) {
         await this.focusMainNode();
