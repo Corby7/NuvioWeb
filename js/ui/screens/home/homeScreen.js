@@ -5698,7 +5698,12 @@ export const HomeScreen = {
       if (Math.abs(Number(next.container.scrollLeft || 0) - Number(next.value || 0)) <= 1) {
         return;
       }
-      this.animateScroll(next.container, "x", next.value, this.isLegacyTvRuntime() ? 0 : (this.isPerformanceConstrained() ? 160 : 300));
+      if (this.isLegacyTvRuntime()) {
+        next.container.scrollLeft = Math.round(next.value);
+      } else {
+        this.cancelScrollAnimation(next.container, "x");
+        next.container.scrollTo({ left: next.value, behavior: "smooth" });
+      }
       return;
     }
 
