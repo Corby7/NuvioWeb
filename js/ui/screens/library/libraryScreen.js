@@ -135,8 +135,7 @@ function findNearestNodeByCenterX(referenceNode, nodes = []) {
 function groupNodesByRow(nodes = [], tolerance = 28) {
   const rows = [];
   nodes.forEach((node) => {
-    const rect = node.getBoundingClientRect();
-    const top = rect.top;
+    const top = node.offsetTop;
     const existingRow = rows.find((row) => Math.abs(row.top - top) <= tolerance);
     if (existingRow) {
       existingRow.nodes.push(node);
@@ -149,7 +148,7 @@ function groupNodesByRow(nodes = [], tolerance = 28) {
   });
   rows.sort((left, right) => left.top - right.top);
   rows.forEach((row) => {
-    row.nodes.sort((left, right) => left.getBoundingClientRect().left - right.getBoundingClientRect().left);
+    row.nodes.sort((left, right) => left.offsetLeft - right.offsetLeft);
   });
   return rows;
 }
@@ -1112,6 +1111,9 @@ export const LibraryScreen = {
     if (!fromPickerRow && !fromGrid) {
       return false;
     }
+    if (fromGrid && this.resolveRelativeGridNode(current, "up")) {
+      return false;
+    }
     const target = this.resolvePreferredActionsRowNode();
     if (!target) {
       return false;
@@ -1167,6 +1169,12 @@ export const LibraryScreen = {
       return false;
     }
     if (direction === "up") {
+      const gridTarget = this.resolveRelativeGridNode(current, "up");
+      if (gridTarget) {
+        event?.preventDefault?.();
+        this.setFocusedNode(gridTarget);
+        return true;
+      }
       const target = this.controller.getState().sourceMode === "trakt"
         ? this.resolvePreferredActionsRowNode() || this.resolvePreferredPickerRowNode(current)
         : this.resolvePreferredPickerRowNode(current);
