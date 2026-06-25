@@ -436,6 +436,10 @@ button:focus-visible {
   align-items: center;
   text-align: center;
   justify-content: flex-start;
+}
+
+.profile-screen.is-pin-opening .profile-main-layer,
+.profile-screen.is-pin-closing .profile-main-layer {
   will-change: opacity, transform;
 }
 
@@ -695,6 +699,20 @@ button:focus-visible {
   }
 }
 
+/* On WebOS/Tizen, disable layout-causing transitions on profile cards.
+   Animating width/height forces layout reflow every frame and tanks FPS. */
+.performance-constrained .profile-card {
+  transition: none;
+}
+
+.performance-constrained .profile-avatar-ring {
+  transition: border-color 120ms ease;
+}
+
+.performance-constrained .profile-avatar {
+  transition: none;
+}
+
 .profile-editor-backdrop,
 .profile-dialog-backdrop {
   position: fixed;
@@ -723,6 +741,10 @@ button:focus-visible {
   z-index: 42;
   opacity: 0;
   transform: translateX(8.333vw);
+}
+
+.profile-pin-layer.is-opening,
+.profile-pin-layer.is-closing {
   will-change: opacity, transform;
 }
 

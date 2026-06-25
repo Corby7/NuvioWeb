@@ -1001,24 +1001,32 @@ export const ProfileSelectionScreen = {
 
     const targetColor = parseHexColor(colorHex, parseHexColor(getDefaultProfileColor()));
 
-    // Cancel any in-progress animation
     if (this._bgAnimRaf) {
       cancelAnimationFrame(this._bgAnimRaf);
       this._bgAnimRaf = null;
     }
 
-    // Start from whatever color is currently displayed
     const fromColor = this._bgCurrentColor || targetColor;
     this._bgCurrentColor = fromColor;
 
-    const DURATION = 520; // matches ATV animateColorAsState tween(520)
-    // ATV tween() default easing is FastOutSlowIn = cubic-bezier(0.4, 0.0, 0.2, 1.0)
+    // On performance-constrained devices skip the tween — set immediately.
+    // The 520ms RAF loop with per-frame getComputedStyle calls tanks FPS on WebOS.
+    if (document.body.classList.contains("performance-constrained")) {
+      this._bgCurrentColor = targetColor;
+      screen.style.background = this.buildBackgroundStyleFromColor(targetColor);
+      return;
+    }
+
+    // Read root CSS variables once — NOT inside the tick — to avoid forcing
+    // a style recalculation on every animation frame.
+    const rootStyles = getComputedStyle(document.documentElement);
+    const bgBase = parseHexColor(rootStyles.getPropertyValue("--bg-color"), { r: 13, g: 13, b: 13 });
+    const bgElevated = parseHexColor(rootStyles.getPropertyValue("--bg-elevated"), { r: 26, g: 26, b: 26 });
+
+    const DURATION = 520;
     const fastOutSlowIn = (t) => {
-      // cubic-bezier(0.4, 0, 0.2, 1) approximated via the standard formula
-      // Using a closed-form cubic bezier evaluator
       const cx = 3 * 0.4, bx = 3 * (0.2 - 0.4) - 0, ax = 1 - cx - bx;
       const cy = 3 * 0.0, by = 3 * (1.0 - 0.0) - 0, ay = 1 - cy - by;
-      // Solve for x(t)=input using Newton-Raphson
       let s = t;
       for (let i = 0; i < 6; i++) {
         const x = ((ax * s + bx) * s + cx) * s - t;
@@ -1034,14 +1042,13 @@ export const ProfileSelectionScreen = {
       const elapsed = now - startTime;
       const t = Math.min(elapsed / DURATION, 1);
       const eased = fastOutSlowIn(t);
-      // Linear interpolation (ATV uses linear tween for color)
       const animatedColor = {
         r: Math.round(fromColor.r + (targetColor.r - fromColor.r) * eased),
         g: Math.round(fromColor.g + (targetColor.g - fromColor.g) * eased),
         b: Math.round(fromColor.b + (targetColor.b - fromColor.b) * eased),
       };
       this._bgCurrentColor = animatedColor;
-      screen.style.background = this.buildBackgroundStyleFromColor(animatedColor);
+      screen.style.background = this.buildBackgroundGradient(animatedColor, bgBase, bgElevated);
       if (t < 1) {
         this._bgAnimRaf = requestAnimationFrame(tick);
       } else {
@@ -1061,6 +1068,10 @@ export const ProfileSelectionScreen = {
     const rootStyles = getComputedStyle(document.documentElement);
     const background = parseHexColor(rootStyles.getPropertyValue("--bg-color"), { r: 13, g: 13, b: 13 });
     const elevated = parseHexColor(rootStyles.getPropertyValue("--bg-elevated"), { r: 26, g: 26, b: 26 });
+    return this.buildBackgroundGradient(accent, background, elevated);
+  },
+
+  buildBackgroundGradient(accent, background, elevated) {
     const gradientTop = mixColors(elevated, accent, 0.3);
     const gradientMid = mixColors(background, accent, 0.14);
     return `
