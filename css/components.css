@@ -5873,10 +5873,19 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   filter: brightness(1.08) saturate(1.04);
 }
 
+@keyframes home-hero-backdrop-reveal-anim {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .home-screen-shell.home-layout-modern .home-hero-backdrop {
   object-position: 100% 0;
   opacity: 1;
   transition: opacity 400ms ease-out;
+}
+
+.home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-revealing {
+  animation: home-hero-backdrop-reveal-anim 400ms ease-out forwards;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-enter {
@@ -15265,6 +15274,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 .performance-constrained .home-screen-shell .home-hero-backdrop-transition-ghost,
 .performance-constrained .home-screen-shell .home-hero-backdrop.home-hero-backdrop-transition-overlay {
   transition: none !important;
+  animation: none !important;
   will-change: auto !important;
 }
 

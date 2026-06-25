@@ -3047,6 +3047,10 @@ export const HomeScreen = {
       cancelAnimationFrame(this.heroCopyFadeInRaf);
       this.heroCopyFadeInRaf = null;
     }
+    if (this.heroCopyOverlayCleanupTimer) {
+      clearTimeout(this.heroCopyOverlayCleanupTimer);
+      this.heroCopyOverlayCleanupTimer = null;
+    }
   },
 
   startHeroRotation() {
@@ -3226,8 +3230,27 @@ export const HomeScreen = {
     if (!hero?.heroMetaEnriching) {
       this.heroCopyFadeInRaf = requestAnimationFrame(() => {
         this.heroCopyFadeInRaf = null;
+        // Add the reveal animation BEFORE removing is-hero-copy-updating so it's
+        // active the moment the opacity:0 !important constraint lifts. CSS animations
+        // are reliable across WebOS versions unlike transition-on-class-removal.
+        const mainBackdrop = heroNode.querySelector(".home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
+        if (mainBackdrop instanceof HTMLElement) {
+          mainBackdrop.classList.add("home-hero-backdrop-revealing");
+        }
         heroNode.classList.remove("is-hero-copy-updating");
-        heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+        // Keep the overlay visible for the full 400ms so the fading-in backdrop
+        // is never exposed at partial opacity (which would flash dark).
+        if (this.heroCopyOverlayCleanupTimer) {
+          clearTimeout(this.heroCopyOverlayCleanupTimer);
+        }
+        this.heroCopyOverlayCleanupTimer = setTimeout(() => {
+          this.heroCopyOverlayCleanupTimer = null;
+          if (!heroNode.isConnected) return;
+          heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+          if (mainBackdrop instanceof HTMLElement) {
+            mainBackdrop.classList.remove("home-hero-backdrop-revealing");
+          }
+        }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS + 50);
       });
     }
     this.scheduleHomeTruncationUpdate({ scope: heroNode });
@@ -4391,8 +4414,22 @@ export const HomeScreen = {
           if (stuckNode?.classList.contains("is-hero-copy-updating")) {
             this.heroCopyFadeInRaf = requestAnimationFrame(() => {
               this.heroCopyFadeInRaf = null;
+              const stuckBackdrop = stuckNode.querySelector(".home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
+              if (stuckBackdrop instanceof HTMLElement) {
+                stuckBackdrop.classList.add("home-hero-backdrop-revealing");
+              }
               stuckNode.classList.remove("is-hero-copy-updating");
-              stuckNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+              if (this.heroCopyOverlayCleanupTimer) {
+                clearTimeout(this.heroCopyOverlayCleanupTimer);
+              }
+              this.heroCopyOverlayCleanupTimer = setTimeout(() => {
+                this.heroCopyOverlayCleanupTimer = null;
+                if (!stuckNode.isConnected) return;
+                stuckNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+                if (stuckBackdrop instanceof HTMLElement) {
+                  stuckBackdrop.classList.remove("home-hero-backdrop-revealing");
+                }
+              }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS + 50);
             });
           }
         }

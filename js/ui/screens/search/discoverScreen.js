@@ -115,6 +115,32 @@ function isEnterKey(event) {
   return isKey(event, 13, ["Enter"]);
 }
 
+const _discoverScrollRafMap = typeof WeakMap !== "undefined" ? new WeakMap() : null;
+
+function smoothScrollTo(container, targetTop, duration) {
+  const startTop = container.scrollTop;
+  const delta = targetTop - startTop;
+  if (Math.abs(delta) < 1) return;
+  if (_discoverScrollRafMap) {
+    const prev = _discoverScrollRafMap.get(container);
+    if (prev) cancelAnimationFrame(prev);
+  }
+  const startTime = performance.now();
+  const ease = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  const step = (now) => {
+    const t = Math.min(1, (now - startTime) / duration);
+    container.scrollTop = startTop + delta * ease(t);
+    if (t < 1) {
+      const raf = requestAnimationFrame(step);
+      if (_discoverScrollRafMap) _discoverScrollRafMap.set(container, raf);
+    } else {
+      if (_discoverScrollRafMap) _discoverScrollRafMap.delete(container);
+    }
+  };
+  const raf = requestAnimationFrame(step);
+  if (_discoverScrollRafMap) _discoverScrollRafMap.set(container, raf);
+}
+
 function setContainerScrollTop(container, top, behavior = "auto") {
   if (!(container instanceof HTMLElement)) {
     return 0;
@@ -122,11 +148,7 @@ function setContainerScrollTop(container, top, behavior = "auto") {
   const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
   const resolvedTop = Math.max(0, Math.min(maxScrollTop, Number(top || 0)));
   if (behavior === "smooth") {
-    if (typeof container.scrollTo === "function") {
-      container.scrollTo({ top: resolvedTop, behavior: "smooth" });
-    } else {
-      container.scrollTop = resolvedTop;
-    }
+    smoothScrollTo(container, resolvedTop, 200);
     return resolvedTop;
   }
 
@@ -138,11 +160,13 @@ function setContainerScrollTop(container, top, behavior = "auto") {
   return resolvedTop;
 }
 
-function scrollNodeIntoContainerView(node, container, { center = false, padding = 18, behavior = "smooth" } = {}) {
+function scrollNodeIntoContainerView(node, container, { center = false, padding = 40, behavior = "smooth" } = {}) {
   if (!(node instanceof HTMLElement) || !(container instanceof HTMLElement)) {
     return null;
   }
-  const itemTop = node.offsetTop;
+  const containerRect = container.getBoundingClientRect();
+  const nodeRect = node.getBoundingClientRect();
+  const itemTop = nodeRect.top - containerRect.top + container.scrollTop;
   const itemBottom = itemTop + node.offsetHeight;
   const currentTop = container.scrollTop;
   const viewTop = currentTop + padding;
@@ -1040,7 +1064,7 @@ export const DiscoverScreen = {
     focusWithoutAutoScroll(target);
     this.rememberRowFocus(target);
     if (scrollMode !== "none") {
-      scrollNodeIntoContainerView(target, this.getContentScroller(), { center: scrollMode === "center", padding: 20 });
+      scrollNodeIntoContainerView(target, this.getContentScroller(), { center: scrollMode === "center", padding: 40 });
     }
     this.lastFocusedKey = target.dataset.focusKey || this.lastFocusedKey;
   },
@@ -1108,8 +1132,8 @@ export const DiscoverScreen = {
     const nextScrollTop = isFirstRow
       ? setContainerScrollTop(scroller, 0, "smooth")
       : scrollNodeIntoContainerView(target, scroller, {
-        center: false,
-        padding: 20,
+        center: true,
+        padding: 40,
         behavior: shouldLoadMore ? "auto" : "smooth"
       });
     if (Number.isFinite(nextScrollTop)) {
@@ -1216,7 +1240,7 @@ export const DiscoverScreen = {
       focusWithoutAutoScroll(target);
       this.lastFocusedKey = target.dataset.focusKey || this.lastFocusedKey;
       if (scrollMode !== "none") {
-        scrollNodeIntoContainerView(target, this.getContentScroller(), { center: scrollMode === "center", padding: 20 });
+        scrollNodeIntoContainerView(target, this.getContentScroller(), { center: scrollMode === "center", padding: 40 });
       }
     }
     if (!this.layoutPrefs?.modernSidebar) {

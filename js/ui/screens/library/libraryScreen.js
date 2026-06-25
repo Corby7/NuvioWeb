@@ -112,6 +112,63 @@ function scrollIntoNearestView(node) {
   }
 }
 
+const _libraryScrollRafMap = typeof WeakMap !== "undefined" ? new WeakMap() : null;
+
+function smoothScrollTo(container, targetTop, duration) {
+  const startTop = container.scrollTop;
+  const delta = targetTop - startTop;
+  if (Math.abs(delta) < 1) return;
+  if (_libraryScrollRafMap) {
+    const prev = _libraryScrollRafMap.get(container);
+    if (prev) cancelAnimationFrame(prev);
+  }
+  const startTime = performance.now();
+  const ease = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  const step = (now) => {
+    const t = Math.min(1, (now - startTime) / duration);
+    container.scrollTop = startTop + delta * ease(t);
+    if (t < 1) {
+      const raf = requestAnimationFrame(step);
+      if (_libraryScrollRafMap) _libraryScrollRafMap.set(container, raf);
+    } else {
+      if (_libraryScrollRafMap) _libraryScrollRafMap.delete(container);
+    }
+  };
+  const raf = requestAnimationFrame(step);
+  if (_libraryScrollRafMap) _libraryScrollRafMap.set(container, raf);
+}
+
+function scrollCardIntoContainerView(node, container, { center = false, padding = 40, behavior = "smooth" } = {}) {
+  if (!(node instanceof HTMLElement) || !(container instanceof HTMLElement)) {
+    return;
+  }
+  const containerRect = container.getBoundingClientRect();
+  const nodeRect = node.getBoundingClientRect();
+  const itemTop = nodeRect.top - containerRect.top + container.scrollTop;
+  const itemBottom = itemTop + node.offsetHeight;
+  const currentTop = container.scrollTop;
+  let nextScrollTop = currentTop;
+  if (center) {
+    nextScrollTop = itemTop - ((container.clientHeight - node.offsetHeight) / 2);
+  } else {
+    const viewTop = currentTop + padding;
+    const viewBottom = currentTop + container.clientHeight - padding;
+    if (itemTop < viewTop) {
+      nextScrollTop = itemTop - padding;
+    } else if (itemBottom > viewBottom) {
+      nextScrollTop = itemBottom - container.clientHeight + padding;
+    }
+  }
+  const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  const resolvedTop = Math.max(0, Math.min(maxScrollTop, nextScrollTop));
+  if (Math.abs(resolvedTop - currentTop) <= 1) return;
+  if (behavior === "smooth") {
+    smoothScrollTo(container, resolvedTop, 200);
+  } else {
+    container.scrollTop = resolvedTop;
+  }
+}
+
 function findNearestNodeByCenterX(referenceNode, nodes = []) {
   if (!referenceNode || !nodes.length) {
     return nodes[0] || null;
@@ -315,7 +372,12 @@ export const LibraryScreen = {
     }
     if (!sidebarFocused) {
       this.lastMainFocus = target;
-      scrollIntoNearestView(target);
+      if (target.matches?.(".library-grid-card.focusable")) {
+        const scroller = this.container?.querySelector(".library-main");
+        scrollCardIntoContainerView(target, scroller, { center: true, padding: 40, behavior: "smooth" });
+      } else {
+        scrollIntoNearestView(target);
+      }
       if (target.closest?.(".library-actions-row") && target.dataset.action) {
         this.lastActionsRowAction = String(target.dataset.action);
       }
