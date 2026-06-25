@@ -448,14 +448,23 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
   const token = Number(backdrop.heroBackdropTransitionToken || 0) + 1;
   backdrop.heroBackdropTransitionToken = token;
 
-  const clearOverlays = () => {
+  // Remove only overlays that haven't started showing yet (no is-visible = opacity 0, invisible).
+  // Visible overlays (is-visible) stay in place — they cover the old backdrop and must not be
+  // removed until the new overlay is confirmed ready. The new finalize() removes all at once.
+  const clearPendingOverlays = () => {
+    backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-overlay:not(.is-visible)")?.forEach((node) => node.remove());
+    backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-ghost")?.forEach((node) => node.remove());
+    backdrop.classList.remove("home-hero-backdrop-transition-enter", "is-visible");
+  };
+
+  const removeAllOverlays = () => {
     backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-overlay")?.forEach((node) => node.remove());
     backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-ghost")?.forEach((node) => node.remove());
     backdrop.classList.remove("home-hero-backdrop-transition-enter", "is-visible");
   };
 
   if (!normalizedSrc) {
-    clearOverlays();
+    removeAllOverlays();
     backdrop.removeAttribute("src");
     backdrop.setAttribute("alt", normalizedAlt);
     backdrop.classList.add("placeholder");
@@ -468,14 +477,15 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
     return;
   }
 
-  clearOverlays();
+  clearPendingOverlays();
 
   // Two-layer approach — Layer 1 (backdrop) stays at opacity 1 with the old src throughout.
-  // Its GPU texture is already warm so it never goes blank. Layer 2 (overlay) is a new <img>
-  // inserted on top; it loads the new image invisibly, then fades in once the GPU texture is
-  // confirmed ready via decode() + double rAF. Only after the overlay is fully visible is the
-  // backdrop src updated (GPU texture is now warm from Layer 2) and the overlay removed.
-  // This eliminates the "black flash → old image → new image" sequence on WebOS.
+  // Layer 2 (overlay) is appended last (on top of any existing visible overlays from prior
+  // transitions). Once the GPU texture is confirmed ready via decode() + double rAF, the
+  // overlay fades/snaps in. finalize() then updates the backdrop src (GPU already warm) and
+  // removes ALL overlays at once. If a newer transition starts before finalize() fires, the
+  // token mismatch causes finalize()/reveal() to return without touching the DOM — the overlay
+  // stays visible under the new overlay until the new finalize() removes everything.
 
   const parent = backdrop.parentElement;
   const overlay = document.createElement("img");
@@ -484,8 +494,8 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
   overlay.setAttribute("decoding", "async");
 
   if (parent) {
-    // Insert after backdrop — DOM paint order ensures overlay renders on top
-    parent.insertBefore(overlay, backdrop.nextSibling);
+    // Append last — always on top of existing overlays in DOM paint order
+    parent.appendChild(overlay);
   }
 
   let preloadSettled = false;
@@ -493,14 +503,14 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
 
   const finalize = () => {
     if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-      overlay.remove();
+      // A newer transition is in progress. Leave this overlay in place — the new finalize()
+      // will remove all overlays once the new image is confirmed ready.
       return;
     }
-    // GPU texture for new image is warm from the overlay — backdrop src update is instant
     backdrop.setAttribute("src", normalizedSrc);
     backdrop.setAttribute("alt", normalizedAlt);
     backdrop.classList.remove("placeholder");
-    overlay.remove();
+    removeAllOverlays();
   };
 
   const reveal = () => {
@@ -509,14 +519,14 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
     }
     swapSettled = true;
     if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-      overlay.remove();
+      // Newer transition took over — leave overlay for new finalize() to clean up.
       return;
     }
     // Double rAF: first rAF lets GPU begin texture upload for the overlay, second confirms ready
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-          overlay.remove();
+          // Newer transition took over — leave overlay for new finalize() to clean up.
           return;
         }
         overlay.classList.add("is-visible");
@@ -538,8 +548,8 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
       return;
     }
     preloadSettled = true;
-    if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-      overlay.remove();
+    const currentToken = Number(backdrop.heroBackdropTransitionToken || 0);
+    if (currentToken !== token) {
       return;
     }
     overlay.setAttribute("src", normalizedSrc);
@@ -550,7 +560,6 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
   preloadImg.onload = doSetOverlaySrc;
   preloadImg.onerror = () => {
     if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-      overlay.remove();
       return;
     }
     overlay.remove();
@@ -3093,20 +3102,16 @@ export const HomeScreen = {
 
     const isHiding = heroNode.classList.contains("is-hero-copy-updating");
     const backdrop = heroNode.querySelector(".home-hero-backdrop");
+
     if (backdrop) {
       const src = display.backdrop || "";
       if (isHiding && backdrop instanceof HTMLImageElement) {
-        // Hero copy is transitioning out — cancel pending animations and swap immediately.
-        const nextToken = (Number(backdrop.heroBackdropTransitionToken) || 0) + 1;
-        backdrop.heroBackdropTransitionToken = nextToken;
-        heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+        // GPU texture was pre-warmed during the focus delay via the early DOM overlay created in
+        // scheduleModernHeroUpdate. Direct swap is safe — overlay removal happens in heroCopyFadeInRaf
+        // alongside is-hero-copy-updating removal, so there's no gap between overlay and backdrop.
+        backdrop.heroBackdropTransitionToken = (Number(backdrop.heroBackdropTransitionToken) || 0) + 1;
         backdrop.classList.remove("home-hero-backdrop-transition-enter", "is-visible");
-        if (hero?.heroSource === "continueWatching") {
-          // CW episode thumbnails are cold-cache — use the two-layer overlay so the GPU
-          // texture is confirmed ready before the backdrop becomes visible.
-          animateModernHeroBackdropSwap(backdrop, src, display.title || "featured");
-        } else if (src) {
-          // Catalog backdrops are warm (same images shown in poster cards) — direct swap is instant.
+        if (src) {
           backdrop.setAttribute("src", src);
           backdrop.setAttribute("alt", display.title || "featured");
           backdrop.classList.remove("placeholder");
@@ -3222,6 +3227,7 @@ export const HomeScreen = {
       this.heroCopyFadeInRaf = requestAnimationFrame(() => {
         this.heroCopyFadeInRaf = null;
         heroNode.classList.remove("is-hero-copy-updating");
+        heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
       });
     }
     this.scheduleHomeTruncationUpdate({ scope: heroNode });
@@ -4234,6 +4240,34 @@ export const HomeScreen = {
     const heroNode = this.container?.querySelector(".home-hero-card");
     if (heroNode && String(heroNode.dataset.itemId || "") !== String(hero.id || "")) {
       heroNode.classList.add("is-hero-copy-updating");
+      // Create an early backdrop overlay in the DOM so its GPU compositor layer is warm before
+      // applyHeroToDom fires. Catalog cards warm GPU via home-poster-expanded-backdrop; CW cards don't.
+      // A DOM element with will-change:opacity uploads the GPU texture even at opacity 0.
+      const backdropWrap = heroNode.querySelector(".home-hero-backdrop-wrap");
+      if (backdropWrap) {
+        backdropWrap.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+        const heroDisplay = buildModernHeroPresentation(hero);
+        const preWarmSrc = heroDisplay?.backdrop || "";
+        const mainBackdrop = backdropWrap.querySelector(".home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
+        const currentSrc = String(mainBackdrop?.getAttribute("src") || "").trim();
+        if (preWarmSrc && preWarmSrc !== currentSrc) {
+          const earlyOverlay = document.createElement("img");
+          earlyOverlay.className = "home-hero-backdrop home-hero-backdrop-transition-overlay";
+          earlyOverlay.setAttribute("alt", heroDisplay?.title || "featured");
+          earlyOverlay.setAttribute("decoding", "async");
+          backdropWrap.appendChild(earlyOverlay);
+          const revealEarlyOverlay = () => {
+            if (!earlyOverlay.isConnected) return;
+            earlyOverlay.style.transition = "none";
+            earlyOverlay.classList.add("is-visible");
+          };
+          earlyOverlay.addEventListener("load", revealEarlyOverlay, { once: true });
+          earlyOverlay.setAttribute("src", preWarmSrc);
+          if (earlyOverlay.complete && Number(earlyOverlay.naturalWidth || 0) > 0) {
+            revealEarlyOverlay();
+          }
+        }
+      }
     }
     this.heroFocusDelayTimer = setTimeout(() => {
       this.heroItem = shouldEnrichModernHero(hero) ? { ...hero, heroMetaEnriching: true } : hero;
@@ -4358,6 +4392,7 @@ export const HomeScreen = {
             this.heroCopyFadeInRaf = requestAnimationFrame(() => {
               this.heroCopyFadeInRaf = null;
               stuckNode.classList.remove("is-hero-copy-updating");
+              stuckNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
             });
           }
         }
