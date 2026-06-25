@@ -4442,6 +4442,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   border: 2px solid transparent;
   box-shadow: none;
   overflow: hidden;
+  contain: layout style;
 }
 
 .home-content-card.focused {
@@ -5889,6 +5890,16 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   opacity: 1;
 }
 
+.home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-overlay {
+  opacity: 0;
+  transition: opacity 400ms ease-out;
+  will-change: opacity;
+}
+
+.home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-overlay.is-visible {
+  opacity: 1;
+}
+
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost {
   opacity: 1;
   transition: none;
@@ -6200,6 +6211,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   z-index: 2;
   margin-bottom: 0;
   padding-top: 0;
+}
+
+.home-screen-shell.home-layout-modern .home-modern-row[data-row-pending] {
+  min-height: 480px;
 }
 
 .home-screen-shell.home-layout-modern .home-row-title {
@@ -15247,7 +15262,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .performance-constrained .home-screen-shell .home-hero-backdrop,
-.performance-constrained .home-screen-shell .home-hero-backdrop-transition-ghost {
+.performance-constrained .home-screen-shell .home-hero-backdrop-transition-ghost,
+.performance-constrained .home-screen-shell .home-hero-backdrop.home-hero-backdrop-transition-overlay {
   transition: none !important;
   will-change: auto !important;
 }

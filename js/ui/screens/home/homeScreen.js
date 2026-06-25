@@ -448,20 +448,14 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
   const token = Number(backdrop.heroBackdropTransitionToken || 0) + 1;
   backdrop.heroBackdropTransitionToken = token;
 
-  const clearGhosts = () => {
+  const clearOverlays = () => {
+    backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-overlay")?.forEach((node) => node.remove());
     backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-ghost")?.forEach((node) => node.remove());
-  };
-
-  const finalize = () => {
-    if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-      return;
-    }
     backdrop.classList.remove("home-hero-backdrop-transition-enter", "is-visible");
-    clearGhosts();
   };
 
   if (!normalizedSrc) {
-    finalize();
+    clearOverlays();
     backdrop.removeAttribute("src");
     backdrop.setAttribute("alt", normalizedAlt);
     backdrop.classList.add("placeholder");
@@ -474,59 +468,99 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
     return;
   }
 
-  // Preload the new image in a hidden Image() before touching the DOM.
-  // The current backdrop stays fully visible (no ghost, no opacity changes) during
-  // the network fetch and GPU decode. Only when the image is ready do we create
-  // the ghost and start the crossfade — eliminating the blank-frame flicker.
-  const preloadImg = new Image();
+  clearOverlays();
+
+  // Two-layer approach — Layer 1 (backdrop) stays at opacity 1 with the old src throughout.
+  // Its GPU texture is already warm so it never goes blank. Layer 2 (overlay) is a new <img>
+  // inserted on top; it loads the new image invisibly, then fades in once the GPU texture is
+  // confirmed ready via decode() + double rAF. Only after the overlay is fully visible is the
+  // backdrop src updated (GPU texture is now warm from Layer 2) and the overlay removed.
+  // This eliminates the "black flash → old image → new image" sequence on WebOS.
+
+  const parent = backdrop.parentElement;
+  const overlay = document.createElement("img");
+  overlay.className = "home-hero-backdrop home-hero-backdrop-transition-overlay";
+  overlay.setAttribute("alt", normalizedAlt);
+  overlay.setAttribute("decoding", "async");
+
+  if (parent) {
+    // Insert after backdrop — DOM paint order ensures overlay renders on top
+    parent.insertBefore(overlay, backdrop.nextSibling);
+  }
+
+  let preloadSettled = false;
   let swapSettled = false;
 
-  const doSwap = () => {
+  const finalize = () => {
+    if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
+      overlay.remove();
+      return;
+    }
+    // GPU texture for new image is warm from the overlay — backdrop src update is instant
+    backdrop.setAttribute("src", normalizedSrc);
+    backdrop.setAttribute("alt", normalizedAlt);
+    backdrop.classList.remove("placeholder");
+    overlay.remove();
+  };
+
+  const reveal = () => {
     if (swapSettled) {
       return;
     }
     swapSettled = true;
     if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
+      overlay.remove();
       return;
     }
-    clearGhosts();
-    const parent = backdrop.parentElement;
-    let ghost = null;
-    if (parent && currentSrc) {
-      ghost = backdrop.cloneNode(false);
-      ghost.classList.add("home-hero-backdrop-transition-ghost");
-      parent.insertBefore(ghost, backdrop);
-    }
-
-    backdrop.classList.add("home-hero-backdrop-transition-enter");
-    backdrop.classList.remove("placeholder");
-    backdrop.setAttribute("src", normalizedSrc);
-    backdrop.setAttribute("alt", normalizedAlt);
-
+    // Double rAF: first rAF lets GPU begin texture upload for the overlay, second confirms ready
     requestAnimationFrame(() => {
-      if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
-        return;
-      }
-      backdrop.classList.add("is-visible");
-      setTimeout(() => {
-        finalize();
-      }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS);
+      requestAnimationFrame(() => {
+        if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
+          overlay.remove();
+          return;
+        }
+        overlay.classList.add("is-visible");
+        setTimeout(finalize, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS);
+      });
     });
   };
 
   const onLoaded = () => {
-    if (typeof preloadImg.decode === "function") {
-      preloadImg.decode().catch(() => null).then(doSwap);
+    if (typeof overlay.decode === "function") {
+      overlay.decode().catch(() => null).then(reveal);
     } else {
-      doSwap();
+      reveal();
     }
   };
 
-  preloadImg.onload = onLoaded;
-  preloadImg.onerror = doSwap;
+  const doSetOverlaySrc = () => {
+    if (preloadSettled) {
+      return;
+    }
+    preloadSettled = true;
+    if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
+      overlay.remove();
+      return;
+    }
+    overlay.setAttribute("src", normalizedSrc);
+    onLoaded();
+  };
+
+  const preloadImg = new Image();
+  preloadImg.onload = doSetOverlaySrc;
+  preloadImg.onerror = () => {
+    if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
+      overlay.remove();
+      return;
+    }
+    overlay.remove();
+    backdrop.setAttribute("src", normalizedSrc);
+    backdrop.setAttribute("alt", normalizedAlt);
+    backdrop.classList.remove("placeholder");
+  };
   preloadImg.src = normalizedSrc;
   if (preloadImg.complete) {
-    onLoaded();
+    doSetOverlaySrc();
   }
 }
 
@@ -3061,40 +3095,27 @@ export const HomeScreen = {
     const backdrop = heroNode.querySelector(".home-hero-backdrop");
     if (backdrop) {
       const src = display.backdrop || "";
-      if ((isHiding || this.isPerformanceConstrained()) && backdrop instanceof HTMLImageElement) {
+      if (isHiding && backdrop instanceof HTMLImageElement) {
+        // Hero copy is transitioning out — cancel pending animations and swap immediately.
         const nextToken = (Number(backdrop.heroBackdropTransitionToken) || 0) + 1;
         backdrop.heroBackdropTransitionToken = nextToken;
-        heroNode.querySelectorAll(".home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+        heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
         backdrop.classList.remove("home-hero-backdrop-transition-enter", "is-visible");
-        if (src) {
-          if (this.isPerformanceConstrained() && !isHiding) {
-            // Preload + decode before swapping so cold images (e.g. continue watching
-            // episode thumbnails) don't flash blank while the browser fetches/decodes them.
-            const preloadImg = new Image();
-            preloadImg.src = src;
-            const ready = typeof preloadImg.decode === "function"
-              ? preloadImg.decode().catch(() => null)
-              : new Promise((resolve) => {
-                  preloadImg.onload = resolve;
-                  preloadImg.onerror = resolve;
-                  if (preloadImg.complete) resolve();
-                });
-            ready.then(() => {
-              if (Number(backdrop.heroBackdropTransitionToken) !== nextToken) return;
-              backdrop.setAttribute("src", src);
-              backdrop.setAttribute("alt", display.title || "featured");
-              backdrop.classList.remove("placeholder");
-            });
-          } else {
-            backdrop.setAttribute("src", src);
-            backdrop.setAttribute("alt", display.title || "featured");
-            backdrop.classList.remove("placeholder");
-          }
+        if (hero?.heroSource === "continueWatching") {
+          // CW episode thumbnails are cold-cache — use the two-layer overlay so the GPU
+          // texture is confirmed ready before the backdrop becomes visible.
+          animateModernHeroBackdropSwap(backdrop, src, display.title || "featured");
+        } else if (src) {
+          // Catalog backdrops are warm (same images shown in poster cards) — direct swap is instant.
+          backdrop.setAttribute("src", src);
+          backdrop.setAttribute("alt", display.title || "featured");
+          backdrop.classList.remove("placeholder");
         } else {
           backdrop.removeAttribute("src");
           backdrop.classList.add("placeholder");
         }
       } else if (this.layoutMode === "modern" && backdrop instanceof HTMLImageElement) {
+        // Two-layer overlay handles GPU texture timing for all non-hiding modern layout cases.
         const shouldFreezeBackdrop = Boolean(hero?.heroMetaEnriching)
           && String(backdrop.getAttribute("src") || "").trim();
         if (!shouldFreezeBackdrop) {
@@ -5872,6 +5893,81 @@ export const HomeScreen = {
     }
   },
 
+  destroyVirtualRowObserver() {
+    this._virtualRowObserver?.disconnect();
+    this._virtualRowObserver = null;
+  },
+
+  mountPendingRow(section) {
+    if (!section || !section.dataset.rowPending) {
+      return;
+    }
+    const rowIndex = Number(section.dataset.rowIndex);
+    const rowData = this.rows?.[rowIndex];
+    const opts = this._rowRenderOpts;
+    if (!rowData || !opts?.createPosterCardMarkup) {
+      section.removeAttribute("data-row-pending");
+      return;
+    }
+    const track = section.querySelector(".home-track");
+    if (track) {
+      const isCollectionRow = rowData?.rowKind === "collection";
+      const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
+      const rowItems = items.length ? items : (rowData.loadingItems || []);
+      const maxItems = Math.max(1, Number(opts.rowItemLimit || 15));
+      const visibleItems = isCollectionRow ? rowItems : rowItems.slice(0, maxItems);
+      track.innerHTML = visibleItems.map((item, itemIndex) => opts.createPosterCardMarkup(
+        item,
+        rowIndex,
+        itemIndex,
+        rowData.type,
+        rowData,
+        opts.showPosterLabels,
+        "modern",
+        false,
+        opts.preferLandscapePosters
+      )).join("");
+    }
+    section.removeAttribute("data-row-pending");
+    ScreenUtils.indexFocusables(section);
+    this.buildNavigationModel();
+  },
+
+  initVirtualRows() {
+    this.destroyVirtualRowObserver();
+    const viewport = this.container?.querySelector(".home-modern-rows-viewport");
+    const pending = Array.from(
+      this.container?.querySelectorAll(".home-modern-row[data-row-pending]") || []
+    );
+    if (!pending.length || !viewport) {
+      return;
+    }
+    // Legacy WebOS (≤5) or no IntersectionObserver: mount all after a short delay
+    // so the initial render and focus restore finish first.
+    if (this.isLegacyTvRuntime() || typeof IntersectionObserver === "undefined") {
+      setTimeout(() => {
+        pending.forEach((section) => this.mountPendingRow(section));
+      }, 400);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            observer.unobserve(entry.target);
+            this.mountPendingRow(entry.target);
+          }
+        });
+      },
+      {
+        root: viewport,
+        rootMargin: "0px 0px 1080px 0px"
+      }
+    );
+    pending.forEach((section) => observer.observe(section));
+    this._virtualRowObserver = observer;
+  },
+
   handleHomeDpad(event) {
     const keyCode = Number(event?.keyCode || 0);
     const direction = keyCode === 38 ? "up"
@@ -6702,6 +6798,7 @@ export const HomeScreen = {
     this.cancelScheduledRender();
     this.cancelModernCameraFollow({ stopAnimations: true });
     this.teardownModernTrackScrollPagination();
+    this.destroyVirtualRowObserver();
     const retainedFocusState = this.captureCurrentFocusState() || this.savedFocusStates?.[this.layoutMode] || null;
     this.cancelFocusedPosterFlow();
     this.expandedPosterNode = null;
@@ -6762,6 +6859,13 @@ export const HomeScreen = {
       mainContentMarkup = renderHomeLoadingState();
       this.catalogSeeAllMap = new Map();
     } else if (this.layoutMode === "modern") {
+      this._rowRenderOpts = {
+        createPosterCardMarkup,
+        rowItemLimit,
+        showPosterLabels,
+        showCatalogTypeSuffix,
+        preferLandscapePosters: modernLandscapePostersEnabled
+      };
       modernLayoutPayload = renderModernHomeLayout({
         rows: this.rows,
         heroItem,
@@ -6772,6 +6876,7 @@ export const HomeScreen = {
         useEpisodeThumbnailsInCw: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
         blurContinueWatchingNextUp: Boolean(this.layoutPrefs?.blurContinueWatchingNextUp),
         rowItemLimit,
+        eagerRowCount: 4,
         showHeroSection,
         showPosterLabels,
         showCatalogTypeSuffix,
@@ -6847,6 +6952,7 @@ export const HomeScreen = {
     this.bindHomeViewportEvents();
     if (this.layoutMode === "modern") {
       this.setupModernTrackScrollPagination();
+      this.initVirtualRows();
     }
     const canAttemptRestore = Boolean(retainedFocusState);
     let restoredFocus = false;
@@ -7815,6 +7921,7 @@ export const HomeScreen = {
     this.collapseFocusedPoster();
     this.teardownGridStickyHeader();
     this.teardownModernTrackScrollPagination();
+    this.destroyVirtualRowObserver();
     if (this.homeViewportFocusSyncTimer) {
       clearTimeout(this.homeViewportFocusSyncTimer);
       this.homeViewportFocusSyncTimer = null;

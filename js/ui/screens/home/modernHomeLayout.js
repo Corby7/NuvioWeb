@@ -26,6 +26,7 @@ export function renderModernHomeLayout({
   useEpisodeThumbnailsInCw = true,
   blurContinueWatchingNextUp = false,
   rowItemLimit = 15,
+  eagerRowCount = 4,
   showHeroSection = false,
   showPosterLabels = true,
   showCatalogTypeSuffix = true,
@@ -44,6 +45,7 @@ export function renderModernHomeLayout({
 } = {}) {
   const catalogSeeAllMap = new Map();
   const sectionsMarkup = [];
+  let eagerCount = 0;
 
   rows.forEach((rowData, rowIndex) => {
     const isCollectionRow = rowData?.rowKind === "collection";
@@ -68,35 +70,47 @@ export function renderModernHomeLayout({
       });
     }
 
-    const maxItems = Math.max(1, Number(rowItemLimit || 15));
-    const visibleItems = isCollectionRow
-      ? rowItems
-      : rowItems.slice(0, maxItems);
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
       : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
-    const cardsMarkup = visibleItems.map((item, itemIndex) => createPosterCardMarkup(
-      item,
-      rowIndex,
-      itemIndex,
-      rowData.type,
-      rowData,
-      showPosterLabels,
-      "modern",
-      expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
-      preferLandscapePosters
-    )).join("");
 
-    sectionsMarkup.push(`
-      <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
-        <div class="home-row-head">
-          <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
-        </div>
-        <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
-          ${cardsMarkup}
-        </div>
-      </section>
-    `);
+    if (eagerCount < eagerRowCount) {
+      eagerCount++;
+      const maxItems = Math.max(1, Number(rowItemLimit || 15));
+      const visibleItems = isCollectionRow ? rowItems : rowItems.slice(0, maxItems);
+      const cardsMarkup = visibleItems.map((item, itemIndex) => createPosterCardMarkup(
+        item,
+        rowIndex,
+        itemIndex,
+        rowData.type,
+        rowData,
+        showPosterLabels,
+        "modern",
+        expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
+        preferLandscapePosters
+      )).join("");
+
+      sectionsMarkup.push(`
+        <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
+          <div class="home-row-head">
+            <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
+          </div>
+          <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
+            ${cardsMarkup}
+          </div>
+        </section>
+      `);
+    } else {
+      // Deferred row — stub with title only, cards mounted lazily by initVirtualRows()
+      sectionsMarkup.push(`
+        <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}" data-row-pending="true">
+          <div class="home-row-head">
+            <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
+          </div>
+          <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}"></div>
+        </section>
+      `);
+    }
   });
 
   return {
