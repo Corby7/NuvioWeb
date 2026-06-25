@@ -3169,11 +3169,11 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .discover-loading-spinner {
-  width: 28px;
-  height: 28px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.12);
-  border-top-color: var(--secondary-color);
+  border: 4px solid rgba(158, 158, 158, 0.22);
+  border-top-color: #9e9e9e;
   animation: homeLoadingSpin 820ms linear infinite;
 }
 
@@ -4345,6 +4345,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .home-row {
   margin-bottom: 26px;
+  contain: layout;
 }
 
 .home-row-head {
@@ -4425,6 +4426,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   overflow-y: visible;
   padding-bottom: 4px;
   scrollbar-width: none;
+  transform: translateZ(0);
 }
 
 .home-track::-webkit-scrollbar {
@@ -10188,9 +10190,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   margin-top: -36px;
   margin-left: -36px;
   border-radius: 50%;
-  border: 6px solid rgba(255, 255, 255, 0.18);
-  border-top-color: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 0 22px rgba(0, 0, 0, 0.35);
+  border: 6px solid rgba(158, 158, 158, 0.22);
+  border-top-color: #9e9e9e;
   animation: homeLoadingSpin 820ms linear infinite;
 }
 
@@ -15128,9 +15129,9 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   width: 12px;
   height: 12px;
   border-radius: 999px;
-  border: 1.5px solid currentColor;
-  border-top-color: transparent;
-  animation: streamRouteSpin 700ms linear infinite;
+  border: 1.5px solid rgba(158, 158, 158, 0.22);
+  border-top-color: #9e9e9e;
+  animation: homeLoadingSpin 820ms linear infinite;
 }
 
 .stream-route-panel-shell {
@@ -15208,11 +15209,11 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .performance-constrained .player-loading-spinner-ring {
-  animation: playerLoadingSpinnerRotate 960ms steps(12, end) infinite !important;
+  animation: homeLoadingSpin 960ms steps(12, end) infinite !important;
 }
 
 .performance-constrained .stream-route-chip-spinner {
-  animation: streamRouteSpin 720ms steps(12, end) infinite !important;
+  animation: homeLoadingSpin 720ms steps(12, end) infinite !important;
 }
 
 .performance-constrained .home-screen-shell .home-loading-spinner-ring,
@@ -16462,15 +16463,6 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   to {
     opacity: 1;
     transform: translateX(0);
-  }
-}
-
-@keyframes streamRouteSpin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
   }
 }
 

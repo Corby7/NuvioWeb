@@ -2940,7 +2940,8 @@ export const HomeScreen = {
     if (this.isLegacyTvRuntime()) {
       return 0;
     }
-    if (this.isPerformanceConstrained()) {
+    const webOsMajor = Number(Platform.getWebOsMajorVersion?.() || 0);
+    if (webOsMajor > 0 && webOsMajor <= 6) {
       return Math.min(baseline, 90);
     }
     return baseline + 40;
@@ -5823,8 +5824,7 @@ export const HomeScreen = {
       if (this.isLegacyTvRuntime()) {
         next.container.scrollLeft = Math.round(next.value);
       } else {
-        this.cancelScrollAnimation(next.container, "x");
-        next.container.scrollTo({ left: next.value, behavior: "smooth" });
+        this.animateScroll(next.container, "x", next.value, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
       }
       return;
     }
@@ -5836,17 +5836,17 @@ export const HomeScreen = {
     const visibleRight = metrics.visibleRight;
 
     if (targetLeft < visibleLeft) {
-      this.animateScroll(track, "x", targetLeft - metrics.leftPadding, this.getScrollDuration(160));
+      this.animateScroll(track, "x", targetLeft - metrics.leftPadding, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
       return;
     }
     if (targetRight > visibleRight) {
-      this.animateScroll(track, "x", targetRight - track.clientWidth + metrics.safeRightPadding, this.getScrollDuration(160));
+      this.animateScroll(track, "x", targetRight - track.clientWidth + metrics.safeRightPadding, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
       return;
     }
     if (this.layoutMode !== "modern" && !direction) {
       const targetCenter = targetLeft + (target.offsetWidth / 2);
       const centeredLeft = targetCenter - (track.clientWidth / 2);
-      this.animateScroll(track, "x", centeredLeft, this.getScrollDuration(160));
+      this.animateScroll(track, "x", centeredLeft, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
     }
   },
 

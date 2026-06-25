@@ -124,6 +124,20 @@ function applyPerformanceMode() {
     aspectRatioUnsupported,
   );
   document.body.classList.toggle("no-aspect-ratio", aspectRatioUnsupported);
+
+  console.log("[nuvio:platform]", {
+    platform: Platform.getName(),
+    webOsMajorVersion,
+    isWebOS: Platform.isWebOS(),
+    isTizen: Platform.isTizen(),
+    performanceConstrained: constrained,
+    legacyWebOs,
+    legacyTizen,
+    flexGapUnsupported,
+    aspectRatioUnsupported,
+    userAgent: navigator.userAgent,
+    bodyClasses: [...document.body.classList].join(" "),
+  });
 }
 
 function isAddonRemoteMode() {
