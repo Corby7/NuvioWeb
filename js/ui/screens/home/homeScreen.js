@@ -2023,6 +2023,8 @@ function groupNodesByOffsetTop(nodes = []) {
 
 export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowData = null, showLabels = true, layoutMode = "classic", isExpanded = false, preferLandscapePoster = false) {
   const suppressPosterText = Boolean(rowData?.suppressPosterText);
+  const tvEager = Platform.isWebOS() || Platform.isTizen();
+  const posterLoadAttr = tvEager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy" fetchpriority="low"';
   const collectionSeed = rowData?.rowKind === "collection"
     ? {
       ...(item || {}),
@@ -2046,7 +2048,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
       ? `<img class="home-poster-focus-gif" data-src="${escapeAttribute(collectionItem.focusGifUrl)}" alt="" aria-hidden="true" />`
       : "";
     const contentMarkup = visualSrc
-      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" loading="lazy" fetchpriority="low" alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
+      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" ${posterLoadAttr} alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
       : (collectionItem.coverEmoji
         ? `<div class="home-collection-emoji" aria-hidden="true">${escapeHtml(collectionItem.coverEmoji)}</div>`
         : '<div class="content-poster placeholder"></div>');
@@ -2128,7 +2130,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
              data-logo-src="${escapeAttribute(normalized.logo || "")}"`}>
       <div class="home-poster-frame">
         ${(!isLoading && posterSrc)
-      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" loading="lazy" fetchpriority="low" alt="" aria-label="${escapeAttribute(normalized.name || "")}" />`
+      ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" ${posterLoadAttr} alt="" aria-label="${escapeAttribute(normalized.name || "")}" />`
       : '<div class="content-poster placeholder"></div>'}
         ${(!isLoading && expandedVisualSrc)
       ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}" decoding="async" loading="lazy" fetchpriority="low" alt="" aria-hidden="true" />`
@@ -4683,6 +4685,11 @@ export const HomeScreen = {
             poster.fetchPriority = "high";
           } catch (_) {
           }
+        } else if (poster.src && !poster.complete) {
+          // Changing loading="eager" on an already-parsed <img> has no effect —
+          // browsers only read the loading attribute at parse time. Force-fetch
+          // via Image() to prime the browser cache before the user navigates there.
+          preloadImageSource(poster.src);
         }
       }
       if (isPrimary) {
@@ -5995,7 +6002,17 @@ export const HomeScreen = {
     }
     section.removeAttribute("data-row-pending");
     ScreenUtils.indexFocusables(section);
-    this.buildNavigationModel();
+    this.scheduleBuildNavigationModel();
+  },
+
+  scheduleBuildNavigationModel() {
+    if (this._buildNavModelFrame) {
+      cancelAnimationFrame(this._buildNavModelFrame);
+    }
+    this._buildNavModelFrame = requestAnimationFrame(() => {
+      this._buildNavModelFrame = null;
+      this.buildNavigationModel();
+    });
   },
 
   initVirtualRows() {
@@ -6026,7 +6043,7 @@ export const HomeScreen = {
       },
       {
         root: viewport,
-        rootMargin: "0px 0px 1080px 0px"
+        rootMargin: "0px 0px 2160px 0px"
       }
     );
     pending.forEach((section) => observer.observe(section));
