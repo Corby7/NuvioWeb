@@ -5881,7 +5881,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .home-screen-shell.home-layout-modern .home-hero-backdrop {
   object-position: 100% 0;
   opacity: 1;
-  transition: opacity 400ms ease-out;
+  transition: opacity 400ms ease-in-out;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-revealing {
@@ -5911,7 +5911,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost {
   opacity: 1;
-  transition: none;
+  transition: opacity 400ms ease-in;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost.is-fading-out {

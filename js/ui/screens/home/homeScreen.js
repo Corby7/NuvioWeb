@@ -4279,16 +4279,9 @@ export const HomeScreen = {
           earlyOverlay.setAttribute("alt", heroDisplay?.title || "featured");
           earlyOverlay.setAttribute("decoding", "async");
           backdropWrap.appendChild(earlyOverlay);
-          const revealEarlyOverlay = () => {
-            if (!earlyOverlay.isConnected) return;
-            earlyOverlay.style.transition = "none";
-            earlyOverlay.classList.add("is-visible");
-          };
-          earlyOverlay.addEventListener("load", revealEarlyOverlay, { once: true });
+          // Only pre-warm the GPU compositor layer; visual reveal happens in heroCopyFadeInRaf
+          // together with the text, so the backdrop and description/logo appear simultaneously.
           earlyOverlay.setAttribute("src", preWarmSrc);
-          if (earlyOverlay.complete && Number(earlyOverlay.naturalWidth || 0) > 0) {
-            revealEarlyOverlay();
-          }
         }
       }
     }
