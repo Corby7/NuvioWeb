@@ -274,14 +274,27 @@ export const RootSidebarController = {
       }
     });
 
-    // Pointer hover: expand visually only when the pointer is within the collapsed
-    // rail. Use the inner sidebar shell's rendered right edge as the threshold so
-    // it adapts to whatever the actual layout is, no hardcoded pixel values.
+    // Pointer hover: expand when cursor enters the rail zone.
+    // mouseover on this.el covers elements with pointer-events:auto (pill, panel items).
     this.el.addEventListener("mouseover", (event) => {
       if (!this._isManaged(this.currentRoute)) return;
       this._pointerInSidebar = true;
       if (this.expanded || this.openedBy === 'dpad') return;
-      if (event.target?.closest(".home-nav-icon-wrap, .modern-sidebar-pill")) {
+      if (event.target?.closest(".home-nav-icon-wrap, .modern-sidebar-pill, .modern-sidebar-rail-zone")) {
+        this._expandVisualOnly();
+      }
+    });
+
+    // mousemove on the app catches the full 144px rail height, since pointer-events:none
+    // on #root-nav-sidebar makes hit-testing through it unreliable across browsers.
+    const railWidth = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--legacy-sidebar-rail-width')
+    ) || 144;
+    app.addEventListener("mousemove", (event) => {
+      if (!this._isManaged(this.currentRoute)) return;
+      if (this.expanded || this.openedBy === 'dpad') return;
+      if (event.clientX <= railWidth) {
+        this._pointerInSidebar = true;
         this._expandVisualOnly();
       }
     });
@@ -342,6 +355,10 @@ export const RootSidebarController = {
 
     host.querySelectorAll(".modern-sidebar-pill").forEach((pill) => {
       pill.onclick = () => this.expand();
+    });
+
+    host.querySelectorAll(".modern-sidebar-rail-zone").forEach((zone) => {
+      zone.onclick = () => { if (!this.expanded) this.expand(); };
     });
   }
 };

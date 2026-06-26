@@ -2437,6 +2437,21 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   transition: transform 145ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.modern-sidebar-rail-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--legacy-sidebar-rail-width);
+  height: 100%;
+  pointer-events: auto;
+  z-index: 0;
+}
+
+.modern-sidebar-shell.expanded .modern-sidebar-rail-zone,
+.modern-sidebar-shell.panel-visible .modern-sidebar-rail-zone {
+  pointer-events: none;
+}
+
 .modern-sidebar-pill {
   position: absolute;
   top: var(--modern-sidebar-pill-top);
