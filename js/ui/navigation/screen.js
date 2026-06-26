@@ -222,6 +222,113 @@ export const ScreenUtils = {
         node.tabIndex = 0;
       }
     });
+  },
+
+  // Build a pre-indexed 2-D navigation grid from the focusable nodes matched by
+  // `selector` inside `container`. Groups nodes into rows by offsetTop (8px
+  // tolerance), sorts within each row by offsetLeft, then stamps data-nav-grid-row
+  // and data-nav-grid-col onto each node. The result is cached in a WeakMap so
+  // navigateWithGrid can look up neighbours in O(1) with no DOM geometry reads.
+  // Call this once after each render that changes the list of focusable nodes.
+  buildNavGrid(container, selector = ".focusable") {
+    if (!container) {
+      return null;
+    }
+    const nodes = Array.from(container.querySelectorAll(selector) || [])
+      .filter((node) => node.offsetHeight > 0);
+    if (!nodes.length) {
+      return null;
+    }
+
+    const groups = [];
+    nodes.forEach((node) => {
+      const top = Math.round(node.offsetTop);
+      const group = groups.find((g) => Math.abs(g.top - top) <= 8);
+      if (group) {
+        group.nodes.push(node);
+      } else {
+        groups.push({ top, nodes: [node] });
+      }
+    });
+    groups.sort((a, b) => a.top - b.top);
+
+    const rows = groups.map((g) => {
+      g.nodes.sort((a, b) => a.offsetLeft - b.offsetLeft);
+      return g.nodes;
+    });
+
+    rows.forEach((row, rowIndex) => {
+      row.forEach((node, colIndex) => {
+        node.dataset.navGridRow = String(rowIndex);
+        node.dataset.navGridCol = String(colIndex);
+        if (node.tabIndex !== 0) {
+          node.tabIndex = 0;
+        }
+      });
+    });
+
+    if (!this._navGrids) {
+      this._navGrids = new WeakMap();
+    }
+    this._navGrids.set(container, { rows });
+    return { rows };
+  },
+
+  // Navigate to an adjacent node in the pre-built grid. Returns true and moves
+  // focus if a valid neighbour exists. Returns false if the current node is not
+  // in the grid or there is no neighbour in that direction — callers should fall
+  // back to handleDpadNavigation/moveFocusDirectional for those boundary cases.
+  // Zero getBoundingClientRect calls — all look-ups are pure index arithmetic.
+  navigateWithGrid(container, direction) {
+    const current = container?.querySelector(".focusable.focused");
+    if (!current) {
+      return false;
+    }
+    const rowStr = current.dataset.navGridRow;
+    if (rowStr === undefined || rowStr === "") {
+      return false;
+    }
+    const grid = this._navGrids?.get(container);
+    if (!grid?.rows) {
+      return false;
+    }
+
+    const row = Number(rowStr);
+    const col = Number(current.dataset.navGridCol || 0);
+    const rows = grid.rows;
+    let target = null;
+
+    if (direction === "left") {
+      target = rows[row]?.[col - 1] || null;
+    } else if (direction === "right") {
+      target = rows[row]?.[col + 1] || null;
+    } else if (direction === "up") {
+      const prevRow = rows[row - 1];
+      target = prevRow ? (prevRow[Math.min(col, prevRow.length - 1)] || null) : null;
+    } else if (direction === "down") {
+      const nextRow = rows[row + 1];
+      target = nextRow ? (nextRow[Math.min(col, nextRow.length - 1)] || null) : null;
+    }
+
+    if (!target || target === current) {
+      return false;
+    }
+
+    current.classList.remove("focused");
+    target.classList.add("focused");
+    try {
+      target.focus({ preventScroll: true });
+    } catch (_) {
+      try {
+        target.focus();
+      } catch (_) {}
+    }
+    return true;
+  },
+
+  // Discard the cached grid for a container so the next buildNavGrid call starts fresh.
+  invalidateNavGrid(container) {
+    this._navGrids?.delete(container);
   }
 
 };

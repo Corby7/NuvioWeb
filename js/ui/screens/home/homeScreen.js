@@ -2672,7 +2672,7 @@ export const HomeScreen = {
       state.position += state.velocity * deltaSeconds;
       container[property] = state.position;
 
-      const remaining = Number(state.target || 0) - Number(container[property] || 0);
+      const remaining = Number(state.target || 0) - state.position;
       if (Math.abs(remaining) <= state.precision && Math.abs(state.velocity) <= state.velocityEpsilon) {
         container[property] = state.target;
         existing[key] = null;
@@ -4722,6 +4722,50 @@ export const HomeScreen = {
     });
   },
 
+  updateNeighborPromotions(node) {
+    const prev = this._promotedCards;
+    if (prev?.length) {
+      for (let i = 0; i < prev.length; i++) {
+        prev[i].classList.remove("will-promote");
+      }
+    }
+    const next = [];
+    this._promotedCards = next;
+    if (!node?.classList?.contains("home-poster-card")) {
+      return;
+    }
+    const add = (card) => {
+      if (card?.classList?.contains("home-poster-card")) {
+        card.classList.add("will-promote");
+        next.push(card);
+      }
+    };
+    const rowIdx = Number(node.dataset.navRow ?? -1);
+    const colIdx = Number(node.dataset.navCol ?? 0);
+    const rows = this.navModel?.rows;
+    if (rowIdx >= 0 && rows) {
+      const thisRow = rows[rowIdx];
+      add(thisRow?.[colIdx - 1]);
+      add(thisRow?.[colIdx]);
+      add(thisRow?.[colIdx + 1]);
+      const prevRow = rows[rowIdx - 1];
+      if (prevRow) {
+        add(prevRow[Math.min(colIdx, prevRow.length - 1)]);
+      }
+      const nextRow = rows[rowIdx + 1];
+      if (nextRow) {
+        add(nextRow[Math.min(colIdx, nextRow.length - 1)]);
+      }
+    } else {
+      const track = node.closest(".home-track");
+      const siblings = track ? Array.from(track.querySelectorAll(".home-poster-card")) : [node];
+      const idx = siblings.indexOf(node);
+      add(siblings[idx - 1]);
+      add(node);
+      add(siblings[idx + 1]);
+    }
+  },
+
   clearTrailerLayer(container) {
     if (!container) {
       return;
@@ -5909,6 +5953,7 @@ export const HomeScreen = {
         this.ensureMainVerticalVisibility(target, direction, current, scrollAdjustments.vertical);
       }
       this.scheduleModernHeroUpdate(target);
+      this.updateNeighborPromotions(target);
       if (this.isPerformanceConstrained()) {
         this.promotePosterCardAssets(target, { includeNeighbors: true });
       }
@@ -5986,6 +6031,39 @@ export const HomeScreen = {
     }
   },
 
+  // Incremental nav model update for deferred rows. Avoids a full DOM re-traversal
+  // on every virtual row mount by appending the new row directly to the existing model.
+  // Falls back to scheduleBuildNavigationModel if the model isn't ready or the layout
+  // isn't modern (where append-at-bottom is guaranteed).
+  appendMountedRowToNavigationModel(section) {
+    if (!this.navModel || this.layoutMode !== "modern") {
+      this.scheduleBuildNavigationModel();
+      return;
+    }
+    const track = section.querySelector(".home-track");
+    if (!track) {
+      return;
+    }
+    const cards = Array.from(track.querySelectorAll(".home-content-card.focusable"));
+    if (!cards.length) {
+      return;
+    }
+    const rowIndex = this.navModel.rows.length;
+    const rowKey = this.getNodeRowKey(cards[0]);
+    cards.forEach((node, colIndex) => {
+      node.dataset.navZone = "main";
+      node.dataset.navRow = String(rowIndex);
+      node.dataset.navCol = String(colIndex);
+      if (rowKey) {
+        node.dataset.navRowKey = rowKey;
+      }
+      if (node.tabIndex !== 0) {
+        node.tabIndex = 0;
+      }
+    });
+    this.navModel.rows.push(cards);
+  },
+
   destroyVirtualRowObserver() {
     this._virtualRowObserver?.disconnect();
     this._virtualRowObserver = null;
@@ -6022,8 +6100,7 @@ export const HomeScreen = {
       )).join("");
     }
     section.removeAttribute("data-row-pending");
-    ScreenUtils.indexFocusables(section);
-    this.scheduleBuildNavigationModel();
+    this.appendMountedRowToNavigationModel(section);
   },
 
   scheduleBuildNavigationModel() {

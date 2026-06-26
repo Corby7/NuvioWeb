@@ -4103,6 +4103,7 @@ export const SettingsScreen = {
     this.bindTextDialogEvents();
 
     ScreenUtils.indexFocusables(this.container);
+    ScreenUtils.buildNavGrid(this.container, ".settings-content-focusable");
     bindSettingsScrollIndicators(this.container);
     this.settingsRouteEnterPending = false;
     this.applyFocus();
@@ -4322,7 +4323,9 @@ export const SettingsScreen = {
       }
     }
 
-    ScreenUtils.moveFocusDirectional(this.container, direction, ".settings-content-focusable");
+    if (!ScreenUtils.navigateWithGrid(this.container, direction)) {
+      ScreenUtils.moveFocusDirectional(this.container, direction, ".settings-content-focusable");
+    }
     const after = this.container.querySelector(".settings-content-focusable.focused");
     if (after) {
       this.contentFocusKey = String(after.dataset.focusKey || "");

@@ -560,6 +560,7 @@ export const LibraryScreen = {
     }
 
     ScreenUtils.indexFocusables(this.container);
+    ScreenUtils.buildNavGrid(this.container, ".home-main .focusable");
 
     if (this.pendingPickerRestore) {
       const target = this.container.querySelector(`.library-picker-anchor[data-picker="${selectorValue(this.pendingPickerRestore)}"]`);
@@ -808,6 +809,7 @@ export const LibraryScreen = {
     this.libraryRouteEnterPending = false;
 
     ScreenUtils.indexFocusables(this.container);
+    ScreenUtils.buildNavGrid(this.container, ".home-main .focusable");
     this.restoreFocus();
   },
 
@@ -1688,6 +1690,18 @@ export const LibraryScreen = {
 
     if (this.handlePrivacyMemoryNavigation(event, current)) {
       return;
+    }
+
+    if (code === 37 || code === 38 || code === 39 || code === 40) {
+      const gridDir = code === 38 ? "up" : code === 40 ? "down" : code === 37 ? "left" : "right";
+      if (ScreenUtils.navigateWithGrid(this.container, gridDir)) {
+        event?.preventDefault?.();
+        const focused = this.getScopedFocusedNode();
+        if (focused) {
+          this.setFocusedNode(focused);
+        }
+        return;
+      }
     }
 
     if (ScreenUtils.handleDpadNavigation(event, this.container, this.getFocusScopeSelector())) {
