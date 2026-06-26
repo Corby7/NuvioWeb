@@ -513,7 +513,12 @@ export const SearchScreen = {
     }
     if (token !== this.loadToken) return;
     this.container?.querySelector(".search-content")?.classList.remove("search-is-loading");
-    if (this.shouldPatchResultsWithoutReplacingInput()) {
+    // Use incremental DOM update whenever the screen structure already exists — avoids
+    // a full innerHTML replacement (costly on TV hardware) for every search update.
+    const content = this.container?.querySelector(".search-content");
+    const header = content?.querySelector(".search-header");
+    const input = this.container?.querySelector("#searchInput");
+    if (content && header && input) {
       this.renderResultsOnly();
       return;
     }
@@ -542,10 +547,18 @@ export const SearchScreen = {
     this.buildNavigationModel();
     this.bindActionEvents();
     input.value = this.query || "";
-    input.focus?.();
-    this.focusNode(this.container?.querySelector(".focusable.focused") || null, input);
-    restoreInputSelection(input, selectionSnapshot);
+
+    const shouldFocusResults = Boolean(this.pendingAutoFocusResults && this.navModel?.rows?.[0]?.[0]);
     this.pendingAutoFocusResults = false;
+    if (shouldFocusResults) {
+      const firstResult = this.navModel.rows[0][0];
+      this.focusNode(this.container?.querySelector(".focusable.focused") || null, firstResult);
+      this.ensureResultsRowVisible(firstResult);
+    } else {
+      input.focus?.();
+      this.focusNode(this.container?.querySelector(".focusable.focused") || null, input);
+      restoreInputSelection(input, selectionSnapshot);
+    }
   },
 
   async loadDiscoverRows() {
@@ -1294,7 +1307,7 @@ export const SearchScreen = {
       state.position += state.velocity * deltaSeconds;
       container[property] = state.position;
 
-      const remaining = Number(state.target || 0) - Number(container[property] || 0);
+      const remaining = Number(state.target || 0) - state.position;
       if (Math.abs(remaining) <= state.precision && Math.abs(state.velocity) <= state.velocityEpsilon) {
         container[property] = state.target;
         existing[key] = null;
@@ -1319,21 +1332,21 @@ export const SearchScreen = {
       return;
     }
 
-    const contentRect = content.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
+    // offsetTop/offsetHeight avoid the full viewport-relative layout recalculation of getBoundingClientRect.
+    // Works correctly because .search-content is an overflow container and acts as the offsetParent.
     const topInset = 18;
     const bottomInset = 28;
-    const rowTop = rowRect.top - contentRect.top + content.scrollTop;
-    const rowBottom = rowRect.bottom - contentRect.top + content.scrollTop;
-    const visibleTop = contentRect.top + topInset;
-    const visibleBottom = contentRect.bottom - bottomInset;
+    const rowTop = Number(row.offsetTop || 0);
+    const rowBottom = rowTop + Number(row.offsetHeight || 0);
+    const visibleTop = Number(content.scrollTop || 0) + topInset;
+    const visibleBottom = Number(content.scrollTop || 0) + Number(content.clientHeight || 0) - bottomInset;
 
-    if (rowRect.top < visibleTop) {
+    if (rowTop < visibleTop) {
       this.animateScroll(content, "y", rowTop - topInset, MODERN_HOME_CONSTANTS.cameraFollowDurationYMs, { mode: "spring" });
       return;
     }
 
-    if (rowRect.bottom > visibleBottom) {
+    if (rowBottom > visibleBottom) {
       this.animateScroll(content, "y", rowBottom - content.clientHeight + bottomInset, MODERN_HOME_CONSTANTS.cameraFollowDurationYMs, { mode: "spring" });
     }
   },
@@ -1344,13 +1357,19 @@ export const SearchScreen = {
       return;
     }
 
-    const styles = globalThis.getComputedStyle ? globalThis.getComputedStyle(track) : null;
-    const leftPad = Math.max(0, Number.parseFloat(styles?.paddingLeft || "0") || 0);
-    const trackRect = track.getBoundingClientRect();
-    const targetRect = target.getBoundingClientRect();
-    const targetLeft = (targetRect.left - trackRect.left) + Number(track.scrollLeft || 0);
+    // offsetLeft is relative to offsetParent (the track) — cheaper than getBoundingClientRect
+    // since it reads pre-computed layout values without needing the full viewport-relative recalc.
+    const targetLeft = Number(target.offsetLeft || 0);
+    const targetRight = targetLeft + Number(target.offsetWidth || 0);
+    const visibleLeft = Number(track.scrollLeft || 0);
+    const visibleRight = visibleLeft + Number(track.clientWidth || 0);
     const maxScrollLeft = Math.max(0, Number(track.scrollWidth || 0) - Number(track.clientWidth || 0));
-    this.animateScroll(track, "x", Math.max(0, Math.min(maxScrollLeft, targetLeft - leftPad)), MODERN_HOME_CONSTANTS.cameraFollowDurationXMs, { mode: "spring" });
+
+    if (targetLeft < visibleLeft) {
+      this.animateScroll(track, "x", Math.max(0, Math.min(maxScrollLeft, targetLeft)), MODERN_HOME_CONSTANTS.cameraFollowDurationXMs, { mode: "spring" });
+    } else if (targetRight > visibleRight) {
+      this.animateScroll(track, "x", Math.max(0, Math.min(maxScrollLeft, targetRight - track.clientWidth)), MODERN_HOME_CONSTANTS.cameraFollowDurationXMs, { mode: "spring" });
+    }
   },
 
   ensureHeaderVisible() {
