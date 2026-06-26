@@ -2549,8 +2549,18 @@ export const HomeScreen = {
       : Math.max(0, container.scrollWidth - container.clientWidth);
     const nextValue = Math.max(0, Math.min(max, Math.round(targetValue)));
     const startValue = Number(container[property] || 0);
+
+    // Record the intended destination so rapid-navigation visibility checks
+    // use the final target position rather than the stale mid-animation value.
+    const pKey = axis === "y" ? "y" : "x";
+    const pendingMap = this.pendingScrollTargets || (this.pendingScrollTargets = new WeakMap());
+    const pendingEntry = pendingMap.get(container) || {};
+    pendingEntry[pKey] = nextValue;
+    pendingMap.set(container, pendingEntry);
+
     if (Math.abs(startValue - nextValue) <= 1) {
       container[property] = nextValue;
+      pendingEntry[pKey] = null;
       return;
     }
 
@@ -2566,6 +2576,7 @@ export const HomeScreen = {
     }
     if (prefersReducedMotion || effectiveDuration <= 0) {
       container[property] = nextValue;
+      pendingEntry[pKey] = null;
       return;
     }
 
@@ -2589,6 +2600,7 @@ export const HomeScreen = {
         map.set(container, existing);
       } else {
         existing[key] = null;
+        pendingEntry[pKey] = null;
         map.set(container, existing);
       }
     };
@@ -5287,6 +5299,12 @@ export const HomeScreen = {
       || node;
   },
 
+  getPendingScrollLeft(container) {
+    const pending = this.pendingScrollTargets?.get(container);
+    const px = pending?.x;
+    return (px !== null && Number.isFinite(px)) ? px : Number(container?.scrollLeft || 0);
+  },
+
   getTrackViewportMetrics(track) {
     let leftPadding = this.getTrackEdgePadding();
     let rightPadding = leftPadding;
@@ -5839,8 +5857,11 @@ export const HomeScreen = {
     const metrics = this.getTrackViewportMetrics(track);
     const targetLeft = target.offsetLeft;
     const targetRight = targetLeft + target.offsetWidth;
-    const visibleLeft = metrics.visibleLeft;
-    const visibleRight = metrics.visibleRight;
+    // Use the pending animation destination rather than the live scrollLeft so rapid
+    // navigation doesn't compare against a stale mid-animation position.
+    const effectiveScrollLeft = this.getPendingScrollLeft(track);
+    const visibleLeft = effectiveScrollLeft + metrics.leftPadding;
+    const visibleRight = effectiveScrollLeft + track.clientWidth - metrics.safeRightPadding;
 
     if (targetLeft < visibleLeft) {
       this.animateScroll(track, "x", targetLeft - metrics.leftPadding, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
