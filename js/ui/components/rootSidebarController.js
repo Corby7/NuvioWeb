@@ -11,6 +11,7 @@ import {
   scheduleRootSidebarTextFit
 } from "./sidebarNavigation.js";
 import { LayoutPreferences } from "../../data/local/layoutPreferences.js";
+import { Router } from "../navigation/router.js";
 
 // Routes with no sidebar at all
 const NO_SIDEBAR_ROUTES = new Set(["account", "profileSelection", "stream", "player"]);
@@ -53,7 +54,7 @@ export const RootSidebarController = {
     const layout = LayoutPreferences.get();
     this.el.hidden = false;
     this.el.innerHTML = renderRootSidebar({
-      selectedRoute: this.currentRoute,
+      selectedRoute: this._navHighlightRoute || this.currentRoute,
       profile: this.profile,
       layout
     });
@@ -95,6 +96,8 @@ export const RootSidebarController = {
   update(routeName) {
     if (!this.el) return;
     this.currentRoute = routeName;
+    const navRoute = String(Router.currentParams?.navRoute || "");
+    this._navHighlightRoute = navRoute || routeName;
     this.expanded = false;
     this.openedBy = null;
     this._savedContentFocused = null;

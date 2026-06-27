@@ -6223,6 +6223,221 @@ export const MetaDetailsScreen = {
     return false;
   },
 
+  async onPointerActivate(target) {
+    if (!target || !this.container) return false;
+    const action = String(target.dataset.action || "");
+    if (!action) return false;
+
+    if (action === "setStreamFilter") {
+      const addon = target.dataset.addon || "all";
+      if (this.pendingEpisodeSelection) {
+        this.pendingEpisodeSelection.addonFilter = addon;
+        const addons = Array.from(new Set(this.pendingEpisodeSelection.streams.map((s) => s.addonName).filter(Boolean)));
+        const order = ["all", ...addons];
+        this.streamChooserFocus = { zone: "filter", index: Math.max(0, order.indexOf(addon)) };
+        this.renderEpisodeStreamChooser();
+      } else if (this.pendingMovieSelection) {
+        this.pendingMovieSelection.addonFilter = addon;
+        const addons = Array.from(new Set(this.pendingMovieSelection.streams.map((s) => s.addonName).filter(Boolean)));
+        const order = ["all", ...addons];
+        this.streamChooserFocus = { zone: "filter", index: Math.max(0, order.indexOf(addon)) };
+        this.renderMovieStreamChooser();
+      }
+      return true;
+    }
+    if (action === "playEpisodeStream" || action === "playPendingStream") {
+      if (this.pendingEpisodeSelection) {
+        this.playEpisodeFromSelectedStream(target.dataset.streamId);
+      } else if (this.pendingMovieSelection) {
+        this.playMovieFromSelectedStream(target.dataset.streamId);
+      }
+      return true;
+    }
+    if (action === "goBack") {
+      if (!this.navigateBackFromDetail()) Router.back();
+      return true;
+    }
+    if (action === "openSearch") {
+      Router.navigate("search", { query: this.params?.fallbackTitle || this.params?.itemId || "" });
+      return true;
+    }
+    if (action === "playDefault") {
+      await this.playDefaultFromHero();
+      return true;
+    }
+    if (action === "toggleTrailer") {
+      this.playTrailer({ muted: false, restart: true, initiatedByUser: true });
+      return true;
+    }
+    if (action === "selectSeason") {
+      const season = Number(target.dataset.season || 1);
+      if (season !== this.selectedSeason) {
+        this.hasManualSeasonSelection = true;
+        this.selectedSeason = season;
+        this.updateRenderedDetailSections(this.meta);
+      }
+      return true;
+    }
+    if (action === "togglePicker" && target.dataset.picker === "season") {
+      this.seasonPickerOpen = !this.seasonPickerOpen;
+      if (this.seasonPickerOpen) {
+        const allSeasons = Array.from(new Set(this.episodes?.map((ep) => ep.season) || []));
+        this.seasonPickerFocusIndex = Math.max(0, allSeasons.indexOf(this.selectedSeason));
+      }
+      const seasonMount = this.container?.querySelector("#detailSeasonRowMount");
+      if (seasonMount) {
+        seasonMount.innerHTML = `<div class="series-season-row">${this.renderSeasonDropdown()}</div>`;
+        if (this.seasonPickerOpen) {
+          this.applySeasonPickerFocus();
+        } else {
+          this.focusDetailDescriptor({ selector: ".series-season-row .library-picker-anchor.focusable" });
+        }
+      }
+      return true;
+    }
+    if (action === "selectPickerOption" && target.dataset.picker === "season") {
+      const optionIndex = Number(target.dataset.optionIndex || 0);
+      const allSeasons = Array.from(new Set(this.episodes?.map((ep) => ep.season) || []));
+      const season = allSeasons[optionIndex];
+      if (season != null && season !== this.selectedSeason) {
+        this.hasManualSeasonSelection = true;
+        this.selectedSeason = season;
+      }
+      this.seasonPickerOpen = false;
+      this.seasonPickerFocusIndex = optionIndex;
+      this.updateRenderedDetailSections(this.meta, {
+        selector: ".series-season-row .library-picker-anchor.focusable"
+      });
+      return true;
+    }
+    if (action === "setSeriesInsightTab") {
+      const tab = String(target.dataset.tab || "cast");
+      if (tab !== this.seriesInsightTab) {
+        this.seriesInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+        this.updateRenderedDetailSections(this.meta);
+      }
+      return true;
+    }
+    if (action === "setMovieInsightTab") {
+      const tab = String(target.dataset.tab || "cast");
+      if (tab !== this.movieInsightTab) {
+        this.movieInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+        this.updateRenderedDetailSections(this.meta);
+      }
+      return true;
+    }
+    if (action === "setCommentsMode") {
+      const mode = String(target.dataset.commentsMode || "title") === "episode" ? "episode" : "title";
+      this.commentsMode = mode;
+      if (mode === "episode" && !this.commentsEpisodeTarget) {
+        this.commentsEpisodeTarget = this.nextEpisodeToWatch || this.episodes?.[0] || null;
+      }
+      this.commentsItems = [];
+      this.commentsPage = 0;
+      this.updateRenderedDetailSections(this.meta);
+      void this.loadTraktComments({ force: true });
+      return true;
+    }
+    if (action === "retryComments") {
+      void this.loadTraktComments({ force: true });
+      return true;
+    }
+    if (action === "openSharedTrailer") {
+      const ytId = String(target.dataset.trailerYtId || "").trim();
+      if (ytId) {
+        this.trailerSource = { kind: "youtube", ytId, embedUrl: buildYoutubeEmbedUrl(ytId, { muted: false }) };
+        this.playTrailer({ muted: false, restart: true, initiatedByUser: true, preserveSource: true });
+      }
+      return true;
+    }
+    if (action === "openComment") {
+      this.selectedCommentIndex = Number(target.dataset.commentIndex || 0);
+      target.classList.toggle("is-expanded");
+      return true;
+    }
+    if (action === "selectRatingSeason") {
+      const season = Number(target.dataset.season || this.selectedRatingSeason || 1);
+      if (season !== this.selectedRatingSeason) {
+        this.selectedRatingSeason = season;
+        this.updateRenderedDetailSections(this.meta);
+      }
+      return true;
+    }
+    if (action === "openEpisodeStreams") {
+      const selectedEpisode = this.episodes?.find((e) => e.id === target.dataset.videoId);
+      if (selectedEpisode) await this.openEpisodeStreamChooser(selectedEpisode.id);
+      return true;
+    }
+    if (action === "openCastDetail") {
+      Router.navigate("castDetail", {
+        castId: target.dataset.castId || "",
+        castName: target.dataset.castName || "",
+        castRole: target.dataset.castRole || "",
+        castPhoto: target.dataset.castPhoto || ""
+      });
+      return true;
+    }
+    if (action === "toggleLibrary") {
+      await this.toggleLibraryFromHero();
+      return true;
+    }
+    if (action === "toggleWatched") {
+      const focusRestore = this.captureDetailFocus();
+      const isSeries = isSeriesDetailMeta(this.meta, this.episodes);
+      if (this.isMarkedWatched) {
+        await watchedItemsRepository.unmark(this.params?.itemId);
+        await watchProgressRepository.removeProgress(this.params?.itemId);
+      } else {
+        await watchedItemsRepository.mark({
+          contentId: this.params?.itemId,
+          contentType: this.params?.itemType || "movie",
+          title: this.meta?.name || this.params?.fallbackTitle || "Untitled",
+          watchedAt: Date.now()
+        });
+        await watchProgressRepository.saveProgress({
+          contentId: this.params?.itemId,
+          contentType: this.params?.itemType || "movie",
+          videoId: null,
+          positionMs: 100,
+          durationMs: 100,
+          updatedAt: Date.now()
+        });
+      }
+      if (!isSeries && this.meta?.ids?.trakt) {
+        const enriched = await detailWatchedEnrichmentService.enrichMovieWatchedState(this.params?.itemId, this.meta.ids.trakt);
+        this.enrichedMovieState = enriched;
+        this.isMarkedWatched = Boolean(enriched?.isWatched);
+      }
+      await this.refreshEpisodePlaybackState();
+      this.render(this.meta, focusRestore);
+      return true;
+    }
+    if (action === "playStream" && target.dataset.streamUrl) {
+      const imdbId = resolveMetaImdbId(this.meta, this.params);
+      Router.navigate("player", {
+        streamUrl: target.dataset.streamUrl,
+        itemId: this.params?.itemId,
+        itemType: this.params?.itemType,
+        imdbId,
+        season: this.nextEpisodeToWatch?.season ?? null,
+        episode: this.nextEpisodeToWatch?.episode ?? null,
+        playerTitle: this.meta?.name || this.params?.fallbackTitle || this.params?.itemId || "Untitled",
+        playerSubtitle: this.params?.itemType === "series" ? (this.nextEpisodeToWatch?.title || "") : "",
+        playerEpisodeTitle: this.nextEpisodeToWatch?.title || "",
+        playerBackdropUrl: this.meta?.background || this.meta?.poster || null,
+        playerLogoUrl: this.meta?.logo || null,
+        episodes: this.episodes || [],
+        streamCandidates: this.streamItems || []
+      });
+      return true;
+    }
+    if (action === "openMoreLikeDetail") {
+      this.openMoreLikeDetailFromNode(target);
+      return true;
+    }
+    return false;
+  },
+
   async onKeyDown(event) {
     if (!this.container) {
       return;

@@ -1823,7 +1823,8 @@ export const SearchScreen = {
       catalogId: node.dataset.catalogId || "",
       catalogName: node.dataset.catalogName || "",
       type: node.dataset.catalogType || "movie",
-      initialItems: Array.isArray(sourceRow?.items) ? sourceRow.items : []
+      initialItems: Array.isArray(sourceRow?.items) ? sourceRow.items : [],
+      navRoute: "search"
     });
   },
 
