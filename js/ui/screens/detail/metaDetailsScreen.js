@@ -4749,7 +4749,7 @@ export const MetaDetailsScreen = {
         </div>
       </div>
     `;
-    if (this.trailerSource.kind === "youtube") {
+   if (this.trailerSource.kind === "youtube") {
       const youtubeFrameUrl = buildInlineYoutubePlayerUrl(this.trailerSource.ytId, { muted: this.trailerMuted }) || this.trailerSource.embedUrl || "";
       layer.innerHTML = `
         <div class="detail-trailer-media detail-trailer-youtube" data-trailer-media>
@@ -4758,7 +4758,7 @@ export const MetaDetailsScreen = {
             src="${youtubeFrameUrl}"
             title="Trailer"
             allow="autoplay; encrypted-media; picture-in-picture"
-            referrerpolicy="origin-when-cross-origin"
+            referrerpolicy="strict-origin-when-cross-origin"
             allowfullscreen
             scrolling="no"
             tabindex="-1"
