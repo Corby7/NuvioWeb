@@ -388,6 +388,23 @@ export const SearchScreen = {
     }
   },
 
+  cancelProgressiveRenderFrame() {
+    if (this.progressiveRenderFrame) {
+      cancelAnimationFrame(this.progressiveRenderFrame);
+      this.progressiveRenderFrame = null;
+    }
+  },
+
+  scheduleProgressiveRender(token) {
+    if (this.progressiveRenderFrame) return;
+    this.progressiveRenderFrame = requestAnimationFrame(() => {
+      this.progressiveRenderFrame = null;
+      if (token !== this.loadToken) return;
+      if (Router.getCurrent() !== "search") return;
+      this.renderResultsOnly();
+    });
+  },
+
   cancelScheduledInputSearch() {
     if (this.inputSearchTimer) {
       clearTimeout(this.inputSearchTimer);
@@ -505,8 +522,29 @@ export const SearchScreen = {
     const token = this.loadToken;
     this.container?.querySelector(".search-content")?.classList.add("search-is-loading");
     if (this.mode === "search" && this.query.length >= 2) {
-      this.rows = await this.searchRows(this.query, { token });
-    } else if (this.mode === "discover") {
+      this.rows = [];
+      // Ensure the full screen structure (header + input) exists before progressive renders
+      // patch the results area. renderLoading() creates a different DOM layout that
+      // renderResultsOnly() can't patch, so we need the real structure in place first.
+      if (!this.container?.querySelector(".search-content .search-header")) {
+        this.render();
+        this.container?.querySelector(".search-content")?.classList.add("search-is-loading");
+      }
+      await this.searchRows(this.query, {
+        token,
+        onRow: (row) => {
+          if (token !== this.loadToken) return;
+          this.rows.push(row);
+          this.scheduleProgressiveRender(token);
+        }
+      });
+      if (token !== this.loadToken) return;
+      this.cancelProgressiveRenderFrame();
+      this.container?.querySelector(".search-content")?.classList.remove("search-is-loading");
+      this.renderResultsOnly();
+      return;
+    }
+    if (this.mode === "discover") {
       this.rows = await this.loadDiscoverRows();
     } else {
       this.rows = [];
@@ -646,12 +684,12 @@ export const SearchScreen = {
       });
   },
 
-  async searchRows(query, { token = this.loadToken } = {}) {
+  async searchRows(query, { token = this.loadToken, onRow } = {}) {
     const addons = await addonRepository.getInstalledAddons();
     const searchableCatalogs = buildSearchTargets(addons);
     const batchSize = getSearchCatalogBatchSize();
     const itemLimit = getSearchResultsPerRow();
-    const responses = [];
+
     const runCatalogSearch = async (catalog) => {
       try {
         const result = await withTimeout(
@@ -669,51 +707,38 @@ export const SearchScreen = {
           getSearchCatalogTimeoutMs(),
           { status: "error", message: "timeout" },
         );
-        return { catalog, result };
+        if (result?.status === "success" && result?.data?.items?.length && onRow) {
+          const items = result.data.items || [];
+          onRow({
+            title: formatCatalogRowTitle(catalog.catalogName, catalog.addonName, catalog.type),
+            subtitle: `from ${catalog.addonName || "Addon"}`,
+            type: catalog.type,
+            addonBaseUrl: catalog.addonBaseUrl,
+            addonId: catalog.addonId,
+            addonName: catalog.addonName,
+            catalogId: catalog.catalogId,
+            catalogName: catalog.catalogName,
+            hasMore: Boolean(items.length > itemLimit || result.data.hasMore),
+            items: items.slice(0, itemLimit)
+          });
+        }
       } catch (err) {
-        console.warn(
-          `fail on search catalog ${catalog.catalogName}:`,
-          err,
-        );
-        return {
-          catalog,
-          result: { status: "error", message: "fetch_failed" },
-        };
+        console.warn(`fail on search catalog ${catalog.catalogName}:`, err);
       }
     };
 
     if (batchSize > 0 && searchableCatalogs.length > batchSize) {
       for (let index = 0; index < searchableCatalogs.length; index += batchSize) {
-        if (token !== this.loadToken) {
-          break;
-        }
+        if (token !== this.loadToken) break;
         const batch = searchableCatalogs.slice(index, index + batchSize);
-        responses.push(...await Promise.all(batch.map(runCatalogSearch)));
+        await Promise.all(batch.map(runCatalogSearch));
         if ((index + batchSize) < searchableCatalogs.length) {
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
     } else {
-      responses.push(...await Promise.all(searchableCatalogs.map(runCatalogSearch)));
+      await Promise.all(searchableCatalogs.map(runCatalogSearch));
     }
-
-    return responses
-      .filter(({ result }) => result?.status === "success" && result?.data?.items?.length)
-      .map(({ catalog, result }) => {
-        const items = result?.data?.items || [];
-        return {
-          title: formatCatalogRowTitle(catalog.catalogName, catalog.addonName, catalog.type),
-          subtitle: `from ${catalog.addonName || "Addon"}`,
-          type: catalog.type,
-          addonBaseUrl: catalog.addonBaseUrl,
-          addonId: catalog.addonId,
-          addonName: catalog.addonName,
-          catalogId: catalog.catalogId,
-          catalogName: catalog.catalogName,
-          hasMore: Boolean(items.length > itemLimit || result?.data?.hasMore),
-          items: items.slice(0, itemLimit)
-        };
-      });
   },
 
   renderRows() {
@@ -785,9 +810,7 @@ export const SearchScreen = {
                      data-row-key="${escapeHtml(rowKey)}"
                      aria-label="${escapeHtml(seeAllLabel)}">
               <div class="search-seeall-inner">
-                <div class="search-seeall-arrow" aria-hidden="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 256 256"><path d="M237.66,122.34l-96-96A8,8,0,0,0,128,32V72H48A16,16,0,0,0,32,88v80a16,16,0,0,0,16,16h80v40a8,8,0,0,0,13.66,5.66l96-96A8,8,0,0,0,237.66,122.34ZM144,204.69V176a8,8,0,0,0-8-8H48V88h88a8,8,0,0,0,8-8V51.31L220.69,128Z"></path></svg>
-                </div>
+                <span class="search-seeall-arrow" aria-hidden="true"></span>
                 <div class="search-seeall-label">${escapeHtml(seeAllLabel)}</div>
               </div>
             </article>
@@ -804,7 +827,6 @@ export const SearchScreen = {
     this.container.innerHTML = `
       <div class="home-shell search-screen-shell${this.searchRouteEnterPending ? " search-route-enter" : ""}">
         <main class="home-main search-content">
-          <div class="search-inline-spinner" aria-hidden="true"></div>
           <header class="library-page-header">
             <h1 class="library-page-title">${escapeHtml(t("search_title", {}, "Search"))}</h1>
           </header>
@@ -847,6 +869,7 @@ export const SearchScreen = {
               </svg>
             </button>
           </section>
+          <div class="search-inline-spinner" aria-hidden="true"></div>
           ${this.renderRows()}
         </main>
       </div>
@@ -1366,7 +1389,9 @@ export const SearchScreen = {
     const maxScrollLeft = Math.max(0, Number(track.scrollWidth || 0) - Number(track.clientWidth || 0));
 
     if (targetLeft < visibleLeft) {
-      this.animateScroll(track, "x", Math.max(0, Math.min(maxScrollLeft, targetLeft)), MODERN_HOME_CONSTANTS.cameraFollowDurationXMs, { mode: "spring" });
+      // Scroll to 0 (not targetLeft) so the track's left padding is always visible,
+      // ensuring the first card clears the sidebar during its collapse animation.
+      this.animateScroll(track, "x", 0, MODERN_HOME_CONSTANTS.cameraFollowDurationXMs, { mode: "spring" });
     } else if (targetRight > visibleRight) {
       this.animateScroll(track, "x", Math.max(0, Math.min(maxScrollLeft, targetRight - track.clientWidth)), MODERN_HOME_CONSTANTS.cameraFollowDurationXMs, { mode: "spring" });
     }
@@ -1667,6 +1692,13 @@ export const SearchScreen = {
     if (action === "applyHistorySearch") this.applyHistorySearch(node);
   },
 
+  onPointerActivate(target) {
+    const action = String(target?.dataset?.action || "");
+    if (!action || action === "searchInput") return false;
+    this.activateActionNode(target);
+    return true;
+  },
+
   ensureVoiceRecognition() {
     if (this.voiceRecognition || !this.voiceSearchSupported) {
       return this.voiceRecognition;
@@ -1921,6 +1953,7 @@ export const SearchScreen = {
   cleanup() {
     RootSidebarController.unregister("search");
     this.cancelScheduledRender();
+    this.cancelProgressiveRenderFrame();
     this.cancelPendingPosterHold();
     this.posterOptionsMenu = null;
     this.posterOptionsController?.destroy?.({ restoreFocus: false });

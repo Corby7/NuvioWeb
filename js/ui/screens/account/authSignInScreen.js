@@ -113,6 +113,36 @@ export const AuthSignInScreen = {
     }
   },
 
+  async onPointerActivate(target) {
+    const action = String(target?.dataset?.action || "");
+    if (this.textDialog) {
+      if (action === "cancelText") {
+        this.textDialog = null;
+        this.pendingEmail = "";
+        this.render();
+        return true;
+      }
+      if (action === "saveText") {
+        await this.submitTextDialog();
+        return true;
+      }
+      return false;
+    }
+    if (action === "openQr") {
+      Router.navigate("authQrSignIn");
+      return true;
+    }
+    if (action === "devLogin") {
+      this.openEmailDialog();
+      return true;
+    }
+    if (action === "back") {
+      Router.back();
+      return true;
+    }
+    return false;
+  },
+
   async onKeyDown(event) {
     if (this.textDialog) {
       if (event.keyCode === 27 || event.keyCode === 461) {

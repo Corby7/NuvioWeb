@@ -290,6 +290,23 @@ export const AuthQrSignInScreen = {
     return I18n.t("auth.qr.continueWithoutAccount");
   },
 
+  onPointerActivate(target) {
+    const action = String(target?.dataset?.action || "");
+    if (action === "refresh") {
+      this.handleRefreshAction();
+      return true;
+    }
+    if (action === "emailSignIn") {
+      Router.navigate("authSignIn");
+      return true;
+    }
+    if (action === "back") {
+      this.handleContinueAction();
+      return true;
+    }
+    return false;
+  },
+
   onKeyDown(event) {
     if (ScreenUtils.handleDpadNavigation(event, this.container)) {
       return;

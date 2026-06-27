@@ -6104,12 +6104,12 @@ export const HomeScreen = {
     if (!pending.length || !viewport) {
       return;
     }
-    // Legacy WebOS (≤5) or no IntersectionObserver: mount all after a short delay
-    // so the initial render and focus restore finish first.
+    // Legacy WebOS (≤5) or no IntersectionObserver: use scroll-based windowing instead of
+    // mounting all rows at once. mountVisiblePendingRows() checks scrollTop + clientHeight
+    // + 2160px buffer, matching the IntersectionObserver path. The scroll handler keeps
+    // mounting more rows as the user scrolls down.
     if (this.isLegacyTvRuntime() || typeof IntersectionObserver === "undefined") {
-      setTimeout(() => {
-        pending.forEach((section) => this.mountPendingRow(section));
-      }, 400);
+      setTimeout(() => this.mountVisiblePendingRows(), 400);
       return;
     }
     const observer = new IntersectionObserver(

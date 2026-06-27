@@ -68,6 +68,40 @@ export const SyncCodeScreen = {
     }
   },
 
+  onPointerActivate(target) {
+    const action = String(target?.dataset?.action || "");
+    if (this.textDialog) {
+      if (action === "cancelText") {
+        this.textDialog = false;
+        this.render();
+        return true;
+      }
+      if (action === "saveText") {
+        const input = this.container.querySelector("[data-action='textInput']");
+        LocalStore.set(KEY, String(input?.value || "").trim());
+        this.textDialog = false;
+        this.render();
+        return true;
+      }
+      return false;
+    }
+    if (action === "setCode") {
+      this.textDialog = true;
+      this.render();
+      return true;
+    }
+    if (action === "clearCode") {
+      LocalStore.remove(KEY);
+      this.render();
+      return true;
+    }
+    if (action === "back") {
+      Router.back();
+      return true;
+    }
+    return false;
+  },
+
   onKeyDown(event) {
     if (this.textDialog) {
       if (event.keyCode === 27 || event.keyCode === 461) {

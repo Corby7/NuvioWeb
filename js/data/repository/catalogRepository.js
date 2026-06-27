@@ -2,10 +2,30 @@ import { safeApiCall } from "../../core/network/safeApiCall.js";
 import { CatalogApi } from "../remote/api/catalogApi.js";
 import { addonRepository } from "./addonRepository.js";
 
+const CACHE_MAX = 200;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
 class CatalogRepository {
 
   constructor() {
     this.catalogCache = new Map();
+  }
+
+  _getCached(cacheKey) {
+    const entry = this.catalogCache.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.catalogCache.delete(cacheKey);
+      return null;
+    }
+    return entry.value;
+  }
+
+  _setCached(cacheKey, row) {
+    if (this.catalogCache.size >= CACHE_MAX) {
+      this.catalogCache.delete(this.catalogCache.keys().next().value);
+    }
+    this.catalogCache.set(cacheKey, { value: row, expiresAt: Date.now() + CACHE_TTL_MS });
   }
 
   async getCatalog({
@@ -27,7 +47,7 @@ class CatalogRepository {
       extraArgs
     });
 
-    const cached = this.catalogCache.get(cacheKey);
+    const cached = this._getCached(cacheKey);
     if (cached) {
       return {
         status: "success",
@@ -61,7 +81,7 @@ class CatalogRepository {
           supportsSkip
         };
 
-        this.catalogCache.set(cacheKey, row);
+        this._setCached(cacheKey, row);
         return row;
       })
     );

@@ -4222,7 +4222,7 @@ export const MetaDetailsScreen = {
       return;
     }
 
-    const ease = (t) => t * (2 - t);
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
     const map = this.scrollAnimations || (this.scrollAnimations = new WeakMap());
     const key = axis === "y" ? "y" : "x";
     const existing = map.get(container) || {};
@@ -5465,9 +5465,10 @@ export const MetaDetailsScreen = {
         const rect = verticalTarget.getBoundingClientRect();
         const contentRect = detailContent.getBoundingClientRect();
         const seasonMountHeight = this.container?.querySelector("#detailSeasonRowMount")?.offsetHeight ?? 0;
+        const isSeasonRow = horizontalTrack.matches(".series-season-row");
         const focusTarget = horizontalTrack.matches(".series-insight-tabs")
           ? DETAIL_TAB_FOCUS_TARGET
-          : horizontalTrack.matches(".series-season-row")
+          : isSeasonRow
             ? 0
             : horizontalTrack.matches(".series-episode-track") && seasonMountHeight > 0
               ? seasonMountHeight / detailContent.clientHeight
@@ -5475,7 +5476,7 @@ export const MetaDetailsScreen = {
         const targetTop = contentRect.top + (detailContent.clientHeight * focusTarget);
         const nextScrollTop = detailContent.scrollTop + rect.top - targetTop;
         if (animated) {
-          this.animateScroll(detailContent, "y", nextScrollTop, 280);
+          this.animateScroll(detailContent, "y", nextScrollTop, isSeasonRow ? 480 : 280);
         } else {
           const maxScrollTop = Math.max(0, detailContent.scrollHeight - detailContent.clientHeight);
           detailContent.scrollTop = Math.max(0, Math.min(maxScrollTop, Math.round(nextScrollTop)));

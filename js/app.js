@@ -226,7 +226,7 @@ async function bootstrapApp() {
 
   ThemeManager.apply();
   I18n.apply();
-  warmStreamingLibs({ delayMs: 1400 });
+  warmStreamingLibs({ delayMs: 800 });
 
   AuthManager.subscribe((state) => {
     if (state === AuthState.LOADING) {

@@ -85,6 +85,19 @@ export const AccountScreen = {
     focusables[0]?.classList.add("focused");
   },
 
+  onPointerActivate(target) {
+    const action = String(target?.dataset?.action || "");
+    if (action === "signin") {
+      Router.navigate("authQrSignIn");
+      return true;
+    }
+    if (action === "logout") {
+      this.signOut();
+      return true;
+    }
+    return false;
+  },
+
   onKeyDown(event) {
     if (ScreenUtils.handleDpadNavigation(event, this.container)) {
       return;
