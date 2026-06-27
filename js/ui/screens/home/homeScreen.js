@@ -4376,24 +4376,6 @@ export const HomeScreen = {
     if (!hero || !hero.id || hero.heroSource === "continueWatching" || hero.heroSource === "collection") {
       return;
     }
-    // Defer if a scroll animation is active; camera-follow landing retries via scheduleModernHeroUpdate
-    if (this.shouldSuspendModernViewportFocusSync()) {
-      console.warn("[hero] suspended (scroll active), will retry via fallback timer", hero.id);
-      if (!this.heroEnrichSuspendFallbackTimer) {
-        this.heroEnrichSuspendFallbackTimer = setTimeout(() => {
-          this.heroEnrichSuspendFallbackTimer = null;
-          const current = this.heroItem;
-          if (current && !current.heroMetaEnriched) {
-            void this.enrichCurrentHeroAsync(current);
-          }
-        }, 800);
-      }
-      return;
-    }
-    if (this.heroEnrichSuspendFallbackTimer) {
-      clearTimeout(this.heroEnrichSuspendFallbackTimer);
-      this.heroEnrichSuspendFallbackTimer = null;
-    }
     this.heroEnrichAbortController?.abort();
     const heroEnrichAbortController = new AbortController();
     this.heroEnrichAbortController = heroEnrichAbortController;
@@ -6148,6 +6130,36 @@ export const HomeScreen = {
     this._virtualRowObserver = observer;
   },
 
+  mountVisiblePendingRows() {
+    const viewport = this.container?.querySelector(".home-modern-rows-viewport");
+    if (!viewport) {
+      return;
+    }
+    const pending = Array.from(
+      this.container?.querySelectorAll(".home-modern-row[data-row-pending]") || []
+    );
+    if (!pending.length) {
+      return;
+    }
+    const threshold = Number(viewport.scrollTop || 0) + Number(viewport.clientHeight || 0) + 2160;
+    pending.forEach((section) => {
+      if (Number(section.offsetTop || 0) < threshold) {
+        this._virtualRowObserver?.unobserve(section);
+        this.mountPendingRow(section);
+      }
+    });
+  },
+
+  schedulePendingRowFallbackMount() {
+    if (this._pendingMountTimer) {
+      clearTimeout(this._pendingMountTimer);
+    }
+    this._pendingMountTimer = setTimeout(() => {
+      this._pendingMountTimer = null;
+      this.mountVisiblePendingRows();
+    }, 800);
+  },
+
   handleHomeDpad(event) {
     const keyCode = Number(event?.keyCode || 0);
     const direction = keyCode === 38 ? "up"
@@ -6379,11 +6391,13 @@ export const HomeScreen = {
     if (!this.boundHomeViewportScrollHandler) {
       let viewportScrollRaf = null;
       this.boundHomeViewportScrollHandler = () => {
-        if (this.shouldSuspendModernViewportFocusSync()) return;
         if (viewportScrollRaf) return;
         viewportScrollRaf = requestAnimationFrame(() => {
           viewportScrollRaf = null;
-          this.scheduleHomeViewportFocusSync();
+          if (!this.shouldSuspendModernViewportFocusSync()) {
+            this.scheduleHomeViewportFocusSync();
+          }
+          this.mountVisiblePendingRows();
         });
       };
     }
@@ -7133,6 +7147,7 @@ export const HomeScreen = {
     if (this.layoutMode === "modern") {
       this.setupModernTrackScrollPagination();
       this.initVirtualRows();
+      this.schedulePendingRowFallbackMount();
     }
     const canAttemptRestore = Boolean(retainedFocusState);
     let restoredFocus = false;
@@ -8088,10 +8103,6 @@ export const HomeScreen = {
     this.endModernVerticalFastScroll({ land: false });
     this.stopHeroRotation();
     this.cancelPendingHeroFocus();
-    if (this.heroEnrichSuspendFallbackTimer) {
-      clearTimeout(this.heroEnrichSuspendFallbackTimer);
-      this.heroEnrichSuspendFallbackTimer = null;
-    }
     if (this.heroEnrichAbortController) {
       this.heroEnrichAbortController.abort();
       this.heroEnrichAbortController = null;

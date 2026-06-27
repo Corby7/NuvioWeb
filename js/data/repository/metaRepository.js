@@ -24,7 +24,7 @@ class MetaRepository {
       return { status: "success", data: this.metaCache.get(cacheKey) };
     }
 
-    if (this.inFlightMeta.has(cacheKey)) {
+    if (!signal && this.inFlightMeta.has(cacheKey)) {
       return this.inFlightMeta.get(cacheKey);
     }
 
@@ -60,7 +60,7 @@ class MetaRepository {
       return { status: "success", data: this.metaCache.get(cacheKey) };
     }
 
-    if (this.inFlightMetaAll.has(cacheKey)) {
+    if (!signal && this.inFlightMetaAll.has(cacheKey)) {
       return this.inFlightMetaAll.get(cacheKey);
     }
 
