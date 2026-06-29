@@ -6268,7 +6268,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   display: flex;
   flex-direction: column;
   gap: 32px;
-  padding: 0 0 48px 64px;
+  padding: 0 0 var(--modern-rows-viewport-padding-bottom) 64px;
 }
 
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-rows-scroll {
