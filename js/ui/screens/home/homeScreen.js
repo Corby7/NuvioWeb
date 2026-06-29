@@ -5331,6 +5331,41 @@ export const HomeScreen = {
     return (px !== null && Number.isFinite(px)) ? px : Number(container?.scrollLeft || 0);
   },
 
+  getTrackInner(track) {
+    return track?.querySelector?.(".home-track-inner") || null;
+  },
+
+  getTrackScrollLeft(track) {
+    const inner = this.getTrackInner(track);
+    if (!inner) return Number(track?.scrollLeft || 0);
+    const positions = this.trackTransformPositions || (this.trackTransformPositions = new WeakMap());
+    return Number(positions.get(track) || 0);
+  },
+
+  getTrackMaxScroll(track) {
+    const inner = this.getTrackInner(track);
+    if (!inner) return Math.max(0, (track?.scrollWidth || 0) - (track?.clientWidth || 0));
+    const cachedLeft = Number.parseFloat(track?.dataset?.trackPadLeft || "");
+    const cachedRight = Number.parseFloat(track?.dataset?.trackPadRight || "");
+    let pl = Number.isFinite(cachedLeft) ? cachedLeft : 0;
+    let pr = Number.isFinite(cachedRight) ? cachedRight : 0;
+    if ((!Number.isFinite(cachedLeft) || !Number.isFinite(cachedRight)) && typeof window !== "undefined" && window.getComputedStyle) {
+      const cs = getComputedStyle(track);
+      if (!Number.isFinite(cachedLeft)) pl = parseFloat(cs.paddingLeft) || 0;
+      if (!Number.isFinite(cachedRight)) pr = parseFloat(cs.paddingRight) || 0;
+    }
+    return Math.max(0, inner.offsetWidth + pl + pr - (track.clientWidth || 0));
+  },
+
+  applyTrackScrollLeft(track, px) {
+    const inner = this.getTrackInner(track);
+    if (!inner) { track.scrollLeft = px; return; }
+    const positions = this.trackTransformPositions || (this.trackTransformPositions = new WeakMap());
+    positions.set(track, px);
+    inner.style.transform = px ? `translateX(-${px}px)` : "";
+    this._trackScrollHandlers?.get(track)?.();
+  },
+
   getTrackViewportMetrics(track) {
     let leftPadding = this.getTrackEdgePadding();
     let rightPadding = leftPadding;

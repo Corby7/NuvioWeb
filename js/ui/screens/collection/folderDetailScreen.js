@@ -1000,6 +1000,7 @@ export const FolderDetailScreen = {
       continueWatchingLoading: false,
       continueWatchingLoadingCount: 0,
       rowItemLimit: 50,
+      eagerRowCount: this.rows.length,
       showHeroSection: Boolean(heroItem),
       showPosterLabels: false,
       showCatalogTypeSuffix: this.layoutPrefs?.catalogTypeSuffixEnabled !== false,
@@ -1061,15 +1062,19 @@ export const FolderDetailScreen = {
         const firstCard = cards[0];
         const cardWidth = firstCard ? firstCard.offsetWidth : 230;
         const nearEndThreshold = (cardWidth + 24) * 4;
-        const distanceFromEnd = track.scrollWidth - (track.scrollLeft + track.clientWidth);
+        const distanceFromEnd = HomeScreen.getTrackMaxScroll.call(this, track) - HomeScreen.getTrackScrollLeft.call(this, track);
         if (distanceFromEnd > nearEndThreshold) {
           return;
         }
         void this.loadMoreFollowLayoutRow(rowKey, track);
       };
       this._trackScrollHandlers.set(track, handler);
-      track.addEventListener("scroll", handler, { passive: true });
-      handler();
+      if (HomeScreen.getTrackInner.call(this, track)) {
+        handler();
+      } else {
+        track.addEventListener("scroll", handler, { passive: true });
+        handler();
+      }
     });
   },
 
@@ -1128,10 +1133,12 @@ export const FolderDetailScreen = {
           modernLandscapePostersEnabled
         )).join("");
         const fragment = document.createRange().createContextualFragment(newMarkup);
-        track.appendChild(fragment);
+        (HomeScreen.getTrackInner.call(this, track) || track).appendChild(fragment);
         ScreenUtils.indexFocusables(track);
         HomeScreen.buildNavigationModel.call(this);
         this.heroCandidates = [this.heroItem, ...(this.rows || []).flatMap((row) => row?.result?.data?.items || [])].filter((item) => item?.id);
+        const paginationHandler = this._trackScrollHandlers?.get(track);
+        if (paginationHandler) paginationHandler();
       }
     } catch (error) {
       this.tabs[tabIndex] = {
