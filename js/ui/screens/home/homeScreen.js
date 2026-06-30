@@ -2420,7 +2420,13 @@ export const HomeScreen = {
     viewport.scrollTop = Math.max(0, Math.min(maxScrollTop, Number(focusState.mainScrollTop || 0)));
 
     const targetTrack = rowSection?.querySelector?.(".home-track") || null;
-    const targetNodes = Array.from(targetTrack?.querySelectorAll(".home-content-card.focusable") || []);
+    let targetNodes = Array.from(targetTrack?.querySelectorAll(".home-content-card.focusable") || []);
+    // If the intended row is pending (virtual), mount it eagerly so scroll and focus
+    // can be restored to the correct position instead of falling back to the first card.
+    if (targetNodes.length === 0 && rowSection?.dataset?.rowPending != null) {
+      this.mountPendingRow(rowSection);
+      targetNodes = Array.from(targetTrack?.querySelectorAll(".home-content-card.focusable") || []);
+    }
     const fallback = this.isRestoringFocusFromBack
       ? this.syncMainFocusToViewport({ suppressFlows: true })
       : this.container.querySelector(".home-main .home-continue-card.focusable, .home-main .home-poster-card.focusable");
@@ -8228,15 +8234,22 @@ export const HomeScreen = {
             return;
           }
           const newItems = Array.isArray(result.data?.items) ? result.data.items : [];
+          // Re-derive rowIndex and rowData from the stable rowKey at callback time, since
+          // this.rows entries may have been replaced by reference during the async gap.
+          const rowIndex = (this.rows || []).findIndex((row) => buildModernRowKey(row) === rowKey);
+          if (rowIndex < 0) {
+            return;
+          }
+          const liveRowData = this.rows[rowIndex];
+          const liveCurrentItems = Array.isArray(liveRowData?.result?.data?.items) ? liveRowData.result.data.items : [];
           if (!newItems.length) {
             // Mark hasMore=false so we stop trying
-            if (rowData?.result?.data) {
-              rowData.result.data.hasMore = false;
+            if (liveRowData?.result?.data) {
+              liveRowData.result.data.hasMore = false;
             }
             return;
           }
-          const startIndex = currentItems.length;
-          const rowIndex = (this.rows || []).indexOf(rowData);
+          const startIndex = liveCurrentItems.length;
           const layoutPrefs = this.layoutPrefs || {};
           const showPosterLabels = Boolean(layoutPrefs.showPosterLabels !== false);
           const preferLandscape = Boolean(layoutPrefs.modernLandscapePosters);
@@ -8247,8 +8260,8 @@ export const HomeScreen = {
               item,
               rowIndex,
               startIndex + i,
-              rowData.type || "movie",
-              rowData,
+              liveRowData.type || "movie",
+              liveRowData,
               showPosterLabels,
               "modern",
               false,
@@ -8262,10 +8275,10 @@ export const HomeScreen = {
             this.buildNavigationModel();
           }
           // Update in-memory row data
-          if (rowData?.result?.data) {
-            rowData.result.data.items = [...currentItems, ...newItems];
-            rowData.result.data.hasMore = result.data?.hasMore ?? newItems.length > 0;
-            rowData.result.data.currentPage = result.data?.currentPage ?? rowData.result.data.currentPage;
+          if (liveRowData?.result?.data) {
+            liveRowData.result.data.items = [...liveCurrentItems, ...newItems];
+            liveRowData.result.data.hasMore = result.data?.hasMore ?? newItems.length > 0;
+            liveRowData.result.data.currentPage = result.data?.currentPage ?? liveRowData.result.data.currentPage;
           }
         }).catch((err) => {
           console.warn("Home track pagination failed for", rowKey, err);

@@ -28,6 +28,10 @@ class MetaRepository {
       return this.inFlightMeta.get(cacheKey);
     }
 
+    if (signal?.aborted) {
+      return { status: "error", message: "aborted" };
+    }
+
     const request = (async () => {
       const url = this.buildMetaUrl(addonBaseUrl, normalizedType, normalizedId);
       const result = await safeApiCall(() => MetaApi.getMeta(url, signal));
@@ -62,6 +66,10 @@ class MetaRepository {
 
     if (!signal && this.inFlightMetaAll.has(cacheKey)) {
       return this.inFlightMetaAll.get(cacheKey);
+    }
+
+    if (signal?.aborted) {
+      return { status: "error", message: "aborted" };
     }
 
     const request = (async () => {
