@@ -1517,6 +1517,11 @@ export const StreamScreen = {
         itemBottom = viewTop + (targetRect.bottom - listRect.top);
       }
     }
+    if (target.classList.contains("stream-route-card")) {
+      const padTop = parseFloat(getComputedStyle(listNode).paddingTop) || 0;
+      this.setListScrollTop(listNode, Math.max(0, itemTop - padTop));
+      return;
+    }
     const viewHeight = Number(listNode.clientHeight || 0);
     if (!viewHeight) {
       return;
