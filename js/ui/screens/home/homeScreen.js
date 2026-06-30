@@ -2396,6 +2396,9 @@ export const HomeScreen = {
     if (!focusState || this.layoutMode !== "modern") {
       return false;
     }
+    if (RootSidebarController.expanded) {
+      return false;
+    }
 
     const viewport = this.getHomeViewport();
     if (!viewport) {
@@ -7407,12 +7410,14 @@ export const HomeScreen = {
       this.lastMainFocus = null;
       this.hasAppliedInitialContinueWatchingFocus = this.focusInitialContinueWatchingCard();
     } else if (!restoredFocus) {
-      ScreenUtils.setInitialFocus(this.container, this.getInitialFocusSelector());
-      const current = this.container.querySelector(".home-main .focusable.focused");
-      if (current && this.isMainNode(current)) {
-        this.lastMainFocus = current;
-        this.scheduleModernHeroUpdate(current);
-        this.scheduleFocusedPosterFlow(current);
+      if (!RootSidebarController.expanded) {
+        ScreenUtils.setInitialFocus(this.container, this.getInitialFocusSelector());
+        const current = this.container.querySelector(".home-main .focusable.focused");
+        if (current && this.isMainNode(current)) {
+          this.lastMainFocus = current;
+          this.scheduleModernHeroUpdate(current);
+          this.scheduleFocusedPosterFlow(current);
+        }
       }
       this.isRestoringFocusFromBack = false;
     }
@@ -7420,7 +7425,7 @@ export const HomeScreen = {
       this.clearFocusedPosterFlowState();
     }
     this.syncFocusedCollectionCardState();
-    if (!this.layoutPrefs?.modernSidebar) {
+    if (!this.layoutPrefs?.modernSidebar && !RootSidebarController.expanded) {
       this.setSidebarExpanded(false);
     }
     if (this.layoutMode === "grid") {

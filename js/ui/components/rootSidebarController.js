@@ -54,16 +54,19 @@ export const RootSidebarController = {
     }
     const layout = LayoutPreferences.get();
     this.el.hidden = false;
+    // Pass the current expanded state so modern sidebar HTML is pre-rendered
+    // in the correct visual state, avoiding a re-trigger of the open animation.
     this.el.innerHTML = renderRootSidebar({
       selectedRoute: this._navHighlightRoute || this.currentRoute,
       profile: this.profile,
-      layout
+      layout,
+      expanded: this.expanded
     });
     this._bindSidebarItemEvents(this.el);
     scheduleRootSidebarTextFit(this.el);
     if (this.expanded) {
       if (layout.modernSidebar) {
-        setModernSidebarExpanded(this.el, true);
+        // HTML is already rendered with expanded/panel-visible classes; just restore focus.
         const target = getModernSidebarSelectedNode(this.el);
         if (target) {
           this.el.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
@@ -71,7 +74,9 @@ export const RootSidebarController = {
           focusWithoutAutoScroll(target);
         }
       } else {
-        setLegacySidebarExpanded(this.el, true);
+        // Restore expanded CSS state without the "opening" class so no re-open animation fires.
+        const sidebar = this.el.querySelector(".home-sidebar");
+        if (sidebar) sidebar.classList.add("content-expanded", "expanded");
         this._toggleShellClass(true);
         const target = getLegacySidebarSelectedNode(this.el);
         if (target) {
