@@ -1438,6 +1438,8 @@ export const DiscoverScreen = {
       return;
     }
 
+    if (RootSidebarController.hasFocus) return;
+
     const current = this.container.querySelector(".focusable.focused");
     const code = Number(event?.keyCode || 0);
     if (this.suppressHoldMenuEnterUntilKeyUp && code === 13) {
