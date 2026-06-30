@@ -1,15 +1,24 @@
 import { Router } from "./router.js";
 import { Platform } from "../../platform/index.js";
 
+// Shared closure functions — allocated once, reused across every keydown event.
+// _nativeEvent is set at the top of buildNormalizedEvent before any handler runs.
+// All keydown processing is synchronous within a single event tick, so this is safe.
+let _nativeEvent = null;
+function _preventDefault() {
+  if (typeof _nativeEvent?.preventDefault === "function") _nativeEvent.preventDefault();
+}
+function _stopPropagation() {
+  if (typeof _nativeEvent?.stopPropagation === "function") _nativeEvent.stopPropagation();
+}
+function _stopImmediatePropagation() {
+  if (typeof _nativeEvent?.stopImmediatePropagation === "function") _nativeEvent.stopImmediatePropagation();
+}
+
 function buildNormalizedEvent(event) {
+  _nativeEvent = event;
   const normalizedKey = Platform.normalizeKey(event);
   const normalizedCode = Number(normalizedKey.keyCode || 0);
-  
-  const safeTarget = event?.target || { 
-    nodeType: 0, 
-    parentNode: null, 
-    classList: { contains: () => false } 
-  };
   return {
     key: normalizedKey.key,
     code: normalizedKey.code,
@@ -25,21 +34,9 @@ function buildNormalizedEvent(event) {
     which: normalizedCode,
     originalKeyCode: Number(normalizedKey.originalKeyCode || event?.keyCode || 0),
     keyDownDurationMs: 0,
-    preventDefault: () => {
-      if (typeof event?.preventDefault === "function") {
-        event.preventDefault();
-      }
-    },
-    stopPropagation: () => {
-      if (typeof event?.stopPropagation === "function") {
-        event.stopPropagation();
-      }
-    },
-    stopImmediatePropagation: () => {
-      if (typeof event?.stopImmediatePropagation === "function") {
-        event.stopImmediatePropagation();
-      }
-    }
+    preventDefault: _preventDefault,
+    stopPropagation: _stopPropagation,
+    stopImmediatePropagation: _stopImmediatePropagation
   };
 }
 

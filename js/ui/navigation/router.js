@@ -1,7 +1,6 @@
 import { HomeScreen } from "../screens/home/homeScreen.js";
 import { PlayerScreen } from "../screens/player/playerScreen.js";
 import { AccountScreen } from "../screens/account/accountScreen.js";
-import { AuthQrSignInScreen } from "../screens/account/authQrSignInScreen.js";
 import { AuthSignInScreen } from "../screens/account/authSignInScreen.js";
 import { SyncCodeScreen } from "../screens/account/syncCodeScreen.js";
 import { ProfileSelectionScreen } from "../../core/profile/profileSelectionScreen.js";
@@ -9,17 +8,24 @@ import { MetaDetailsScreen } from "../screens/detail/metaDetailsScreen.js";
 import { LibraryScreen } from "../screens/library/libraryScreen.js";
 import { SearchScreen } from "../screens/search/searchScreen.js";
 import { DiscoverScreen } from "../screens/search/discoverScreen.js";
-import { SettingsScreen } from "../screens/settings/settingsScreen.js";
 import { TraktScreen } from "../screens/trakt/traktScreen.js";
-import { SupportersContributorsScreen } from "../screens/supporters/supportersContributorsScreen.js";
 import { PluginScreen } from "../screens/plugin/pluginScreen.js";
 import { CatalogOrderScreen } from "../screens/plugin/catalogOrderScreen.js";
 import { StreamScreen } from "../screens/stream/streamScreen.js";
-import { CastDetailScreen } from "../screens/cast/castDetailScreen.js";
 import { CatalogSeeAllScreen } from "../screens/catalog/catalogSeeAllScreen.js";
 import { FolderDetailScreen } from "../screens/collection/folderDetailScreen.js";
 import { Platform } from "../../platform/index.js";
 import { RouteStateStore } from "./routeStateStore.js";
+
+// Lazy screen factories — resolved on first navigation and cached back into routes.
+// In an ESM+splitting build these become real async chunks; in a single-bundle IIFE
+// build esbuild inlines them so module init is still deferred to first use.
+const _lazyFactories = {
+  authQrSignIn: () => import("../screens/account/authQrSignInScreen.js").then((m) => m.AuthQrSignInScreen),
+  settings: () => import("../screens/settings/settingsScreen.js").then((m) => m.SettingsScreen),
+  supportersContributors: () => import("../screens/supporters/supportersContributorsScreen.js").then((m) => m.SupportersContributorsScreen),
+  castDetail: () => import("../screens/cast/castDetailScreen.js").then((m) => m.CastDetailScreen),
+};
 
 const NON_BACKSTACK_ROUTES = new Set([
   "profileSelection",
@@ -45,7 +51,6 @@ export const Router = {
     home: HomeScreen,
     player: PlayerScreen,
     account: AccountScreen,
-    authQrSignIn: AuthQrSignInScreen,
     authSignIn: AuthSignInScreen,
     syncCode: SyncCodeScreen,
     profileSelection: ProfileSelectionScreen,
@@ -53,15 +58,26 @@ export const Router = {
     library: LibraryScreen,
     search: SearchScreen,
     discover: DiscoverScreen,
-    settings: SettingsScreen,
     trakt: TraktScreen,
-    supportersContributors: SupportersContributorsScreen,
     plugin: PluginScreen,
     catalogOrder: CatalogOrderScreen,
     stream: StreamScreen,
-    castDetail: CastDetailScreen,
     catalogSeeAll: CatalogSeeAllScreen,
-    folderDetail: FolderDetailScreen
+    folderDetail: FolderDetailScreen,
+    // Lazy-loaded on first navigation; factory in _lazyFactories
+    authQrSignIn: null,
+    settings: null,
+    supportersContributors: null,
+    castDetail: null,
+  },
+
+  async _resolveScreen(routeName) {
+    if (this.routes[routeName]) return this.routes[routeName];
+    const factory = _lazyFactories[routeName];
+    if (!factory) return null;
+    const screen = await factory();
+    this.routes[routeName] = screen;
+    return screen;
   },
 
   getRouteStateKey(routeName, params = {}) {
@@ -177,7 +193,7 @@ export const Router = {
     const replaceHistory = Boolean(options?.replaceHistory);
     const targetParams = params || {};
 
-    const Screen = this.routes[routeName];
+    const Screen = await this._resolveScreen(routeName);
 
     if (!Screen) {
       console.error("Route not found:", routeName);

@@ -21,6 +21,7 @@ export const RootSidebarController = {
   appEl: null,         // #app
   profile: null,
   expanded: false,
+  hasFocus: false,     // true while a .focusable inside #root-nav-sidebar has native focus
   openedBy: null,      // 'dpad' | 'pointer' | null
   _pointerInSidebar: false,
   _savedContentFocused: null,
@@ -99,6 +100,7 @@ export const RootSidebarController = {
     const navRoute = String(Router.currentParams?.navRoute || "");
     this._navHighlightRoute = navRoute || routeName;
     this.expanded = false;
+    this.hasFocus = false;
     this.openedBy = null;
     this._savedContentFocused = null;
     this._currentShell = null;
@@ -202,6 +204,7 @@ export const RootSidebarController = {
 
   collapse() {
     if (!this.expanded) return;
+    this.hasFocus = false;
     const wasPointerOpen = this.openedBy === 'pointer';
     this.expanded = false;
     this.openedBy = null;
@@ -271,8 +274,10 @@ export const RootSidebarController = {
       const target = event?.target;
       if (!target?.closest) return;
       if (target.closest("#root-nav-sidebar")) {
+        this.hasFocus = true;
         if (!this.expanded && !this._pointerInSidebar) this.expand();
       } else if (target.classList?.contains("focusable")) {
+        this.hasFocus = false;
         this.lastScreenFocus = target;
       }
     });

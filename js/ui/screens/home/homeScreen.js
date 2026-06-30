@@ -3042,6 +3042,172 @@ export const HomeScreen = {
     this.requestRender({ delayMs: this.getBackgroundRenderDelay() });
   },
 
+  requestContinueWatchingUpdate() {
+    if (!this.applyContinueWatchingToDom()) {
+      this.requestBackgroundRender();
+    }
+  },
+
+  _getEffectiveCwLoadingCount() {
+    const loadingRowItemCount = this.getLoadingRowItemCount();
+    const count = Math.min(
+      Math.max(
+        Number(this.continueWatching?.length || 0),
+        Number(this.nextUpProgressCandidates?.length || 0)
+      ),
+      loadingRowItemCount
+    );
+    return (this.continueWatchingLoading && count === 0) ? loadingRowItemCount : count;
+  },
+
+  _updateContinueWatchingNavRow() {
+    if (!this.navModel) return;
+    const cwTrack = this.container?.querySelector(".home-row-continue .home-track");
+    const newCwNodes = cwTrack
+      ? Array.from(cwTrack.querySelectorAll(".home-content-card.focusable"))
+      : [];
+    const rows = this.navModel.rows;
+    const firstRow = rows[0] || [];
+    const hadCwRow = firstRow.length > 0 && Boolean(firstRow[0]?.closest?.(".home-row-continue"));
+    const hasCwRow = newCwNodes.length > 0;
+
+    if (hadCwRow && hasCwRow) {
+      rows[0] = newCwNodes;
+      newCwNodes.forEach((node, colIndex) => {
+        node.dataset.navZone = "main";
+        node.dataset.navRow = "0";
+        node.dataset.navCol = String(colIndex);
+        node.dataset.navRowKey = "continue_watching";
+        if (node.tabIndex !== 0) node.tabIndex = 0;
+      });
+    } else if (!hadCwRow && hasCwRow) {
+      rows.unshift(newCwNodes);
+      newCwNodes.forEach((node, colIndex) => {
+        node.dataset.navZone = "main";
+        node.dataset.navRow = "0";
+        node.dataset.navCol = String(colIndex);
+        node.dataset.navRowKey = "continue_watching";
+        if (node.tabIndex !== 0) node.tabIndex = 0;
+      });
+      for (let r = 1; r < rows.length; r++) {
+        const rStr = String(r);
+        (rows[r] || []).forEach((node) => { node.dataset.navRow = rStr; });
+      }
+    } else if (hadCwRow && !hasCwRow) {
+      rows.shift();
+      for (let r = 0; r < rows.length; r++) {
+        const rStr = String(r);
+        (rows[r] || []).forEach((node) => { node.dataset.navRow = rStr; });
+      }
+    }
+  },
+
+  applyContinueWatchingToDom() {
+    if (this.layoutMode !== "modern" || !this.container || this.isInitialHomeLoading) {
+      return false;
+    }
+    const stage = this.container.querySelector(".home-modern-stage");
+    if (!stage) return false;
+    const rowsScroll = stage.querySelector(".home-modern-rows-scroll");
+    if (!rowsScroll) return false;
+
+    // Determine what the hero state should be
+    const rawHeroItem = this.heroItem || this.heroCandidates?.[this.heroIndex] || null;
+    const heroItem = rawHeroItem
+      ? (isCollectionFolderItem(rawHeroItem)
+        ? normalizeCollectionFolderItem(rawHeroItem)
+        : normalizeCatalogItem(rawHeroItem, "movie"))
+      : null;
+    const showHeroSection = Boolean(this.layoutPrefs?.heroSectionEnabled) && Boolean(heroItem);
+    const heroSection = stage.querySelector(".home-hero");
+    const isLoadingSkeleton = Boolean(heroSection?.classList?.contains("home-hero-modern-loading"));
+
+    // Only proceed when the hero is stable: already showing real content and
+    // will continue to do so. Any structural transition (skeleton↔hero, appear/
+    // disappear) requires a full render to rebuild the correct inner DOM.
+    if (!heroSection) return false;
+    if (isLoadingSkeleton) return false;
+    if (!showHeroSection) return false;
+
+    // Save CW focus position before replacing the section
+    const existingCwSection = rowsScroll.querySelector(".home-row-continue");
+    let savedCwFocusIndex = -1;
+    const focusedInCw = existingCwSection?.querySelector(".focusable.focused");
+    if (focusedInCw) {
+      const cwIdx = Number(focusedInCw.dataset.cwIndex ?? -1);
+      savedCwFocusIndex = cwIdx >= 0 ? cwIdx : 0;
+    }
+
+    // Build and inject the new CW section
+    const newCwHtml = renderContinueWatchingSection(this.continueWatchingDisplay || [], {
+      rowKey: "continue_watching",
+      loading: Boolean(this.continueWatchingLoading),
+      loadingCount: this._getEffectiveCwLoadingCount(),
+      useEpisodeThumbnails: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
+      blurNextUp: Boolean(this.layoutPrefs?.blurContinueWatchingNextUp)
+    });
+    if (newCwHtml) {
+      const temp = document.createElement("div");
+      temp.innerHTML = newCwHtml.trim();
+      const newCwSection = temp.firstElementChild;
+      if (!newCwSection) return false;
+      if (existingCwSection) {
+        existingCwSection.replaceWith(newCwSection);
+      } else {
+        const catalogs = rowsScroll.querySelector(".home-modern-catalogs");
+        if (!catalogs) return false;
+        rowsScroll.insertBefore(newCwSection, catalogs);
+      }
+    } else if (existingCwSection) {
+      existingCwSection.remove();
+    }
+
+    // Hero is already showing real content — refresh it in-place
+    this.applyHeroToDom();
+
+    // Patch the navigation model for the CW row only (catalog rows are unaffected)
+    this._updateContinueWatchingNavRow();
+
+    // Index focusables in the new CW section only — not the full screen
+    const freshCwSection = rowsScroll.querySelector(".home-row-continue");
+    if (freshCwSection) {
+      ScreenUtils.indexFocusables(freshCwSection);
+    }
+
+    // Restore or assign focus
+    if (Number.isFinite(this.pendingContinueWatchingFocusIndex)) {
+      const cards = Array.from(freshCwSection?.querySelectorAll(".home-content-card.focusable") || []);
+      const target = cards[Math.max(0, Math.min(cards.length - 1, Number(this.pendingContinueWatchingFocusIndex || 0)))]
+        || cards[cards.length - 1] || null;
+      this.pendingContinueWatchingFocusIndex = null;
+      if (target) {
+        this.container.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+        target.classList.add("focused");
+        this.focusWithoutAutoScroll(target);
+        this.lastMainFocus = target;
+        this.rememberMainRowFocus(target);
+        this.ensureTrackHorizontalVisibility(target);
+        this.ensureMainVerticalVisibility(target);
+      }
+    } else if (savedCwFocusIndex >= 0 && freshCwSection) {
+      const cards = Array.from(freshCwSection.querySelectorAll(".home-content-card.focusable"));
+      const target = cards[Math.min(savedCwFocusIndex, cards.length - 1)] || cards[0] || null;
+      if (target) {
+        this.container.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+        target.classList.add("focused");
+        this.focusWithoutAutoScroll(target);
+        this.lastMainFocus = target;
+        this.rememberMainRowFocus(target);
+      }
+    } else if (this.forceInitialContinueWatchingFocus && !this.hasAppliedInitialContinueWatchingFocus) {
+      this.forceInitialContinueWatchingFocus = false;
+      const didFocus = this.focusInitialContinueWatchingCard();
+      this.hasAppliedInitialContinueWatchingFocus = didFocus;
+    }
+
+    return true;
+  },
+
   stopHeroRotation() {
     if (this.heroRotateTimer) {
       clearInterval(this.heroRotateTimer);
@@ -4398,7 +4564,6 @@ export const HomeScreen = {
           ]);
       clearTimeout(heroEnrichTimeoutId);
       if (Number(this.heroEnrichmentToken) !== token) {
-        console.warn("[hero] token superseded, discarding result for", itemId, "— current token:", this.heroEnrichmentToken, "ours:", token);
         if (!this.heroCopyFadeInRaf) {
           const stuckNode = this.container?.querySelector(".home-hero-card");
           if (stuckNode?.classList.contains("is-hero-copy-updating")) {
@@ -6210,12 +6375,23 @@ export const HomeScreen = {
     if (!nav) {
       return false;
     }
-    const sidebarRootEl = document.getElementById("root-nav-sidebar");
-    let current = (RootSidebarController.expanded
-      ? (sidebarRootEl?.querySelector(".focusable.focused") || this.container.querySelector(".focusable.focused"))
-      : this.container.querySelector(".focusable.focused"))
-      || this.container?.querySelector(".focusable")
-      || null;
+    const _dpad_active = document.activeElement;
+    const _dpad_activeFocused = (_dpad_active && _dpad_active !== document.body && _dpad_active.classList?.contains("focused")) ? _dpad_active : null;
+    let current;
+    if (RootSidebarController.hasFocus) {
+      const _sidebarEl = document.getElementById("root-nav-sidebar");
+      current = (_dpad_activeFocused && _sidebarEl?.contains(_dpad_activeFocused) ? _dpad_activeFocused : null)
+        || _sidebarEl?.querySelector(".focusable.focused")
+        || this.container.querySelector(".focusable.focused")
+        || null;
+    } else {
+      current = (_dpad_activeFocused && this.container.contains(_dpad_activeFocused) ? _dpad_activeFocused : null)
+        || this.container.querySelector(".focusable.focused")
+        || null;
+    }
+    if (!current) {
+      current = this.container?.querySelector(".focusable") || null;
+    }
     if (!current) {
       return false;
     }
@@ -6770,7 +6946,7 @@ export const HomeScreen = {
         this.continueWatchingLoading = shouldShowLoading;
         this.continueWatchingDisplay = [];
         if (previousLoadingState !== this.continueWatchingLoading || previousDisplaySignature) {
-          this.requestBackgroundRender();
+          this.requestContinueWatchingUpdate();
         }
       }
 
@@ -6789,7 +6965,7 @@ export const HomeScreen = {
         this.continueWatchingLoading = false;
         this.continueWatchingDisplay = [];
         if (previousLoadingState || previousDisplaySignature) {
-          this.requestBackgroundRender();
+          this.requestContinueWatchingUpdate();
         }
         return;
       }
@@ -6831,13 +7007,13 @@ export const HomeScreen = {
         if (previousLoadingState !== this.continueWatchingLoading
           || previousDisplaySignature !== nextDisplaySignature
           || previousHeroIdentity !== nextHeroIdentity) {
-          this.requestBackgroundRender();
+          this.requestContinueWatchingUpdate();
         }
       } catch (error) {
         console.warn("Continue watching async enrichment failed", error);
         this.continueWatchingLoading = false;
         if (!suppressContinueWatchingLoading && previousLoadingState) {
-          this.requestBackgroundRender();
+          this.requestContinueWatchingUpdate();
         }
       }
       })().catch((error) => {
@@ -6847,7 +7023,7 @@ export const HomeScreen = {
         }
         this.continueWatchingLoading = false;
         if (!suppressContinueWatchingLoading) {
-          this.requestBackgroundRender();
+          this.requestContinueWatchingUpdate();
         }
       });
     }
@@ -7853,11 +8029,10 @@ export const HomeScreen = {
   },
 
   onKeyDown(event) {
-    const sidebarHasFocus = Boolean(
-      document.getElementById("root-nav-sidebar")?.querySelector(".focusable.focused")
-    );
-    if (sidebarHasFocus) return;
-    const currentFocusedNode = this.container?.querySelector(".focusable.focused") || null;
+    if (RootSidebarController.hasFocus) return;
+    const _kd_active = document.activeElement;
+    const currentFocusedNode = (_kd_active && _kd_active !== document.body && this.container?.contains(_kd_active) && _kd_active.classList?.contains("focused") ? _kd_active : null)
+      || this.container?.querySelector(".focusable.focused") || null;
     const code = Number(event?.keyCode || 0);
     if (this.suppressHoldMenuEnterUntilKeyUp && code === 13) {
       event.preventDefault?.();
@@ -7877,11 +8052,7 @@ export const HomeScreen = {
         this.cancelFocusedPosterFlow();
         this.collapseFocusedPoster();
       }
-      const sidebarRoot = document.getElementById("root-nav-sidebar");
-      const sidebarFocused = Boolean(
-        sidebarRoot?.querySelector(".modern-sidebar-panel .focusable.focused")
-        || sidebarRoot?.querySelector(".home-sidebar .focusable.focused")
-      );
+      const sidebarFocused = RootSidebarController.hasFocus;
       if (sidebarFocused) {
         Platform.exitApp();
       } else {
@@ -7973,11 +8144,7 @@ export const HomeScreen = {
       this.cancelFocusedPosterFlow();
       this.collapseFocusedPoster();
     }
-    const sidebarRoot = document.getElementById("root-nav-sidebar");
-    const sidebarFocused = Boolean(
-      sidebarRoot?.querySelector(".modern-sidebar-panel .focusable.focused")
-      || sidebarRoot?.querySelector(".home-sidebar .focusable.focused")
-    );
+    const sidebarFocused = RootSidebarController.hasFocus;
     if (sidebarFocused) {
       Platform.exitApp();
     } else {
