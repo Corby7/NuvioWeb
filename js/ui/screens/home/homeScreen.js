@@ -230,89 +230,147 @@ export function buildModernHomeSizingStyle(layoutPrefs = {}) {
   ].join(";");
 }
 
-function createCubicBezierEasing(x1, y1, x2, y2) {
-  const newtonIterations = 4;
-  const newtonMinSlope = 0.001;
-  const subdivisionPrecision = 0.0000001;
-  const subdivisionMaxIterations = 10;
-  const splineTableSize = 11;
-  const sampleStepSize = 1 / (splineTableSize - 1);
+// ─── Transform-scrolled tracks ───────────────────────────────────────────────
+// Modern-layout rows are `overflow-x: clip` and scroll by translating the
+// `.home-track-inner` wrapper: no scroll events, no scroll anchoring, and it
+// enables the card virtualization below. Tracks without an inner wrapper (the
+// continue row, classic/grid layouts) keep native scrollLeft — every helper
+// falls back transparently. Module-level (not methods) because HomeScreen
+// methods are frequently borrowed with `this` = FolderDetailScreen.
+const trackTransformPositions = new WeakMap();
+const trackWindowUpdateTimers = new WeakMap();
+const trackLayerDemoteTimers = new WeakMap();
+const TRACK_WINDOW_UPDATE_DELAY_MS = 80;
+const TRACK_LAYER_DEMOTE_DELAY_MS = 400;
+const TRACK_WINDOW_MIN_CARDS = 7;
 
-  const calcBezier = (t, a1, a2) => (((1 - (3 * a2) + (3 * a1)) * t + ((3 * a2) - (6 * a1))) * t + (3 * a1)) * t;
-  const getSlope = (t, a1, a2) => (3 * (1 - (3 * a2) + (3 * a1)) * t * t) + (2 * ((3 * a2) - (6 * a1)) * t) + (3 * a1);
-  const sampleValues = new Float32Array(splineTableSize);
-
-  for (let index = 0; index < splineTableSize; index += 1) {
-    sampleValues[index] = calcBezier(index * sampleStepSize, x1, x2);
-  }
-
-  const binarySubdivide = (x, lower, upper) => {
-    let current = 0;
-    let currentX = 0;
-    let iteration = 0;
-    do {
-      current = lower + ((upper - lower) / 2);
-      currentX = calcBezier(current, x1, x2) - x;
-      if (currentX > 0) {
-        upper = current;
-      } else {
-        lower = current;
-      }
-      iteration += 1;
-    } while (Math.abs(currentX) > subdivisionPrecision && iteration < subdivisionMaxIterations);
-    return current;
-  };
-
-  const newtonRaphsonIterate = (x, guess) => {
-    let currentGuess = guess;
-    for (let index = 0; index < newtonIterations; index += 1) {
-      const currentSlope = getSlope(currentGuess, x1, x2);
-      if (currentSlope === 0) {
-        return currentGuess;
-      }
-      const currentX = calcBezier(currentGuess, x1, x2) - x;
-      currentGuess -= currentX / currentSlope;
-    }
-    return currentGuess;
-  };
-
-  const getTForX = (x) => {
-    let intervalStart = 0;
-    let currentSample = 1;
-    const lastSample = splineTableSize - 1;
-
-    while (currentSample !== lastSample && sampleValues[currentSample] <= x) {
-      intervalStart += sampleStepSize;
-      currentSample += 1;
-    }
-    currentSample -= 1;
-
-    const denominator = sampleValues[currentSample + 1] - sampleValues[currentSample];
-    const dist = denominator === 0 ? 0 : (x - sampleValues[currentSample]) / denominator;
-    const guess = intervalStart + (dist * sampleStepSize);
-    const initialSlope = getSlope(guess, x1, x2);
-
-    if (initialSlope >= newtonMinSlope) {
-      return newtonRaphsonIterate(x, guess);
-    }
-    if (initialSlope === 0) {
-      return guess;
-    }
-    return binarySubdivide(x, intervalStart, intervalStart + sampleStepSize);
-  };
-
-  return (x) => {
-    if (x <= 0) {
-      return 0;
-    }
-    if (x >= 1) {
-      return 1;
-    }
-    return calcBezier(getTForX(x), y1, y2);
-  };
+function getTrackInnerNode(track) {
+  return track?.querySelector?.(".home-track-inner") || null;
 }
 
-const MODERN_CAMERA_PAN_EASING = createCubicBezierEasing(0.43, 0.70, 0.45, 1.00);
+function getTrackScrollLeftPx(track) {
+  if (!getTrackInnerNode(track)) {
+    return Number(track?.scrollLeft || 0);
+  }
+  return Number(trackTransformPositions.get(track) || 0);
+}
+
+function getTrackMaxScrollPx(track) {
+  const inner = getTrackInnerNode(track);
+  if (!inner) {
+    return Math.max(0, (track?.scrollWidth || 0) - (track?.clientWidth || 0));
+  }
+  let padLeft = Number.parseFloat(track?.dataset?.trackPadLeft || "");
+  let padRight = Number.parseFloat(track?.dataset?.trackPadRight || "");
+  if (!Number.isFinite(padLeft) || !Number.isFinite(padRight)) {
+    const computed = getComputedStyle(track);
+    if (!Number.isFinite(padLeft)) {
+      padLeft = Number.parseFloat(computed.paddingLeft) || 0;
+      track.dataset.trackPadLeft = String(padLeft);
+    }
+    if (!Number.isFinite(padRight)) {
+      padRight = Number.parseFloat(computed.paddingRight) || 0;
+      track.dataset.trackPadRight = String(padRight);
+    }
+  }
+  return Math.max(0, inner.offsetWidth + padLeft + padRight - (track.clientWidth || 0));
+}
+
+function applyTrackTransformPx(track, px) {
+  const inner = getTrackInnerNode(track);
+  if (!inner) {
+    track.scrollLeft = px;
+    return;
+  }
+  trackTransformPositions.set(track, px);
+  track.classList.add("is-track-animating");
+  clearTimeout(trackLayerDemoteTimers.get(track));
+  trackLayerDemoteTimers.set(track, setTimeout(() => {
+    trackLayerDemoteTimers.delete(track);
+    track.classList.remove("is-track-animating");
+  }, TRACK_LAYER_DEMOTE_DELAY_MS));
+  inner.style.transform = px ? `translateX(-${px}px)` : "";
+  scheduleTrackVirtualWindowUpdate(track);
+}
+
+function scheduleTrackVirtualWindowUpdate(track) {
+  clearTimeout(trackWindowUpdateTimers.get(track));
+  trackWindowUpdateTimers.set(track, setTimeout(() => {
+    trackWindowUpdateTimers.delete(track);
+    updateTrackVirtualWindow(track);
+  }, TRACK_WINDOW_UPDATE_DELAY_MS));
+}
+
+// Stub cards far outside the visible window (content-visibility: hidden with a
+// pinned box) so offscreen posters cost no raster/paint work on long rows.
+// Uses real card geometry — cards shift when the focused poster expands, so
+// index-based stride math would misplace the window. All layout reads happen
+// before all writes so the pass forces at most one reflow. `targetScrollLeft`
+// lets animation starters unstub the whole travel span up front, so cards are
+// ready before they scroll into view instead of popping in after the debounce.
+function updateTrackVirtualWindow(track, { targetScrollLeft = null } = {}) {
+  if (!track?.isConnected) {
+    return;
+  }
+  const inner = getTrackInnerNode(track);
+  if (!inner) {
+    return;
+  }
+  const cards = Array.from(inner.querySelectorAll(".home-content-card.focusable"));
+  if (cards.length < TRACK_WINDOW_MIN_CARDS) {
+    return;
+  }
+  const viewportWidth = track.clientWidth || 0;
+  if (!viewportWidth) {
+    return;
+  }
+  const current = getTrackScrollLeftPx(track);
+  const target = Number.isFinite(targetScrollLeft) ? Number(targetScrollLeft) : current;
+  // Positions are normalized to the first card, so the window tolerates the
+  // track's left padding; the buffer absorbs that slack many times over.
+  const bufferPx = Math.max(600, Math.round(viewportWidth * 0.35));
+  const windowStart = Math.min(current, target) - bufferPx;
+  const windowEnd = Math.max(current, target) + viewportWidth + bufferPx;
+
+  // Read pass — no writes until every card's geometry is captured.
+  const firstLeft = cards[0].offsetLeft;
+  const toUnstub = [];
+  const toStub = [];
+  for (const card of cards) {
+    const isStub = card.classList.contains("is-row-stub");
+    const left = card.offsetLeft - firstLeft;
+    const width = card.offsetWidth;
+    const inWindow = (left + width) >= windowStart && left <= windowEnd;
+    if (inWindow) {
+      if (isStub) {
+        toUnstub.push(card);
+      }
+    } else if (
+      !isStub
+      && !card.classList.contains("focused")
+      && !card.classList.contains("is-expanded")
+    ) {
+      const height = card.offsetHeight;
+      if (width > 0 && height > 0) {
+        toStub.push({ card, width, height });
+      }
+    }
+  }
+
+  // Write pass.
+  for (const card of toUnstub) {
+    card.classList.remove("is-row-stub");
+    card.style.width = "";
+    card.style.height = "";
+  }
+  for (const { card, width, height } of toStub) {
+    // content-visibility: hidden applies size containment, so pin the box to
+    // keep siblings (and offsetLeft reads) stable while the card is stubbed.
+    card.style.width = `${width}px`;
+    card.style.height = `${height}px`;
+    card.classList.add("is-row-stub");
+  }
+}
 
 function uniqueById(items = []) {
   const seen = new Set();
@@ -2197,7 +2255,7 @@ export const HomeScreen = {
     }
     const trackStates = Object.fromEntries(
       Array.from(this.container.querySelectorAll("[data-track-row-key]"))
-        .map((track) => [String(track.dataset.trackRowKey || ""), track.scrollLeft])
+        .map((track) => [String(track.dataset.trackRowKey || ""), getTrackScrollLeftPx(track)])
         .filter(([key]) => key)
     );
     const section = focused?.closest?.("[data-row-key]") || null;
@@ -2207,7 +2265,7 @@ export const HomeScreen = {
     if (focused) {
       const track = focused.closest(".home-track, .home-grid-track");
       if (track) {
-        itemIndex = Array.from(track.querySelectorAll(".home-content-card.focusable")).indexOf(focused);
+        itemIndex = Number(focused.dataset.navCol ?? -1);
       }
     }
 
@@ -2252,14 +2310,12 @@ export const HomeScreen = {
 
     const trackStates = Object.fromEntries(
       Array.from(this.container.querySelectorAll("[data-track-row-key]"))
-        .map((track) => [String(track.dataset.trackRowKey || ""), track.scrollLeft])
+        .map((track) => [String(track.dataset.trackRowKey || ""), getTrackScrollLeftPx(track)])
         .filter(([key]) => key)
     );
     const section = node.closest("[data-row-key]") || null;
     const track = node.closest(".home-track, .home-grid-track");
-    const itemIndex = track
-      ? Array.from(track.querySelectorAll(".home-content-card.focusable")).indexOf(node)
-      : -1;
+    const itemIndex = track ? Number(node.dataset.navCol ?? -1) : -1;
     const focusKind = node.classList.contains("home-hero-card")
       ? "hero"
       : (node.dataset?.action === "resumeProgress"
@@ -2330,7 +2386,7 @@ export const HomeScreen = {
     Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
       const track = trackMap.get(String(rowKey || ""));
       if (track) {
-        track.scrollLeft = Number(scrollLeft || 0);
+        this.applyTrackScrollLeft(track, Number(scrollLeft || 0));
       }
     });
 
@@ -2412,7 +2468,7 @@ export const HomeScreen = {
     Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
       const track = trackMap2.get(String(rowKey || ""));
       if (track) {
-        track.scrollLeft = Number(scrollLeft || 0);
+        this.applyTrackScrollLeft(track, Number(scrollLeft || 0));
       }
     });
 
@@ -2469,7 +2525,7 @@ export const HomeScreen = {
     Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
       const track = trackMap3.get(String(rowKey || ""));
       if (track) {
-        track.scrollLeft = Number(scrollLeft || 0);
+        this.applyTrackScrollLeft(track, Number(scrollLeft || 0));
       }
     });
 
@@ -2542,22 +2598,35 @@ export const HomeScreen = {
       springState[key] = null;
       springMap.set(container, springState);
     }
+    const pendingEntry = this.pendingScrollTargets?.get(container);
+    if (pendingEntry) {
+      pendingEntry[key] = null;
+    }
   },
 
   animateScroll(container, axis, targetValue, duration = 150, options = {}) {
     if (!container) {
       return;
     }
-    if (options?.mode === "spring") {
-      this.animateSpringScroll(container, axis, targetValue, options?.spring || {});
-      return;
-    }
+    const useTransform = axis === "x" && Boolean(getTrackInnerNode(container));
     const property = axis === "y" ? "scrollTop" : "scrollLeft";
     const max = axis === "y"
       ? Math.max(0, container.scrollHeight - container.clientHeight)
-      : Math.max(0, container.scrollWidth - container.clientWidth);
+      : getTrackMaxScrollPx(container);
     const nextValue = Math.max(0, Math.min(max, Math.round(targetValue)));
-    const startValue = Number(container[property] || 0);
+    const startValue = useTransform ? getTrackScrollLeftPx(container) : Number(container[property] || 0);
+    const applyValue = (value) => {
+      if (useTransform) {
+        this.applyTrackScrollLeft(container, value);
+      } else {
+        container[property] = value;
+      }
+    };
+    if (useTransform) {
+      // Unstub the whole travel span before the first frame so cards never pop
+      // in mid-flight; the debounced pass re-stubs behind us after settling.
+      updateTrackVirtualWindow(container, { targetScrollLeft: nextValue });
+    }
 
     // Record the intended destination so rapid-navigation visibility checks
     // use the final target position rather than the stale mid-animation value.
@@ -2568,7 +2637,7 @@ export const HomeScreen = {
     pendingMap.set(container, pendingEntry);
 
     if (Math.abs(startValue - nextValue) <= 1) {
-      container[property] = nextValue;
+      applyValue(nextValue);
       pendingEntry[pKey] = null;
       return;
     }
@@ -2584,7 +2653,7 @@ export const HomeScreen = {
       springMap.set(container, springState);
     }
     if (prefersReducedMotion || effectiveDuration <= 0) {
-      container[property] = nextValue;
+      applyValue(nextValue);
       pendingEntry[pKey] = null;
       return;
     }
@@ -2603,11 +2672,17 @@ export const HomeScreen = {
     const tick = (now) => {
       if (startTime === null) startTime = now;
       const progress = Math.min(1, (now - startTime) / effectiveDuration);
-      container[property] = Math.round(startValue + ((nextValue - startValue) * easing(progress)));
       if (progress < 1) {
+        applyValue(Math.round(startValue + ((nextValue - startValue) * easing(progress))));
         existing[key] = requestAnimationFrame(tick);
         map.set(container, existing);
       } else {
+        // Re-clamp against the live range: windowed rows can materialize during the
+        // tween, so the max measured at start may be stale and undershoot the target.
+        const finalMax = axis === "y"
+          ? Math.max(0, container.scrollHeight - container.clientHeight)
+          : getTrackMaxScrollPx(container);
+        applyValue(Math.max(0, Math.min(finalMax, Math.round(targetValue))));
         existing[key] = null;
         pendingEntry[pKey] = null;
         map.set(container, existing);
@@ -2622,14 +2697,35 @@ export const HomeScreen = {
     if (!container) {
       return;
     }
+    const useTransform = axis === "x" && Boolean(getTrackInnerNode(container));
     const property = axis === "y" ? "scrollTop" : "scrollLeft";
     const max = axis === "y"
       ? Math.max(0, container.scrollHeight - container.clientHeight)
-      : Math.max(0, container.scrollWidth - container.clientWidth);
+      : getTrackMaxScrollPx(container);
     const nextValue = Math.max(0, Math.min(max, Math.round(targetValue)));
+    const applyValue = (value) => {
+      if (useTransform) {
+        this.applyTrackScrollLeft(container, value);
+      } else {
+        container[property] = value;
+      }
+    };
+    if (useTransform) {
+      updateTrackVirtualWindow(container, { targetScrollLeft: nextValue });
+    }
+
+    // Mirror the tween path's bookkeeping: rapid-navigation visibility checks read
+    // the pending destination instead of the stale mid-animation scroll position.
+    const pKey = axis === "y" ? "y" : "x";
+    const pendingMap = this.pendingScrollTargets || (this.pendingScrollTargets = new WeakMap());
+    const pendingEntry = pendingMap.get(container) || {};
+    pendingEntry[pKey] = nextValue;
+    pendingMap.set(container, pendingEntry);
+
     const prefersReducedMotion = globalThis?.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     if (prefersReducedMotion) {
-      container[property] = nextValue;
+      applyValue(nextValue);
+      pendingEntry[pKey] = null;
       return;
     }
 
@@ -2661,7 +2757,7 @@ export const HomeScreen = {
 
     const state = {
       target: nextValue,
-      position: Number(container[property] || 0),
+      position: useTransform ? getTrackScrollLeftPx(container) : Number(container[property] || 0),
       velocity: 0,
       raf: null,
       lastTime: performance.now(),
@@ -2679,13 +2775,19 @@ export const HomeScreen = {
       const acceleration = (-state.stiffness * displacement) - (state.damping * state.velocity);
       state.velocity += acceleration * deltaSeconds;
       state.position += state.velocity * deltaSeconds;
-      container[property] = state.position;
+      applyValue(state.position);
 
       const remaining = Number(state.target || 0) - state.position;
       if (Math.abs(remaining) <= state.precision && Math.abs(state.velocity) <= state.velocityEpsilon) {
-        container[property] = state.target;
+        // Re-clamp against the live range: content may have grown or shrunk while
+        // the spring was settling (windowed rows materializing mid-animation).
+        const finalMax = axis === "y"
+          ? Math.max(0, container.scrollHeight - container.clientHeight)
+          : getTrackMaxScrollPx(container);
+        applyValue(Math.max(0, Math.min(finalMax, Number(state.target || 0))));
         existing[key] = null;
         springMap.set(container, existing);
+        pendingEntry[pKey] = null;
         return;
       }
 
@@ -2697,62 +2799,6 @@ export const HomeScreen = {
     state.raf = requestAnimationFrame(tick);
     existing[key] = state;
     springMap.set(container, existing);
-  },
-
-  getModernCameraPanEasing() {
-    return MODERN_CAMERA_PAN_EASING;
-  },
-
-  shouldUseDelayedModernCameraFollow(target, direction = null) {
-    return false;
-  },
-
-  cancelModernCameraFollow({ stopAnimations = false } = {}) {
-    if (this.modernCameraFollowTimer) {
-      clearTimeout(this.modernCameraFollowTimer);
-      this.modernCameraFollowTimer = null;
-    }
-    const state = this.modernCameraFollowState || null;
-    if (stopAnimations) {
-      const horizontalContainers = [state?.horizontal?.container, this.modernCameraFollowLastHorizontalContainer];
-      const verticalContainers = [state?.vertical?.container, this.modernCameraFollowLastVerticalContainer];
-      horizontalContainers.forEach((container) => {
-        if (container) {
-          this.cancelScrollAnimation(container, "x");
-        }
-      });
-      verticalContainers.forEach((container) => {
-        if (container) {
-          this.cancelScrollAnimation(container, "y");
-        }
-      });
-    }
-    this.modernCameraFollowState = null;
-    this.modernCameraFollowLastHorizontalContainer = null;
-    this.modernCameraFollowLastVerticalContainer = null;
-  },
-
-  isScrollAnimationActive(container, axis = "x") {
-    if (!container) {
-      return false;
-    }
-    const map = this.scrollAnimations || null;
-    const state = map?.get?.(container) || null;
-    const key = axis === "y" ? "y" : "x";
-    const springMap = this.springScrollAnimations || null;
-    const springState = springMap?.get?.(container) || null;
-    return Boolean(state?.[key] || springState?.[key]?.raf);
-  },
-
-  shouldSuspendModernViewportFocusSync() {
-    if (this.layoutMode !== "modern") {
-      return false;
-    }
-    if (this.modernCameraFollowTimer) {
-      return true;
-    }
-    return this.isScrollAnimationActive(this.modernCameraFollowLastVerticalContainer, "y")
-      || this.isScrollAnimationActive(this.modernCameraFollowLastHorizontalContainer, "x");
   },
 
   getRowFocusInset() {
@@ -3662,7 +3708,7 @@ export const HomeScreen = {
     }
     const trackStates = Object.fromEntries(
       Array.from(this.container?.querySelectorAll("[data-track-row-key]") || [])
-        .map((track) => [String(track.dataset.trackRowKey || ""), Number(track.scrollLeft || 0)])
+        .map((track) => [String(track.dataset.trackRowKey || ""), getTrackScrollLeftPx(track)])
         .filter(([key]) => key)
     );
     return {
@@ -3680,7 +3726,7 @@ export const HomeScreen = {
     Object.entries(state.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
       const track = this.container?.querySelector(`[data-track-row-key="${rowKey}"]`);
       if (track) {
-        track.scrollLeft = Number(scrollLeft || 0);
+        this.applyTrackScrollLeft(track, Number(scrollLeft || 0));
       }
     });
     const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
@@ -5502,41 +5548,25 @@ export const HomeScreen = {
   getPendingScrollLeft(container) {
     const pending = this.pendingScrollTargets?.get(container);
     const px = pending?.x;
-    return (px !== null && Number.isFinite(px)) ? px : Number(container?.scrollLeft || 0);
+    return (px !== null && Number.isFinite(px)) ? px : getTrackScrollLeftPx(container);
   },
 
   getTrackInner(track) {
-    return track?.querySelector?.(".home-track-inner") || null;
+    return getTrackInnerNode(track);
   },
 
   getTrackScrollLeft(track) {
-    const inner = this.getTrackInner(track);
-    if (!inner) return Number(track?.scrollLeft || 0);
-    const positions = this.trackTransformPositions || (this.trackTransformPositions = new WeakMap());
-    return Number(positions.get(track) || 0);
+    return getTrackScrollLeftPx(track);
   },
 
   getTrackMaxScroll(track) {
-    const inner = this.getTrackInner(track);
-    if (!inner) return Math.max(0, (track?.scrollWidth || 0) - (track?.clientWidth || 0));
-    const cachedLeft = Number.parseFloat(track?.dataset?.trackPadLeft || "");
-    const cachedRight = Number.parseFloat(track?.dataset?.trackPadRight || "");
-    let pl = Number.isFinite(cachedLeft) ? cachedLeft : 0;
-    let pr = Number.isFinite(cachedRight) ? cachedRight : 0;
-    if ((!Number.isFinite(cachedLeft) || !Number.isFinite(cachedRight)) && typeof window !== "undefined" && window.getComputedStyle) {
-      const cs = getComputedStyle(track);
-      if (!Number.isFinite(cachedLeft)) pl = parseFloat(cs.paddingLeft) || 0;
-      if (!Number.isFinite(cachedRight)) pr = parseFloat(cs.paddingRight) || 0;
-    }
-    return Math.max(0, inner.offsetWidth + pl + pr - (track.clientWidth || 0));
+    return getTrackMaxScrollPx(track);
   },
 
   applyTrackScrollLeft(track, px) {
-    const inner = this.getTrackInner(track);
-    if (!inner) { track.scrollLeft = px; return; }
-    const positions = this.trackTransformPositions || (this.trackTransformPositions = new WeakMap());
-    positions.set(track, px);
-    inner.style.transform = px ? `translateX(-${px}px)` : "";
+    applyTrackTransformPx(track, px);
+    // Transform tracks fire no scroll events, so drive the pagination handler
+    // manually (it is rAF-debounced and cheap when nothing is near the end).
     this._trackScrollHandlers?.get(track)?.();
   },
 
@@ -5565,8 +5595,9 @@ export const HomeScreen = {
       }
     }
     const safeRightPadding = Math.min(rightPadding, Math.max(24, leftPadding));
-    const visibleLeft = track.scrollLeft + leftPadding;
-    const visibleRight = track.scrollLeft + track.clientWidth - safeRightPadding;
+    const trackScrollLeft = getTrackScrollLeftPx(track);
+    const visibleLeft = trackScrollLeft + leftPadding;
+    const visibleRight = trackScrollLeft + track.clientWidth - safeRightPadding;
     return {
       leftPadding,
       safeRightPadding,
@@ -5617,8 +5648,8 @@ export const HomeScreen = {
     const leftPad = this.getTrackEdgePadding();
     const trackRect = track.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
-    const targetLeft = ((targetRect.left - trackRect.left) + Number(track.scrollLeft || 0)) - Number(layoutAdjustment || 0);
-    const maxScrollLeft = Math.max(0, Number(track.scrollWidth || 0) - Number(track.clientWidth || 0));
+    const targetLeft = ((targetRect.left - trackRect.left) + getTrackScrollLeftPx(track)) - Number(layoutAdjustment || 0);
+    const maxScrollLeft = getTrackMaxScrollPx(track);
     return {
       container: track,
       value: Math.max(0, Math.min(maxScrollLeft, targetLeft - leftPad))
@@ -5670,116 +5701,6 @@ export const HomeScreen = {
     };
   },
 
-  getModernMainSafetyScrollTarget(target, layoutAdjustment = 0) {
-    const main = this.container?.querySelector(".home-modern-rows-viewport");
-    if (!main || !target || !this.container?.contains(target)) {
-      return null;
-    }
-    const anchor = this.getMainFocusAnchor(target);
-    const mainRect = main.getBoundingClientRect();
-    const anchorRect = anchor.getBoundingClientRect();
-    const inset = this.getRowFocusInset();
-    const visibleTop = mainRect.top + inset;
-    const visibleBottom = mainRect.bottom - 24;
-    const anchorTop = anchorRect.top - mainRect.top + main.scrollTop - Number(layoutAdjustment || 0);
-    const anchorBottom = anchorRect.bottom - mainRect.top + main.scrollTop - Number(layoutAdjustment || 0);
-    const adjustedTop = mainRect.top + anchorTop - main.scrollTop;
-    const adjustedBottom = mainRect.top + anchorBottom - main.scrollTop;
-    const minVisible = Math.max(
-      32,
-      Math.min(
-        72,
-        Math.round(Number(anchor.offsetHeight || 0) * 0.22)
-      )
-    );
-    let nextValue = null;
-    if (adjustedBottom <= visibleTop + minVisible) {
-      nextValue = anchorBottom - inset - minVisible;
-    } else if (adjustedTop >= visibleBottom - minVisible) {
-      nextValue = anchorTop - main.clientHeight + 24 + minVisible;
-    }
-    if (!Number.isFinite(nextValue)) {
-      return null;
-    }
-    const maxScrollTop = Math.max(0, Number(main.scrollHeight || 0) - Number(main.clientHeight || 0));
-    return {
-      container: main,
-      value: Math.max(0, Math.min(maxScrollTop, nextValue))
-    };
-  },
-
-  applyModernCameraFollowTargets(horizontal = null, vertical = null) {
-    if (horizontal?.container?.isConnected) {
-      if (Math.abs(Number(horizontal.container.scrollLeft || 0) - Number(horizontal.value || 0)) > 1) {
-        this.animateScroll(
-          horizontal.container,
-          "x",
-          horizontal.value,
-          MODERN_HOME_CONSTANTS.cameraFollowDurationXMs,
-          { mode: "spring" }
-        );
-      }
-      this.modernCameraFollowLastHorizontalContainer = horizontal.container;
-    }
-    if (vertical?.container?.isConnected) {
-      if (Math.abs(Number(vertical.container.scrollTop || 0) - Number(vertical.value || 0)) > 1) {
-        this.animateScroll(
-          vertical.container,
-          "y",
-          vertical.value,
-          MODERN_HOME_CONSTANTS.cameraFollowDurationYMs,
-          { mode: "spring" }
-        );
-      }
-      this.modernCameraFollowLastVerticalContainer = vertical.container;
-    }
-  },
-
-  flushModernCameraFollow() {
-    const state = this.modernCameraFollowState || null;
-    this.modernCameraFollowTimer = null;
-    this.modernCameraFollowState = null;
-    if (!state || Router.getCurrent() !== "home" || this.layoutMode !== "modern") {
-      return;
-    }
-    this.applyModernCameraFollowTargets(state.horizontal, state.vertical);
-  },
-
-  scheduleModernCameraFollow(target, direction = null, current = null, layoutAdjustment = {}, inputMeta = {}) {
-    if (!this.shouldUseDelayedModernCameraFollow(target, direction)) {
-      return false;
-    }
-    this.cancelModernCameraFollow({ stopAnimations: true });
-    const isVerticalMove = direction === "up" || direction === "down";
-    const shouldFollowVerticalHoldImmediately = isVerticalMove && Boolean(inputMeta?.repeat);
-    const horizontalAdjustment = Number(layoutAdjustment?.horizontal || 0);
-    const verticalAdjustment = Number(layoutAdjustment?.vertical || 0);
-    const horizontal = this.getModernTrackAlignedScrollTarget(target, horizontalAdjustment);
-    const vertical = this.getModernMainAlignedScrollTarget(target, direction, current, verticalAdjustment);
-    const hasHorizontal = Boolean(horizontal?.container && Math.abs(Number(horizontal.container.scrollLeft || 0) - Number(horizontal.value || 0)) > 1);
-    const hasVertical = Boolean(vertical?.container && Math.abs(Number(vertical.container.scrollTop || 0) - Number(vertical.value || 0)) > 1);
-
-    if (!hasHorizontal && !hasVertical) {
-      this.modernCameraFollowLastHorizontalContainer = horizontal?.container || this.modernCameraFollowLastHorizontalContainer;
-      this.modernCameraFollowLastVerticalContainer = vertical?.container || this.modernCameraFollowLastVerticalContainer;
-      return true;
-    }
-
-    if (shouldFollowVerticalHoldImmediately) {
-      this.applyModernCameraFollowTargets(horizontal, vertical);
-      return true;
-    }
-
-    this.modernCameraFollowState = {
-      horizontal: hasHorizontal ? horizontal : null,
-      vertical: hasVertical ? vertical : null
-    };
-    this.modernCameraFollowTimer = setTimeout(() => {
-      this.flushModernCameraFollow();
-    }, MODERN_HOME_CONSTANTS.cameraFollowDelayMs);
-    return true;
-  },
-
   isNodeWithinMainViewport(node) {
     const main = this.getHomeViewport();
     if (!main || !node || !this.container?.contains(node)) {
@@ -5804,9 +5725,13 @@ export const HomeScreen = {
       return preferred || rowNodes[0] || null;
     }
     const metrics = this.getTrackViewportMetrics(track);
+    // In transform tracks the inner wrapper is the offsetParent (it always has a
+    // transform), so card offsetLeft is content-space and excludes the track's
+    // left padding; shift into the padded space the metrics are expressed in.
+    const offsetBase = getTrackInnerNode(track) ? metrics.leftPadding : 0;
     const visibleNodes = rowNodes
       .map((node) => {
-        const left = Number(node.offsetLeft || 0);
+        const left = Number(node.offsetLeft || 0) + offsetBase;
         const right = left + Number(node.offsetWidth || 0);
         return {
           node,
@@ -5934,7 +5859,8 @@ export const HomeScreen = {
     if (this.layoutMode !== "modern" || !main || !direction) {
       return false;
     }
-    this.cancelModernCameraFollow({ stopAnimations: true });
+    // Stop any in-flight vertical animation so it can't fight the fast-scroll loop.
+    this.cancelScrollAnimation(main, "y");
     if (!this.canModernFastScroll(main, direction)) {
       this.endModernVerticalFastScroll({ land: true });
       return true;
@@ -6078,11 +6004,11 @@ export const HomeScreen = {
       if (!next?.container) {
         return;
       }
-      if (Math.abs(Number(next.container.scrollLeft || 0) - Number(next.value || 0)) <= 1) {
+      if (Math.abs(getTrackScrollLeftPx(next.container) - Number(next.value || 0)) <= 1) {
         return;
       }
       if (this.isLegacyTvRuntime()) {
-        next.container.scrollLeft = Math.round(next.value);
+        this.applyTrackScrollLeft(next.container, Math.round(next.value));
       } else {
         this.animateScroll(next.container, "x", next.value, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
       }
@@ -6138,11 +6064,8 @@ export const HomeScreen = {
     if (this.isMainNode(target)) {
       this.lastMainFocus = target;
       this.rememberMainRowFocus(target);
-      const usingDelayedCameraFollow = this.scheduleModernCameraFollow(target, direction, current, scrollAdjustments, inputMeta);
-      if (!usingDelayedCameraFollow) {
-        this.ensureTrackHorizontalVisibility(target, direction, scrollAdjustments.horizontal);
-        this.ensureMainVerticalVisibility(target, direction, current, scrollAdjustments.vertical);
-      }
+      this.ensureTrackHorizontalVisibility(target, direction, scrollAdjustments.horizontal);
+      this.ensureMainVerticalVisibility(target, direction, current, scrollAdjustments.vertical);
       this.scheduleModernHeroUpdate(target);
       this.updateNeighborPromotions(target);
       if (this.isPerformanceConstrained()) {
@@ -6150,7 +6073,6 @@ export const HomeScreen = {
       }
       this.scheduleFocusedPosterFlow(target);
     } else {
-      this.cancelModernCameraFollow({ stopAnimations: true });
       this.cancelPendingHeroFocus();
       this.cancelFocusedPosterFlow();
       this.clearFocusedPosterFlowState();
@@ -6278,7 +6200,8 @@ export const HomeScreen = {
       const rowItems = items.length ? items : (rowData.loadingItems || []);
       const maxItems = Math.max(1, Number(opts.rowItemLimit || 15));
       const visibleItems = isCollectionRow ? rowItems : rowItems.slice(0, maxItems);
-      track.innerHTML = visibleItems.map((item, itemIndex) => opts.createPosterCardMarkup(
+      const trackTarget = getTrackInnerNode(track) || track;
+      trackTarget.innerHTML = visibleItems.map((item, itemIndex) => opts.createPosterCardMarkup(
         item,
         rowIndex,
         itemIndex,
@@ -6292,6 +6215,9 @@ export const HomeScreen = {
     }
     section.removeAttribute("data-row-pending");
     this.appendMountedRowToNavigationModel(section);
+    if (track) {
+      scheduleTrackVirtualWindowUpdate(track);
+    }
   },
 
   scheduleBuildNavigationModel() {
@@ -6407,7 +6333,6 @@ export const HomeScreen = {
     if (
       this.isMainNode(current)
       && !this.isNodeWithinMainViewport(current)
-      && !this.shouldSuspendModernViewportFocusSync()
     ) {
       current = this.syncMainFocusToViewport({ suppressFlows: true }) || current;
     }
@@ -6614,9 +6539,7 @@ export const HomeScreen = {
         if (viewportScrollRaf) return;
         viewportScrollRaf = requestAnimationFrame(() => {
           viewportScrollRaf = null;
-          if (!this.shouldSuspendModernViewportFocusSync()) {
-            this.scheduleHomeViewportFocusSync();
-          }
+          this.scheduleHomeViewportFocusSync();
           this.mountVisiblePendingRows();
         });
       };
@@ -7210,7 +7133,6 @@ export const HomeScreen = {
 
   render() {
     this.cancelScheduledRender();
-    this.cancelModernCameraFollow({ stopAnimations: true });
     this.teardownModernTrackScrollPagination();
     this.destroyVirtualRowObserver();
     const retainedFocusState = this.captureCurrentFocusState() || this.savedFocusStates?.[this.layoutMode] || null;
@@ -7368,6 +7290,9 @@ export const HomeScreen = {
       this.setupModernTrackScrollPagination();
       this.initVirtualRows();
       this.schedulePendingRowFallbackMount();
+      this.container.querySelectorAll(".home-modern-row .home-track").forEach((track) => {
+        scheduleTrackVirtualWindowUpdate(track);
+      });
     }
     const canAttemptRestore = Boolean(retainedFocusState);
     let restoredFocus = false;
@@ -8206,7 +8131,7 @@ export const HomeScreen = {
         const cardWidth = firstCard ? firstCard.offsetWidth : 212;
         const gapApprox = 24; // --home-poster-gap
         const nearEndThreshold = (cardWidth + gapApprox) * 4;
-        const distanceFromEnd = track.scrollWidth - (track.scrollLeft + track.clientWidth);
+        const distanceFromEnd = getTrackMaxScrollPx(track) - getTrackScrollLeftPx(track);
         if (distanceFromEnd > nearEndThreshold) {
           return;
         }
@@ -8225,6 +8150,7 @@ export const HomeScreen = {
         this._trackPaginationInFlight = this._trackPaginationInFlight || new Set();
         this._trackPaginationInFlight.add(rowKey);
         const token = this.homeLoadToken;
+        let appendedMore = false;
         catalogRepository.getCatalog({
           addonBaseUrl: rowData.addonBaseUrl || "",
           addonId: rowData.addonId || "",
@@ -8273,26 +8199,42 @@ export const HomeScreen = {
               preferLandscape
             )
           ).join("");
-          if (newMarkup && track.isConnected) {
-            const frag = document.createRange().createContextualFragment(newMarkup);
-            track.appendChild(frag);
-            ScreenUtils.indexFocusables(track);
-            this.buildNavigationModel();
-          }
-          // Update in-memory row data
+          // Update in-memory row data before the DOM append so the recheck below
+          // sees fresh hasMore/items state.
           if (liveRowData?.result?.data) {
             liveRowData.result.data.items = [...liveCurrentItems, ...newItems];
             liveRowData.result.data.hasMore = result.data?.hasMore ?? newItems.length > 0;
             liveRowData.result.data.currentPage = result.data?.currentPage ?? liveRowData.result.data.currentPage;
           }
+          if (newMarkup && track.isConnected) {
+            const frag = document.createRange().createContextualFragment(newMarkup);
+            (getTrackInnerNode(track) || track).appendChild(frag);
+            ScreenUtils.indexFocusables(track);
+            this.buildNavigationModel();
+            scheduleTrackVirtualWindowUpdate(track);
+            appendedMore = true;
+          }
         }).catch((err) => {
           console.warn("Home track pagination failed for", rowKey, err);
         }).finally(() => {
           this._trackPaginationInFlight?.delete(rowKey);
+          // Transform tracks fire no scroll events, so a page that still leaves the
+          // user near the end would stall — re-check until distance clears the
+          // threshold or hasMore turns false. Only on success, so a failing addon
+          // is not hammered in a retry loop.
+          if (appendedMore && track.isConnected) {
+            handler();
+          }
         });
       };
       this._trackScrollHandlers.set(track, handler);
-      track.addEventListener("scroll", handler, { passive: true });
+      if (getTrackInnerNode(track)) {
+        // Transform track: no scroll events; applyTrackScrollLeft drives the
+        // handler instead. Run once so short rows can top up immediately.
+        handler();
+      } else {
+        track.addEventListener("scroll", handler, { passive: true });
+      }
     });
   },
 
@@ -8301,7 +8243,9 @@ export const HomeScreen = {
       return;
     }
     this._trackScrollHandlers.forEach((handler, track) => {
-      track.removeEventListener("scroll", handler);
+      if (!getTrackInnerNode(track)) {
+        track.removeEventListener("scroll", handler);
+      }
     });
     this._trackScrollHandlers.clear();
     this._trackPaginationInFlight?.clear();
@@ -8319,7 +8263,6 @@ export const HomeScreen = {
     this.persistCurrentFocusState();
     this.homeLoadToken = (this.homeLoadToken || 0) + 1;
     this.cancelScheduledRender();
-    this.cancelModernCameraFollow({ stopAnimations: true });
     this.endModernVerticalFastScroll({ land: false });
     this.stopHeroRotation();
     this.cancelPendingHeroFocus();

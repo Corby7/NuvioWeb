@@ -96,7 +96,7 @@ export function renderModernHomeLayout({
             <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
           </div>
           <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
-            ${cardsMarkup}
+            <div class="home-track-inner">${cardsMarkup}</div>
           </div>
         </section>
       `);
@@ -107,7 +107,7 @@ export function renderModernHomeLayout({
           <div class="home-row-head">
             <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
           </div>
-          <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}"></div>
+          <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}"><div class="home-track-inner"></div></div>
         </section>
       `);
     }

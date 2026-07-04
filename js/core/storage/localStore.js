@@ -1,8 +1,8 @@
 const _pending = new Map();
-let _flushScheduled = false;
+let _flushHandle = null;
 
 function _flush() {
-  _flushScheduled = false;
+  _flushHandle = null;
   for (const [key, serialized] of _pending) {
     try {
       localStorage.setItem(key, serialized);
@@ -11,6 +11,31 @@ function _flush() {
     }
   }
   _pending.clear();
+}
+
+function _scheduleFlush() {
+  if (_flushHandle !== null) {
+    return;
+  }
+  // localStorage writes are synchronous disk I/O (slow on webOS flash). A microtask
+  // would run before the next paint, blocking the very frame that triggered the
+  // write — defer past the frame instead. setTimeout keeps webOS compatibility.
+  _flushHandle = setTimeout(_flush, 0);
+}
+
+// Deferred writes must not be lost when the app is hidden or torn down.
+if (typeof window !== "undefined") {
+  const flushNow = () => {
+    if (_flushHandle !== null) {
+      clearTimeout(_flushHandle);
+      _flush();
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushNow();
+  });
+  window.addEventListener("pagehide", flushNow);
+  window.addEventListener("beforeunload", flushNow);
 }
 
 export const LocalStore = {
@@ -35,10 +60,7 @@ export const LocalStore = {
   set(key, value) {
     try {
       _pending.set(key, JSON.stringify(value));
-      if (!_flushScheduled) {
-        _flushScheduled = true;
-        queueMicrotask(_flush);
-      }
+      _scheduleFlush();
     } catch (e) {
       console.error("LocalStore set error:", e);
     }

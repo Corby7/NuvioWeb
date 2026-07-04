@@ -6311,12 +6311,43 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .home-screen-shell.home-layout-modern .home-track {
   --home-track-gap: var(--home-row-gap);
   margin-left: calc(var(--modern-track-peek-extension) * -1);
-  padding: 16px 52px 16px 104px;  
+  padding: 16px 52px 16px 104px;
   align-items: flex-end;
+  /* Modern rows scroll by translating .home-track-inner instead of scrollLeft:
+     clip is the only overflow value that pairs with a visible cross axis, and it
+     creates no scroll machinery at all. The continue row overrides this back to
+     a native scroller below. */
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.home-screen-shell.home-layout-modern .home-modern-row .home-track-inner {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--home-track-gap);
+  align-items: flex-end;
+  /* Base transform keeps the inner an offsetParent from first paint, so card
+     offsetLeft is always in content space regardless of scroll position. */
+  transform: translateX(0);
+}
+
+/* Promote to a compositor layer only while the row is actually moving — a
+   permanent will-change on every row-width inner would pin too much GPU memory. */
+.home-screen-shell.home-layout-modern .home-modern-row .home-track.is-track-animating .home-track-inner {
+  will-change: transform;
 }
 
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-row .home-track {
   align-items: flex-start;
+}
+
+.home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-row .home-track-inner {
+  align-items: flex-start;
+}
+
+.home-screen-shell.home-layout-modern .home-content-card.is-row-stub {
+  content-visibility: hidden;
+  pointer-events: none;
 }
 
 .home-screen-shell.home-layout-modern .home-row-continue {
@@ -6329,6 +6360,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
      clientWidth = containerWidth + 104, so the required padding-right = clientWidth
      - leftPad - cardWidth = (100% + 104) - 104 - cardWidth = 100% - cardWidth. */
   padding-right: calc(100% - var(--home-continue-width));
+  /* The continue row has no .home-track-inner — it stays a native scroller. */
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-row-continue {
@@ -15270,6 +15304,11 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   animation-iteration-count: 1 !important;
   transition-duration: 140ms !important;
   transition-delay: 0ms !important;
+  /* transition-property defaults to `all`, so a bare duration on `*` would arm an
+     implicit `transition: all 140ms` on every element — including layout properties
+     (width/height/padding), which then reflow every frame for 140ms after any class
+     toggle. Restrict to compositor/paint-cheap properties; everything else snaps. */
+  transition-property: transform, opacity, background-color, color, border-color, box-shadow !important;
 }
 
 .performance-constrained .player-loading-identity {

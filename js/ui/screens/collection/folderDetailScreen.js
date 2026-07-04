@@ -981,7 +981,6 @@ export const FolderDetailScreen = {
   },
 
   renderFollowLayout() {
-    HomeScreen.cancelModernCameraFollow.call(this, { stopAnimations: true });
     HomeScreen.teardownModernTrackScrollPagination.call(this);
     HomeScreen.cancelFocusedPosterFlow.call(this);
     const enterClass = this.folderRouteEnterPending ? " nuvio-route-slide-enter" : "";
@@ -1069,7 +1068,9 @@ export const FolderDetailScreen = {
         void this.loadMoreFollowLayoutRow(rowKey, track);
       };
       this._trackScrollHandlers.set(track, handler);
-      if (HomeScreen.getTrackInner.call(this, track)) {
+      if (HomeScreen.getTrackInner(track)) {
+        // Transform track: no scroll events; HomeScreen.applyTrackScrollLeft
+        // drives the handler instead. Run once so short rows top up immediately.
         handler();
       } else {
         track.addEventListener("scroll", handler, { passive: true });
@@ -1133,7 +1134,7 @@ export const FolderDetailScreen = {
           modernLandscapePostersEnabled
         )).join("");
         const fragment = document.createRange().createContextualFragment(newMarkup);
-        (HomeScreen.getTrackInner.call(this, track) || track).appendChild(fragment);
+        (HomeScreen.getTrackInner(track) || track).appendChild(fragment);
         ScreenUtils.indexFocusables(track);
         HomeScreen.buildNavigationModel.call(this);
         this.heroCandidates = [this.heroItem, ...(this.rows || []).flatMap((row) => row?.result?.data?.items || [])].filter((item) => item?.id);
@@ -1377,7 +1378,6 @@ export const FolderDetailScreen = {
 
   cleanup() {
     if (this.useHomeFollowLayout) {
-      HomeScreen.cancelModernCameraFollow.call(this, { stopAnimations: true });
       HomeScreen.stopHeroRotation.call(this);
       HomeScreen.cancelPendingHeroFocus.call(this);
       HomeScreen.cancelFocusedPosterFlow.call(this);

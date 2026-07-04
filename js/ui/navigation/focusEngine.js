@@ -1,22 +1,11 @@
 import { Router } from "./router.js";
 import { Platform } from "../../platform/index.js";
 
-// Shared closure functions — allocated once, reused across every keydown event.
-// _nativeEvent is set at the top of buildNormalizedEvent before any handler runs.
-// All keydown processing is synchronous within a single event tick, so this is safe.
-let _nativeEvent = null;
-function _preventDefault() {
-  if (typeof _nativeEvent?.preventDefault === "function") _nativeEvent.preventDefault();
-}
-function _stopPropagation() {
-  if (typeof _nativeEvent?.stopPropagation === "function") _nativeEvent.stopPropagation();
-}
-function _stopImmediatePropagation() {
-  if (typeof _nativeEvent?.stopImmediatePropagation === "function") _nativeEvent.stopImmediatePropagation();
-}
-
 function buildNormalizedEvent(event) {
-  _nativeEvent = event;
+  // Closures capture this specific native event. Screen key handlers may be async
+  // (handleKey wraps them in Promise.resolve), so a shared module-level reference
+  // would point at a newer event by the time an awaited handler calls preventDefault.
+  const nativeEvent = event;
   const normalizedKey = Platform.normalizeKey(event);
   const normalizedCode = Number(normalizedKey.keyCode || 0);
   return {
@@ -34,9 +23,15 @@ function buildNormalizedEvent(event) {
     which: normalizedCode,
     originalKeyCode: Number(normalizedKey.originalKeyCode || event?.keyCode || 0),
     keyDownDurationMs: 0,
-    preventDefault: _preventDefault,
-    stopPropagation: _stopPropagation,
-    stopImmediatePropagation: _stopImmediatePropagation
+    preventDefault: () => {
+      if (typeof nativeEvent?.preventDefault === "function") nativeEvent.preventDefault();
+    },
+    stopPropagation: () => {
+      if (typeof nativeEvent?.stopPropagation === "function") nativeEvent.stopPropagation();
+    },
+    stopImmediatePropagation: () => {
+      if (typeof nativeEvent?.stopImmediatePropagation === "function") nativeEvent.stopImmediatePropagation();
+    }
   };
 }
 
@@ -53,8 +48,14 @@ export const FocusEngine = {
     this.boundHandleTizenHardwareKey = this.handleTizenHardwareKey.bind(this);
     this.boundHandlePointerMove = this.handlePointerMove.bind(this);
     this.boundHandlePointerClick = this.handlePointerClick.bind(this);
+    this.boundHandleWindowBlur = () => {
+      // Keyups are lost when the app loses focus mid-hold; drop the timestamps so
+      // they can't leak into the next press of the same key.
+      this.activeKeyDownStartedAt.clear();
+    };
     document.addEventListener("keydown", this.boundHandleKey, true);
     document.addEventListener("keyup", this.boundHandleKeyUp, true);
+    window.addEventListener("blur", this.boundHandleWindowBlur);
     if (Platform.isTizen()) {
       document.addEventListener("tizenhwkey", this.boundHandleTizenHardwareKey, true);
     }
@@ -96,7 +97,10 @@ export const FocusEngine = {
 
     const normalizedEvent = buildNormalizedEvent(event);
     const keyIdentity = this.getKeyIdentity(normalizedEvent);
-    if (keyIdentity && !this.activeKeyDownStartedAt.has(keyIdentity)) {
+    // A non-repeat keydown is a fresh press: always restart its timestamp. Only
+    // repeats preserve the existing one — otherwise a lost keyup (app blur,
+    // screensaver) would make the next press report a huge keyDownDurationMs.
+    if (keyIdentity && (!normalizedEvent.repeat || !this.activeKeyDownStartedAt.has(keyIdentity))) {
       this.activeKeyDownStartedAt.set(keyIdentity, Date.now());
     }
 
