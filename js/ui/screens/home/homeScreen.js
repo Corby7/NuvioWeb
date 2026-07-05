@@ -27,7 +27,7 @@ import {
   MODERN_HOME_CONSTANTS,
   renderModernHomeLayout
 } from "./modernHomeLayout.js";
-import { optimizePosterUrl, optimizeBackdropUrl, optimizeLogoUrl } from "./posterLoader.js";
+import { optimizePosterUrl, optimizeBackdropUrl, optimizeLogoUrl, setPosterLoadsPaused } from "./posterLoader.js";
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
@@ -243,6 +243,11 @@ const trackLayerDemoteTimers = new WeakMap();
 const TRACK_WINDOW_UPDATE_DELAY_MS = 80;
 const TRACK_LAYER_DEMOTE_DELAY_MS = 400;
 const TRACK_WINDOW_MIN_CARDS = 7;
+const DETAIL_PREFETCH_DWELL_MS = 300;
+const HOME_SNAPSHOT_KEY_PREFIX = "nuvio.homeSnapshot.";
+const HOME_SNAPSHOT_VERSION = 1;
+const HOME_SNAPSHOT_MAX_ROWS = 30;
+const HOME_SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function getTrackInnerNode(track) {
   return track?.querySelector?.(".home-track-inner") || null;
@@ -5837,6 +5842,7 @@ export const HomeScreen = {
       this.modernVerticalFastScrollEndTimer = null;
     }
     this.modernVerticalFastScrollState = null;
+    setPosterLoadsPaused(false);
     if (land && state?.direction) {
       this.landModernVerticalFastScroll(state.direction);
     }
@@ -5872,6 +5878,9 @@ export const HomeScreen = {
       return true;
     }
     this.endModernVerticalFastScroll({ land: false });
+    // Keep image decode off the main thread while the fast-scroll loop runs;
+    // endModernVerticalFastScroll resumes the queue.
+    setPosterLoadsPaused(true);
 
     const state = {
       container: main,
@@ -6072,13 +6081,58 @@ export const HomeScreen = {
         this.promotePosterCardAssets(target, { includeNeighbors: true });
       }
       this.scheduleFocusedPosterFlow(target);
+      this.scheduleDetailMetaPrefetch(target);
     } else {
+      this.cancelDetailMetaPrefetch();
       this.cancelPendingHeroFocus();
       this.cancelFocusedPosterFlow();
       this.clearFocusedPosterFlowState();
       this.collapseFocusedPoster();
     }
     return true;
+  },
+
+  scheduleDetailMetaPrefetch(target) {
+    this.cancelDetailMetaPrefetch();
+    if (!(target instanceof HTMLElement) || target.dataset.action !== "openDetail") {
+      return;
+    }
+    const itemId = String(target.dataset.itemId || "");
+    const itemType = String(target.dataset.itemType || "");
+    if (!itemId || !itemType || itemType === "collection_folder") {
+      return;
+    }
+    const backdropSrc = String(target.dataset.backdropSrc || "");
+    this.detailPrefetchTimer = setTimeout(() => {
+      this.detailPrefetchTimer = null;
+      const run = () => {
+        this.detailPrefetchIdle = null;
+        // Same call (and cache key) the detail screen issues on mount, so pressing
+        // OK after a short dwell renders from the in-memory meta cache instead of
+        // waiting on the network. The repository dedupes in-flight requests.
+        metaRepository.getMetaFromAllAddons(itemType, itemId).catch(() => {});
+        if (backdropSrc) {
+          const warmImage = new Image();
+          warmImage.src = optimizeBackdropUrl(backdropSrc);
+        }
+      };
+      if (typeof requestIdleCallback === "function") {
+        this.detailPrefetchIdle = requestIdleCallback(run, { timeout: 2000 });
+      } else {
+        this.detailPrefetchTimer = setTimeout(run, 120);
+      }
+    }, DETAIL_PREFETCH_DWELL_MS);
+  },
+
+  cancelDetailMetaPrefetch() {
+    if (this.detailPrefetchTimer) {
+      clearTimeout(this.detailPrefetchTimer);
+      this.detailPrefetchTimer = null;
+    }
+    if (this.detailPrefetchIdle != null && typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(this.detailPrefetchIdle);
+    }
+    this.detailPrefetchIdle = null;
   },
 
   buildNavigationModel() {
@@ -6622,11 +6676,105 @@ export const HomeScreen = {
     this.continueWatchingLoading = false;
     this.heroCandidates = [];
     this.heroItem = null;
+    // Stale-while-revalidate: render the previous session's rows immediately so a
+    // cold boot never waits on the network for content; loadData then fetches
+    // fresh catalogs and swaps them in row by row.
+    const snapshot = this.readHomeSnapshot();
+    const warmStart = Boolean(snapshot?.rows?.length);
+    if (warmStart) {
+      this.collections = CollectionsStore.get();
+      this.rows = this.sortAndFilterRows(snapshot.rows, this.collections);
+      this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
+      this.heroIndex = 0;
+      this.heroItem = this.pickInitialHero();
+      this.continueWatchingLoading = true;
+      this.isInitialHomeLoading = false;
+    }
     this.render();
-    await this.loadData({ background: false });
+    await this.loadData({ background: false, warmStart });
   },
 
-  async loadData({ background = false } = {}) {
+  pruneRowsToCatalogKeys(catalogDescriptors = []) {
+    // Snapshot rows can outlive their catalog (addon removed since last session);
+    // once the live descriptor set is known, drop rows it no longer contains.
+    const validKeys = new Set(catalogDescriptors.map((desc) => buildCatalogOrderKey(desc.addonId, desc.type, desc.catalogId)));
+    this.rows = (this.rows || []).filter((row) => row?.rowKind === "collection" || validKeys.has(row?.homeCatalogKey));
+  },
+
+  readHomeSnapshot() {
+    try {
+      const profileId = String(ProfileManager.getActiveProfileId() || "");
+      if (!profileId) {
+        return null;
+      }
+      const snapshot = LocalStore.get(`${HOME_SNAPSHOT_KEY_PREFIX}${profileId}`, null);
+      if (!snapshot || snapshot.version !== HOME_SNAPSHOT_VERSION) {
+        return null;
+      }
+      if ((Date.now() - Number(snapshot.savedAt || 0)) > HOME_SNAPSHOT_MAX_AGE_MS) {
+        return null;
+      }
+      const rows = Array.isArray(snapshot.rows)
+        ? snapshot.rows.filter((row) => row?.homeCatalogKey
+          && row?.result?.status === "success"
+          && Array.isArray(row.result?.data?.items)
+          && row.result.data.items.length)
+        : [];
+      return rows.length ? { ...snapshot, rows } : null;
+    } catch (error) {
+      console.warn("Failed to read home snapshot", error);
+      return null;
+    }
+  },
+
+  persistHomeSnapshot() {
+    try {
+      const profileId = String(ProfileManager.getActiveProfileId() || "");
+      if (!profileId) {
+        return;
+      }
+      const maxItems = Math.max(1, Number(this.getRowItemLimit?.() || 15));
+      // Collection rows are rebuilt from the local CollectionsStore by
+      // sortAndFilterRows on restore, so only network-backed catalog rows persist.
+      const rows = (this.rows || [])
+        .filter((row) => row?.rowKind !== "collection"
+          && row?.homeCatalogKey
+          && row?.result?.status === "success"
+          && Array.isArray(row.result?.data?.items)
+          && row.result.data.items.length)
+        .slice(0, HOME_SNAPSHOT_MAX_ROWS)
+        .map((row) => ({
+          addonBaseUrl: row.addonBaseUrl || "",
+          addonId: row.addonId || "",
+          addonName: row.addonName || "",
+          catalogId: row.catalogId || "",
+          catalogName: row.catalogName || "",
+          type: row.type || "movie",
+          homeCatalogKey: row.homeCatalogKey,
+          homeCatalogDisableKey: row.homeCatalogDisableKey || "",
+          result: {
+            status: "success",
+            data: {
+              items: row.result.data.items.slice(0, maxItems),
+              hasMore: Boolean(row.result.data.hasMore),
+              currentPage: Number(row.result.data.currentPage || 1)
+            }
+          }
+        }));
+      if (!rows.length) {
+        return;
+      }
+      LocalStore.set(`${HOME_SNAPSHOT_KEY_PREFIX}${profileId}`, {
+        version: HOME_SNAPSHOT_VERSION,
+        savedAt: Date.now(),
+        rows
+      });
+    } catch (error) {
+      console.warn("Failed to persist home snapshot", error);
+    }
+  },
+
+  async loadData({ background = false, warmStart = false } = {}) {
     const token = this.homeLoadToken;
     const prefs = LayoutPreferences.get();
     this.layoutPrefs = prefs;
@@ -6721,7 +6869,7 @@ export const HomeScreen = {
     const initialDescriptors = catalogDescriptors.slice(0, initialCatalogLoad);
     const deferredDescriptors = catalogDescriptors.slice(initialCatalogLoad);
 
-    if (!background && this.layoutMode === "modern" && initialDescriptors.length) {
+    if (!background && !warmStart && this.layoutMode === "modern" && initialDescriptors.length) {
       const loadingCount = this.getLoadingRowItemCount();
       const skeletonRows = initialDescriptors.map((desc) => ({
         ...desc,
@@ -6762,7 +6910,18 @@ export const HomeScreen = {
       || initialContinueWatchingItems.length
       || initialNextUpProgressCandidates.length
     );
-    this.rows = this.sortAndFilterRows(initialRows, this.collections);
+    // On a snapshot warm start the stale rows stay visible until their fresh
+    // replacement arrives; fetched rows overwrite by key instead of clearing.
+    const mergedInitialRows = warmStart
+      ? (() => {
+        const byKey = new Map((this.rows || [])
+          .filter((row) => row?.homeCatalogKey)
+          .map((row) => [row.homeCatalogKey, row]));
+        initialRows.forEach((row) => byKey.set(row.homeCatalogKey, row));
+        return Array.from(byKey.values());
+      })()
+      : initialRows;
+    this.rows = this.sortAndFilterRows(mergedInitialRows, this.collections);
     if (!preserveContinueWatching) {
       this.continueWatchingDisplay = initialContinueWatchingState?.display || [];
       this.continueWatchingLoading = false;
@@ -6795,7 +6954,14 @@ export const HomeScreen = {
           loadingItems: buildCatalogLoadingItems(buildModernRowKey(desc), loadingCount)
         }));
         const skeletonByKey = new Map((this.rows || []).map((r) => [r.homeCatalogKey, r]));
-        deferredSkeletonRows.forEach((r) => skeletonByKey.set(r.homeCatalogKey, r));
+        deferredSkeletonRows.forEach((r) => {
+          // Don't replace a row that already has content (snapshot warm start)
+          // with a loading skeleton — the fresh fetch will swap it in place.
+          const existing = skeletonByKey.get(r.homeCatalogKey);
+          if (!existing || existing.result?.status !== "success") {
+            skeletonByKey.set(r.homeCatalogKey, r);
+          }
+        });
         this.rows = this.sortAndFilterRows(Array.from(skeletonByKey.values()), this.collections);
         this.requestBackgroundRender();
       }
@@ -6829,15 +6995,20 @@ export const HomeScreen = {
           combinedByKey.set(row.homeCatalogKey, row);
         });
         this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
+        this.pruneRowsToCatalogKeys(catalogDescriptors);
         this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
         if (!this.heroItem) {
           this.heroItem = this.pickInitialHero();
         }
         this.requestBackgroundRender();
         this.retryPendingCatalogRows();
+        this.persistHomeSnapshot();
       }).catch((error) => {
         console.warn("Deferred home rows load failed", error);
       });
+    } else {
+      this.pruneRowsToCatalogKeys(catalogDescriptors);
+      this.persistHomeSnapshot();
     }
 
     if (this.layoutMode !== "modern") {
@@ -8264,6 +8435,7 @@ export const HomeScreen = {
     this.homeLoadToken = (this.homeLoadToken || 0) + 1;
     this.cancelScheduledRender();
     this.endModernVerticalFastScroll({ land: false });
+    this.cancelDetailMetaPrefetch();
     this.stopHeroRotation();
     this.cancelPendingHeroFocus();
     if (this.heroEnrichAbortController) {

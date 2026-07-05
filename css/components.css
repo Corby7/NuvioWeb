@@ -6302,6 +6302,22 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   min-height: 480px;
 }
 
+/* Skip layout/paint entirely for rows outside the viewport (complements the JS
+   row windowing — this also covers rows that are mounted but scrolled away).
+   The intrinsic block size matches the pending-row min-height so scroll range
+   stays stable before a row first renders. */
+.home-screen-shell.home-layout-modern .home-modern-row {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 480px;
+}
+
+/* content-visibility's paint containment would clip the focused card's scale /
+   expanded poster at the row bounds; DOM focus is always on the card, so
+   :focus-within reliably exempts the active row. */
+.home-screen-shell.home-layout-modern .home-modern-row:focus-within {
+  content-visibility: visible;
+}
+
 .home-screen-shell.home-layout-modern .home-row-title {
   font-size: 28px;
   line-height: 1.2;

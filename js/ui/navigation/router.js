@@ -1,19 +1,8 @@
 import { HomeScreen } from "../screens/home/homeScreen.js";
-import { PlayerScreen } from "../screens/player/playerScreen.js";
 import { AccountScreen } from "../screens/account/accountScreen.js";
 import { AuthSignInScreen } from "../screens/account/authSignInScreen.js";
 import { SyncCodeScreen } from "../screens/account/syncCodeScreen.js";
 import { ProfileSelectionScreen } from "../../core/profile/profileSelectionScreen.js";
-import { MetaDetailsScreen } from "../screens/detail/metaDetailsScreen.js";
-import { LibraryScreen } from "../screens/library/libraryScreen.js";
-import { SearchScreen } from "../screens/search/searchScreen.js";
-import { DiscoverScreen } from "../screens/search/discoverScreen.js";
-import { TraktScreen } from "../screens/trakt/traktScreen.js";
-import { PluginScreen } from "../screens/plugin/pluginScreen.js";
-import { CatalogOrderScreen } from "../screens/plugin/catalogOrderScreen.js";
-import { StreamScreen } from "../screens/stream/streamScreen.js";
-import { CatalogSeeAllScreen } from "../screens/catalog/catalogSeeAllScreen.js";
-import { FolderDetailScreen } from "../screens/collection/folderDetailScreen.js";
 import { Platform } from "../../platform/index.js";
 import { RouteStateStore } from "./routeStateStore.js";
 
@@ -25,6 +14,28 @@ const _lazyFactories = {
   settings: () => import("../screens/settings/settingsScreen.js").then((m) => m.SettingsScreen),
   supportersContributors: () => import("../screens/supporters/supportersContributorsScreen.js").then((m) => m.SupportersContributorsScreen),
   castDetail: () => import("../screens/cast/castDetailScreen.js").then((m) => m.CastDetailScreen),
+  player: () => import("../screens/player/playerScreen.js").then((m) => m.PlayerScreen),
+  detail: () => import("../screens/detail/metaDetailsScreen.js").then((m) => m.MetaDetailsScreen),
+  stream: () => import("../screens/stream/streamScreen.js").then((m) => m.StreamScreen),
+  library: () => import("../screens/library/libraryScreen.js").then((m) => m.LibraryScreen),
+  search: () => import("../screens/search/searchScreen.js").then((m) => m.SearchScreen),
+  discover: () => import("../screens/search/discoverScreen.js").then((m) => m.DiscoverScreen),
+  trakt: () => import("../screens/trakt/traktScreen.js").then((m) => m.TraktScreen),
+  plugin: () => import("../screens/plugin/pluginScreen.js").then((m) => m.PluginScreen),
+  catalogOrder: () => import("../screens/plugin/catalogOrderScreen.js").then((m) => m.CatalogOrderScreen),
+  catalogSeeAll: () => import("../screens/catalog/catalogSeeAllScreen.js").then((m) => m.CatalogSeeAllScreen),
+  folderDetail: () => import("../screens/collection/folderDetailScreen.js").then((m) => m.FolderDetailScreen),
+};
+
+// Likely-next chunks warmed in idle time after a route mounts, so the first
+// press into them never waits on module init.
+const ROUTE_PRELOADS = {
+  home: ["detail"],
+  search: ["detail"],
+  discover: ["detail"],
+  library: ["detail"],
+  detail: ["stream"],
+  stream: ["player"]
 };
 
 const NON_BACKSTACK_ROUTES = new Set([
@@ -48,27 +59,45 @@ export const Router = {
   afterNavigate: null,
 
   routes: {
+    // Eager: needed for boot / auth gating before any navigation settles.
     home: HomeScreen,
-    player: PlayerScreen,
     account: AccountScreen,
     authSignIn: AuthSignInScreen,
     syncCode: SyncCodeScreen,
     profileSelection: ProfileSelectionScreen,
-    detail: MetaDetailsScreen,
-    library: LibraryScreen,
-    search: SearchScreen,
-    discover: DiscoverScreen,
-    trakt: TraktScreen,
-    plugin: PluginScreen,
-    catalogOrder: CatalogOrderScreen,
-    stream: StreamScreen,
-    catalogSeeAll: CatalogSeeAllScreen,
-    folderDetail: FolderDetailScreen,
     // Lazy-loaded on first navigation; factory in _lazyFactories
+    player: null,
+    detail: null,
+    stream: null,
+    library: null,
+    search: null,
+    discover: null,
+    trakt: null,
+    plugin: null,
+    catalogOrder: null,
+    catalogSeeAll: null,
+    folderDetail: null,
     authQrSignIn: null,
     settings: null,
     supportersContributors: null,
     castDetail: null,
+  },
+
+  schedulePreloads(routeName) {
+    const targets = (ROUTE_PRELOADS[routeName] || []).filter((name) => !this.routes[name]);
+    if (!targets.length) {
+      return;
+    }
+    const run = () => {
+      targets.forEach((name) => {
+        this._resolveScreen(name).catch(() => {});
+      });
+    };
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: 5000 });
+    } else {
+      setTimeout(run, 800);
+    }
   },
 
   async _resolveScreen(routeName) {
@@ -157,7 +186,7 @@ export const Router = {
         Platform.exitApp();
         return;
       }
-      if (state?.route && this.routes[state.route]) {
+      if (state?.route && (this.routes[state.route] || _lazyFactories[state.route])) {
         await this.navigate(state.route, state.params || {}, {
           fromHistory: true,
           skipStackPush: true,
@@ -231,6 +260,8 @@ export const Router = {
     if (this.current !== routeName || this.currentParams !== targetParams) {
       return;
     }
+
+    this.schedulePreloads(routeName);
 
     // Fire after mount so chrome that must live inside the screen container
     // (e.g. sidebar injection for LG Magic Remote pointer hit-testing) can

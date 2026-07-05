@@ -1689,7 +1689,12 @@ export const PlayerController = {
     const preferTvNative = this.shouldPreferTvNativePipeline();
     const canUseHlsJs = this.canUseHlsJs();
     const canUseDashJs = this.canUseDashJs();
-    const canPlayNativeHls = this.canPlayNatively("application/vnd.apple.mpegurl");
+    // LG's canPlayType lies about "application/vnd.apple.mpegurl" ("" on many webOS
+    // builds) even though the native pipeline plays HLS via src — and native playback
+    // keeps segment demuxing off the main thread, unlike hls.js/MSE. Trust the
+    // platform; a real failure still falls back to hls.js via onRejected.
+    const canPlayNativeHls = this.canPlayNatively("application/vnd.apple.mpegurl") || Platform.isWebOS();
+    const hasCustomPlaybackHeaders = Object.keys(this.currentPlaybackHeaders || {}).length > 0;
     const canPlayNativeDash = this.canPlayNatively("application/dash+xml");
     const canPlayNativeSmooth = this.canPlayNatively("application/vnd.ms-sstr+xml");
     const pushCandidate = (target, candidate) => {
@@ -1707,6 +1712,11 @@ export const PlayerController = {
       }
       if (preferTvNative && canUseAvPlay) {
         pushCandidate(candidates, avplayEngine);
+      }
+      // The native <video> pipeline cannot attach request headers; streams that
+      // need them (debrid/proxied sources) must go through hls.js (xhrSetup).
+      if (hasCustomPlaybackHeaders && canUseHlsJs) {
+        pushCandidate(candidates, "hls.js");
       }
       if (canPlayNativeHls) {
         pushCandidate(candidates, "native-hls");
@@ -2659,10 +2669,15 @@ export const PlayerController = {
     if (!this.video) {
       return;
     }
+    // A play() rejection can land after a newer source has already taken over
+    // (startup failover). A stale attempt must not log, clobber isPlaying, or —
+    // worst — fire onRejected engine fallbacks for the abandoned URL.
+    const attemptToken = playToken !== null ? playToken : Number(this.playRequestToken || 0);
+    const isStaleAttempt = () => attemptToken !== this.playRequestToken;
     Promise.resolve()
       .then(() => beforePlay?.())
       .then(() => {
-        if (playToken !== null && playToken !== this.playRequestToken) {
+        if (isStaleAttempt()) {
           return null;
         }
         this.applyStartupAudioGateToVideo();
@@ -2674,7 +2689,7 @@ export const PlayerController = {
           return null;
         }
         return playPromise.catch((error) => {
-          if (this.isExpectedPlayInterruption(error)) {
+          if (isStaleAttempt() || this.isExpectedPlayInterruption(error)) {
             return null;
           }
           if (typeof onRejected === "function") {
@@ -2693,7 +2708,7 @@ export const PlayerController = {
         });
       })
       .catch((error) => {
-        if (this.isExpectedPlayInterruption(error)) {
+        if (isStaleAttempt() || this.isExpectedPlayInterruption(error)) {
           return;
         }
         this.isPlaying = false;

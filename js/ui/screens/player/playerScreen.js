@@ -4497,8 +4497,14 @@ export const PlayerScreen = {
         });
         return;
       }
-      const currentAddonName = this.getCurrentStreamCandidate()?.addonName || "";
-      const bestStreamCandidate = this.selectBestStreamCandidateForAddon(streamItems, currentAddonName)
+      const currentCandidate = this.getCurrentStreamCandidate();
+      const currentAddonName = currentCandidate?.addonName || "";
+      const currentStreamName = String(currentCandidate?.name || "").trim();
+      // Stay on the same source across episodes: exact binge group first, then the
+      // same provider label within the same addon, then same addon, then best overall.
+      const bestStreamCandidate = this.selectBestStreamCandidateForBingeGroup(streamItems, this.getStreamCandidateBingeGroup(currentCandidate))
+        || this.selectBestStreamCandidateForStreamName(streamItems, currentStreamName, currentAddonName)
+        || this.selectBestStreamCandidateForAddon(streamItems, currentAddonName)
         || this.selectBestStreamCandidate(streamItems)
         || streamItems[0];
       const bestStream = bestStreamCandidate?.url || bestStreamCandidate?.externalUrl || null;
@@ -10749,7 +10755,15 @@ export const PlayerScreen = {
       if (!streamItems.length) {
         return;
       }
-      const bestStreamCandidate = this.selectBestStreamCandidate(streamItems) || streamItems[0];
+      // Same source-continuity ladder as autoplay-next: binge group, then provider
+      // label within the addon, then addon, then best overall.
+      const currentCandidate = this.getCurrentStreamCandidate();
+      const currentAddonName = currentCandidate?.addonName || "";
+      const bestStreamCandidate = this.selectBestStreamCandidateForBingeGroup(streamItems, this.getStreamCandidateBingeGroup(currentCandidate))
+        || this.selectBestStreamCandidateForStreamName(streamItems, String(currentCandidate?.name || "").trim(), currentAddonName)
+        || this.selectBestStreamCandidateForAddon(streamItems, currentAddonName)
+        || this.selectBestStreamCandidate(streamItems)
+        || streamItems[0];
       const bestStream = bestStreamCandidate?.url || bestStreamCandidate?.externalUrl || null;
       const nextEpisode = this.episodes[this.episodePanelIndex + 1] || null;
       await PlayerController.flushCurrentProgress({ forceCloudSync: true });
@@ -11643,6 +11657,47 @@ export const PlayerScreen = {
     }
 
     return this.selectBestStreamCandidate(addonStreams);
+  },
+
+  getStreamCandidateBingeGroup(streamCandidate) {
+    return String(
+      streamCandidate?.behaviorHints?.bingeGroup
+      || streamCandidate?.raw?.behaviorHints?.bingeGroup
+      || ""
+    ).trim();
+  },
+
+  // Stremio addons stamp behaviorHints.bingeGroup (provider|resolution|source|group)
+  // so binge continuation can stay on the equivalent stream for the next episode.
+  selectBestStreamCandidateForBingeGroup(streams = [], bingeGroup = "") {
+    const normalized = String(bingeGroup || "").trim();
+    if (!normalized || !Array.isArray(streams) || !streams.length) {
+      return null;
+    }
+    const matches = streams.filter((stream) => this.getStreamCandidateBingeGroup(stream) === normalized);
+    if (!matches.length) {
+      return null;
+    }
+    // Rank within the group so playability/capability heuristics still apply.
+    return this.selectBestStreamCandidate(matches) || matches[0];
+  },
+
+  // Aggregators (AIOStreams etc.) expose many providers behind one addon, with the
+  // provider tier encoded in the stream name ("Library ★★☆", "Sootio ★★★★★", …).
+  // When the exact bingeGroup is gone (release group differs per episode), the same
+  // provider label from the same addon is the closest equivalent.
+  selectBestStreamCandidateForStreamName(streams = [], streamName = "", addonName = "") {
+    const normalizedName = String(streamName || "").trim();
+    if (!normalizedName || !Array.isArray(streams) || !streams.length) {
+      return null;
+    }
+    const normalizedAddonName = String(addonName || "").trim();
+    const matches = streams.filter((stream) => String(stream?.name || "").trim() === normalizedName
+      && (!normalizedAddonName || String(stream?.addonName || "").trim() === normalizedAddonName));
+    if (!matches.length) {
+      return null;
+    }
+    return this.selectBestStreamCandidate(matches) || matches[0];
   },
 
   selectBestStreamUrlForAddon(streams = [], addonName = "") {

@@ -2,11 +2,21 @@ const MAX_CONCURRENT = 6;
 const TMDB_POSTER_RE = /\/image\.tmdb\.org\/t\/p\/(?:original|w\d+)\//;
 const MARGIN_X = 600;
 const MARGIN_Y = 200;
+// Unload margins are much larger than load margins so images only churn when the
+// user has really moved on, and the delay debounces fast fly-bys. Freeing decoded
+// bitmaps matters on TVs: GPU memory fills over a long browse session and the
+// compositor degrades.
+const UNLOAD_MARGIN_X = 1800;
+const UNLOAD_MARGIN_Y = 1600;
+const UNLOAD_DELAY_MS = 4000;
 
 let activeLoads = 0;
 let loadGeneration = 0;
+let loadsPaused = false;
 const queue = [];
 let observer = null;
+let unloadObserver = null;
+const unloadTimers = new WeakMap();
 
 function isConnected(img) {
   // Node.isConnected not available before Chrome 51 (webOS 3 = Chrome 38)
@@ -14,7 +24,7 @@ function isConnected(img) {
 }
 
 function processQueue() {
-  while (activeLoads < MAX_CONCURRENT && queue.length > 0) {
+  while (!loadsPaused && activeLoads < MAX_CONCURRENT && queue.length > 0) {
     const img = queue.shift();
     if (!isConnected(img)) continue;
     const src = img.dataset.posterSrc;
@@ -25,10 +35,23 @@ function processQueue() {
       if (loadGeneration === gen && activeLoads > 0) activeLoads--;
       processQueue();
     };
-    img.onload = () => { img.classList.add("poster-loaded"); done(); };
+    img.onload = () => {
+      img.classList.add("poster-loaded");
+      done();
+      watchForUnload(img);
+    };
     img.onerror = done;
     img.src = src;
   }
+}
+
+// Pause decode work while it would compete with held-key navigation; queued
+// entries are kept and drained on resume.
+export function setPosterLoadsPaused(value) {
+  const next = Boolean(value);
+  if (next === loadsPaused) return;
+  loadsPaused = next;
+  if (!loadsPaused) processQueue();
 }
 
 function isNearViewport(img) {
@@ -57,6 +80,51 @@ function getObserver() {
   return observer;
 }
 
+function getUnloadObserver() {
+  if (!unloadObserver && typeof IntersectionObserver !== "undefined") {
+    unloadObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const img = entry.target;
+        if (entry.isIntersecting) {
+          clearTimeout(unloadTimers.get(img));
+          unloadTimers.delete(img);
+          return;
+        }
+        clearTimeout(unloadTimers.get(img));
+        unloadTimers.set(img, setTimeout(() => {
+          unloadTimers.delete(img);
+          unloadPoster(img);
+        }, UNLOAD_DELAY_MS));
+      });
+    }, {
+      rootMargin: `${UNLOAD_MARGIN_Y}px ${UNLOAD_MARGIN_X}px ${UNLOAD_MARGIN_Y}px ${UNLOAD_MARGIN_X}px`,
+      threshold: 0
+    });
+  }
+  return unloadObserver;
+}
+
+function watchForUnload(img) {
+  const obs = getUnloadObserver();
+  if (obs && img.dataset.posterSrc) {
+    obs.observe(img);
+  }
+}
+
+function unloadPoster(img) {
+  unloadObserver?.unobserve(img);
+  if (!isConnected(img) || !img.dataset.posterSrc) {
+    return;
+  }
+  // Drop the decoded bitmap but keep data-poster-src; the load observer brings
+  // it back (through the queue) when it approaches the viewport again.
+  img.onload = null;
+  img.onerror = null;
+  img.removeAttribute("src");
+  img.classList.remove("poster-loaded");
+  getObserver()?.observe(img);
+}
+
 // Call before a full-page render to discard stale load state. Do NOT call
 // from track pagination — that would break in-flight loads for other rows.
 export function resetPosterLoader() {
@@ -66,6 +134,10 @@ export function resetPosterLoader() {
   if (observer) {
     observer.disconnect();
     observer = null;
+  }
+  if (unloadObserver) {
+    unloadObserver.disconnect();
+    unloadObserver = null;
   }
 }
 
@@ -82,8 +154,12 @@ export function observePosterImages(container) {
 }
 
 export function unobservePosterImages(container) {
-  if (!observer) return;
-  container.querySelectorAll("img[data-poster-src]").forEach((img) => observer.unobserve(img));
+  container.querySelectorAll("img[data-poster-src]").forEach((img) => {
+    observer?.unobserve(img);
+    unloadObserver?.unobserve(img);
+    clearTimeout(unloadTimers.get(img));
+    unloadTimers.delete(img);
+  });
 }
 
 export function optimizePosterUrl(url) {
