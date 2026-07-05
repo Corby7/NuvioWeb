@@ -1,5 +1,9 @@
 import { SessionStore } from "../storage/sessionStore.js";
 import { AuthManager } from "../auth/authManager.js";
+import { fetchWithTimeout } from "./fetchWithTimeout.js";
+
+// Callers with special needs pass options.timeoutMs (0 disables the bound).
+const DEFAULT_TIMEOUT_MS = 20000;
 
 function toHeaderObject(headers) {
   if (!headers) {
@@ -41,26 +45,28 @@ export async function httpRequest(url, options = {}) {
 
   const {
     includeSessionAuth: _ignoredIncludeSessionAuth,
+    timeoutMs: _ignoredTimeoutMs,
     ...fetchOptions
   } = options;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  let response = await fetch(url, {
+  let response = await fetchWithTimeout(url, {
     ...fetchOptions,
     method,
     headers
-  });
+  }, timeoutMs);
 
   if (response.status === 401 && includeSessionAuth && SessionStore.refreshToken) {
     const refreshed = await AuthManager.refreshSessionIfNeeded({ force: true });
     if (refreshed && SessionStore.accessToken) {
-      response = await fetch(url, {
+      response = await fetchWithTimeout(url, {
         ...fetchOptions,
         method,
         headers: {
           ...headers,
           Authorization: `Bearer ${SessionStore.accessToken}`
         }
-      });
+      }, timeoutMs);
     }
   }
 

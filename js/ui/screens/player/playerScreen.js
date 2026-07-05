@@ -9,8 +9,11 @@ import { subtitleRepository } from "../../../data/repository/subtitleRepository.
 import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { parentalGuideRepository } from "../../../data/repository/parentalGuideRepository.js";
 import { skipIntroRepository } from "../../../data/repository/skipIntroRepository.js";
-import { PlayerSettingsStore } from "../../../data/local/playerSettingsStore.js";
+import { PlayerSettingsStore, DEFAULT_SUBTITLE_STYLE } from "../../../data/local/playerSettingsStore.js";
+import { SubtitleItemPreferencesStore } from "../../../data/local/subtitleItemPreferencesStore.js";
 import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSettingsStore.js";
+import { fetchSubtitleCues, decodeSubtitleBuffer } from "./subtitleEngine.js";
+import { SubtitleOverlay } from "./subtitleOverlay.js";
 import { matchStreamBadges } from "../../../core/streams/streamBadgeRules.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
 import { I18n } from "../../../i18n/index.js";
@@ -1723,6 +1726,21 @@ export const PlayerScreen = {
       preferredLanguage: extractSubtitleLanguageSetting(playerSettings.subtitleStyle?.preferredLanguage || playerSettings.subtitleLanguage || "off"),
       secondaryPreferredLanguage: extractSubtitleLanguageSetting(playerSettings.subtitleStyle?.secondaryPreferredLanguage || playerSettings.secondarySubtitleLanguage || "off")
     };
+    this.itemSubtitlePreferences = this.readItemSubtitlePreferences();
+    if (this.itemSubtitlePreferences) {
+      if (Number.isFinite(this.itemSubtitlePreferences.delayMs)) {
+        this.subtitleDelayMs = clamp(this.itemSubtitlePreferences.delayMs, -5000, 5000);
+      }
+      if (Number.isFinite(this.itemSubtitlePreferences.verticalOffset)) {
+        this.subtitleStyleSettings.verticalOffset = normalizeSubtitleVerticalOffset(this.itemSubtitlePreferences.verticalOffset);
+      }
+    }
+    if (!this.subtitleOverlay) {
+      this.subtitleOverlay = new SubtitleOverlay({
+        getVideo: () => PlayerController.video,
+        getDelaySeconds: () => Number(this.subtitleDelayMs || 0) / 1000
+      });
+    }
     this.audioAmplificationDb = clamp(Number(playerSettings.audioAmplificationDb || 0), AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB);
     this.persistAudioAmplification = Boolean(playerSettings.persistAudioAmplification);
     this.audioAmplificationAvailable = supportsTvWebAudioAmplification()
@@ -1886,6 +1904,31 @@ export const PlayerScreen = {
       videoSize: behaviorHints.videoSize || rawStream.videoSize || this.params?.videoSize || null,
       filename: behaviorHints.filename || rawStream.filename || this.params?.filename || null
     };
+  },
+
+  isHtmlSubtitleRenderMode() {
+    return String(PlayerSettingsStore.get().subtitleRenderMode || "").toLowerCase() === "html";
+  },
+
+  readItemSubtitlePreferences() {
+    try {
+      const contentId = this.buildSubtitleLookupContext().id;
+      return contentId ? SubtitleItemPreferencesStore.get(contentId) : null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  saveItemSubtitlePreferences(partial = {}) {
+    try {
+      const contentId = this.buildSubtitleLookupContext().id;
+      if (!contentId) {
+        return;
+      }
+      this.itemSubtitlePreferences = SubtitleItemPreferencesStore.set(contentId, partial);
+    } catch (_) {
+      // Per-show preferences are best effort.
+    }
   },
 
   buildPlaybackIdentityContext() {
@@ -3638,6 +3681,7 @@ export const PlayerScreen = {
     this.cachePlayerUiRefs(root);
     this.bindLoadingLogoFallback();
     if (!this.isExternalFrameMode()) {
+      this.subtitleOverlay?.attach(root);
       this.renderControlButtons();
       this.renderSubtitleDialog();
       this.renderAudioDialog();
@@ -4640,6 +4684,11 @@ export const PlayerScreen = {
     video.style.setProperty("--player-subtitle-font-weight", subtitleFontWeight);
     video.style.setProperty("--player-subtitle-shadow", subtitleShadow);
     video.style.setProperty("--player-subtitle-offset", `${(verticalOffset.residualOffset * -2).toFixed(2)}vh`);
+    // Overlay renderer: font size scales a vh base, offset raises/lowers the
+    // whole cue block (full offset value; no line/residual split needed).
+    uiRoot.style.setProperty("--player-subtitle-overlay-font-size", `${((subtitleFontSize / 100) * 4.2).toFixed(2)}vh`);
+    uiRoot.style.setProperty("--player-subtitle-overlay-offset", `${(normalizeSubtitleVerticalOffset(style.verticalOffset) * 2).toFixed(1)}vh`);
+    this.subtitleOverlay?.invalidate();
     this.refreshSubtitleCueStyles();
     if (refreshTrackRendering) {
       this.refreshSubtitleTrackRendering();
@@ -4928,6 +4977,11 @@ export const PlayerScreen = {
   },
 
   refreshSubtitleCueStyles() {
+    // Overlay-rendered subtitles never hit the native cue pipeline, so cue
+    // mutation (positioning/sanitizing) would be wasted work.
+    if (this.subtitleOverlay?.hasSource()) {
+      return;
+    }
     const tracks = this.getSubtitleCueTrackList();
     if (!tracks.length) {
       return;
@@ -7518,6 +7572,7 @@ export const PlayerScreen = {
     this.externalTrackNodes = [];
     this._lastExternalSubtitleVttRaw = null;
     this.revokeExternalSubtitleObjectUrls();
+    this.subtitleOverlay?.clear();
   },
 
   getSubtitleRequestHeaders() {
@@ -7665,15 +7720,35 @@ export const PlayerScreen = {
   },
 
   applySubtitleDelayToTrackNodes() {
+    // Overlay-rendered subtitles apply delay at cue lookup time; nothing to
+    // rebuild.
+    if (this.subtitleOverlay?.hasSource()) {
+      this.subtitleOverlay.invalidate();
+      return;
+    }
     const vttRaw = this._lastExternalSubtitleVttRaw;
     if (!vttRaw || !this.externalTrackNodes.length) return;
     const shifted = this.shiftVttTimestamps(vttRaw, this.subtitleDelayMs);
     const objectUrl = URL.createObjectURL(new Blob([shifted], { type: "text/vtt" }));
-    this.externalSubtitleObjectUrls.push(objectUrl);
+    const staleUrls = this.externalSubtitleObjectUrls;
+    this.externalSubtitleObjectUrls = [objectUrl];
     this.externalTrackNodes.forEach((node) => { node.src = objectUrl; });
+    // Revoke the replaced blobs after the track nodes have switched over.
+    setTimeout(() => {
+      (staleUrls || []).forEach((url) => {
+        if (url === objectUrl) {
+          return;
+        }
+        try {
+          URL.revokeObjectURL(url);
+        } catch (_) {
+          // Best effort.
+        }
+      });
+    }, 2000);
   },
 
-  async resolveSubtitlePlaybackUrl(url, { timeoutMs = 0 } = {}) {
+  async resolveSubtitlePlaybackUrl(url, { timeoutMs = 0, languageHint = "" } = {}) {
     const original = String(url || "").trim();
     if (!original) {
       return "";
@@ -7709,7 +7784,9 @@ export const PlayerScreen = {
       if (!response.ok) {
         return original;
       }
-      const body = await response.text();
+      // Decode from bytes so non-UTF-8 subtitle files (Windows-125x code
+      // pages are common from addons) don't turn into mojibake.
+      const body = decodeSubtitleBuffer(await response.arrayBuffer(), { languageHint });
       const contentType = String(response.headers?.get("content-type") || "").toLowerCase();
       const shouldConvertToVtt = this.isLikelySrtSubtitleUrl(original)
         || contentType.includes("subrip")
@@ -8018,7 +8095,7 @@ export const PlayerScreen = {
             id: "subtitle-off",
             label: t("subtitle_none", {}, "None"),
             secondary: "",
-            selected: this.selectedSubtitleTrackIndex < 0 && this.selectedEmbeddedSubtitleTrackIndex < 0 && !this.selectedManifestSubtitleTrackId,
+            selected: this.selectedSubtitleTrackIndex < 0 && this.selectedEmbeddedSubtitleTrackIndex < 0 && !this.selectedManifestSubtitleTrackId && !this.selectedAddonSubtitleId,
             trackIndex: -1
           },
           ...embeddedSubtitleTracks.map((track, index) => {
@@ -8358,6 +8435,9 @@ export const PlayerScreen = {
     }
 
     this.applySubtitleEntry(option.entry);
+    if (!this.startupSubtitlePreferenceApplying) {
+      this.saveItemSubtitlePreferences({ languageKey: option.languageKey });
+    }
     return true;
   },
 
@@ -8491,9 +8571,19 @@ export const PlayerScreen = {
     return normalizeSubtitleLanguageKey(configured);
   },
 
+  // Language the user last picked for this specific title, if any.
+  getItemPreferredSubtitleLanguageKey() {
+    const key = String(this.itemSubtitlePreferences?.languageKey || "").trim();
+    return key || null;
+  },
+
   getStartupPreferredSubtitleLanguageTargets() {
     const settings = PlayerSettingsStore.get();
-    if (!settings.subtitlesEnabled) {
+    const itemLanguageKey = this.getItemPreferredSubtitleLanguageKey();
+    if (itemLanguageKey === SUBTITLE_LANGUAGE_OFF_KEY) {
+      return [];
+    }
+    if (!settings.subtitlesEnabled && !itemLanguageKey) {
       return [];
     }
 
@@ -8517,6 +8607,11 @@ export const PlayerScreen = {
         return normalizeSubtitleLanguageKey(configured);
       })
       .filter(Boolean);
+
+    // The per-title language choice takes priority over the global defaults.
+    if (itemLanguageKey) {
+      targets.unshift(itemLanguageKey);
+    }
 
     return Array.from(new Set(targets));
   },
@@ -8552,6 +8647,15 @@ export const PlayerScreen = {
 
   getStartupSubtitlePreferenceMode() {
     const settings = PlayerSettingsStore.get();
+    const itemLanguageKey = this.getItemPreferredSubtitleLanguageKey();
+    if (itemLanguageKey === SUBTITLE_LANGUAGE_OFF_KEY) {
+      return "off";
+    }
+    // An explicit per-title language choice overrides forced-subtitle mode
+    // and the global enable toggle for this title.
+    if (itemLanguageKey) {
+      return "language";
+    }
     if (!settings.subtitlesEnabled) {
       return "off";
     }
@@ -8834,6 +8938,7 @@ export const PlayerScreen = {
     if (controlId === "delay") {
       this.subtitleDelayMs = clamp(Number(this.subtitleDelayMs || 0) + (delta * SUBTITLE_DELAY_STEP_MS), -5000, 5000);
       this.persistPlayerPresentationSettings();
+      this.saveItemSubtitlePreferences({ delayMs: this.subtitleDelayMs });
       this.applySubtitleDelayToTrackNodes();
       this.renderSubtitleDialog();
       return;
@@ -8851,11 +8956,20 @@ export const PlayerScreen = {
       style.outlineColor = SUBTITLE_OUTLINE_COLORS[clamp(currentIndex + delta, 0, SUBTITLE_OUTLINE_COLORS.length - 1)];
     } else if (controlId === "verticalOffset") {
       style.verticalOffset = normalizeSubtitleVerticalOffset(Number(style.verticalOffset || 0) + (delta * SUBTITLE_VERTICAL_OFFSET_STEP));
+      this.saveItemSubtitlePreferences({ verticalOffset: style.verticalOffset });
     } else if (controlId === "reset") {
-      const defaults = PlayerSettingsStore.get().subtitleStyle;
+      const savedStyle = PlayerSettingsStore.get().subtitleStyle || {};
       this.subtitleDelayMs = 0;
-      this.subtitleStyleSettings = { ...defaults };
+      // Reset to the real defaults but keep the language preferences, which
+      // are configuration rather than presentation.
+      this.subtitleStyleSettings = {
+        ...DEFAULT_SUBTITLE_STYLE,
+        preferredLanguage: savedStyle.preferredLanguage ?? DEFAULT_SUBTITLE_STYLE.preferredLanguage,
+        secondaryPreferredLanguage: savedStyle.secondaryPreferredLanguage ?? DEFAULT_SUBTITLE_STYLE.secondaryPreferredLanguage,
+        useForcedSubtitles: savedStyle.useForcedSubtitles ?? DEFAULT_SUBTITLE_STYLE.useForcedSubtitles
+      };
       this.persistPlayerPresentationSettings();
+      this.saveItemSubtitlePreferences({ delayMs: 0, verticalOffset: 0 });
       this.applySubtitleDelayToTrackNodes();
       this.applySubtitlePresentationSettings({ refreshTrackRendering: true });
       this.renderSubtitleDialog();
@@ -8916,6 +9030,8 @@ export const PlayerScreen = {
   applyNativeEmbeddedSubtitleTrack(embeddedTrack, targetTrackIndex) {
     if (this.externalTrackNodes.length) {
       this.clearMountedExternalSubtitleTracks();
+    } else {
+      this.subtitleOverlay?.clear();
     }
 
     let applied = false;
@@ -8961,8 +9077,12 @@ export const PlayerScreen = {
       return;
     }
 
-    if (!entry.fallbackAddonSubtitle && this.externalTrackNodes.length) {
-      this.clearMountedExternalSubtitleTracks();
+    if (!entry.fallbackAddonSubtitle) {
+      if (this.externalTrackNodes.length) {
+        this.clearMountedExternalSubtitleTracks();
+      } else {
+        this.subtitleOverlay?.clear();
+      }
     }
 
     if (Object.prototype.hasOwnProperty.call(entry, "avplaySubtitleTrackIndex")) {
@@ -9070,6 +9190,7 @@ export const PlayerScreen = {
       this.selectedAddonSubtitleId = null;
       this.selectedSubtitleTrackIndex = targetIndex;
       this.selectedEmbeddedSubtitleTrackIndex = -1;
+      this.syncSubtitleOverlayForNativeTrack(targetIndex);
       this.invalidateTrackDialogCaches();
       this.refreshSubtitleCueStyles();
       this.renderControlButtons();
@@ -9098,10 +9219,53 @@ export const PlayerScreen = {
     this.selectedAddonSubtitleId = null;
     this.selectedSubtitleTrackIndex = targetIndex;
     this.selectedEmbeddedSubtitleTrackIndex = -1;
+    this.syncSubtitleOverlayForNativeTrack(targetIndex);
     this.invalidateTrackDialogCaches();
     this.refreshSubtitleCueStyles();
     this.renderControlButtons();
     this.renderSubtitleDialog();
+  },
+
+  // In HTML render mode a selected built-in text track is kept "hidden" and
+  // drawn by the overlay. If the engine never exposes its cues, fall back to
+  // native "showing" rendering after a grace period.
+  syncSubtitleOverlayForNativeTrack(targetIndex) {
+    if (!this.isHtmlSubtitleRenderMode() || !this.subtitleOverlay) {
+      return;
+    }
+    const normalizedIndex = Number(targetIndex);
+    if (!Number.isFinite(normalizedIndex) || normalizedIndex < 0) {
+      this.subtitleOverlay.clear();
+      return;
+    }
+    const track = this.getTextTracks()[normalizedIndex] || null;
+    if (!track) {
+      this.subtitleOverlay.clear();
+      return;
+    }
+    try {
+      track.mode = "hidden";
+    } catch (_) {
+      // Track stays "showing"; native rendering takes over.
+      this.subtitleOverlay.clear();
+      return;
+    }
+    this.subtitleOverlay.setNativeTrack(track);
+    setTimeout(() => {
+      if (this.subtitleOverlay?.track !== track) {
+        return;
+      }
+      const cuesAccessible = Boolean(track.cues && typeof track.cues.length === "number" && track.cues.length > 0);
+      if (!cuesAccessible) {
+        this.subtitleOverlay.clear();
+        try {
+          track.mode = "showing";
+        } catch (_) {
+          // Best effort.
+        }
+        this.refreshSubtitleCueStyles();
+      }
+    }, 1500);
   },
 
   async applyFallbackAddonSubtitle(subtitleIndex) {
@@ -9117,7 +9281,7 @@ export const PlayerScreen = {
     if (usingAvPlay) {
       let avPlaySubtitleUrl = subtitle.url;
       try {
-        avPlaySubtitleUrl = await this.resolveSubtitlePlaybackUrl(subtitle.url) || subtitle.url;
+        avPlaySubtitleUrl = await this.resolveSubtitlePlaybackUrl(subtitle.url, { languageHint: subtitle.lang || "" }) || subtitle.url;
       } catch (_) {
         avPlaySubtitleUrl = subtitle.url;
       }
@@ -9152,7 +9316,36 @@ export const PlayerScreen = {
     this.disableEmbeddedSubtitleSelection();
     this.clearMountedExternalSubtitleTracks();
 
-    const resolvedSubtitleUrl = await this.resolveSubtitlePlaybackUrl(subtitle.url);
+    if (this.isHtmlSubtitleRenderMode()) {
+      const cues = await fetchSubtitleCues(subtitle.url, {
+        headers: this.getSubtitleRequestHeaders(),
+        languageHint: subtitle.lang || ""
+      });
+      // The user may have picked a different subtitle while this fetch ran.
+      if (this.selectedAddonSubtitleId !== subtitleId) {
+        return;
+      }
+      if (cues.length) {
+        this.getTextTracks().forEach((textTrack) => {
+          try {
+            textTrack.mode = "disabled";
+          } catch (_) {
+            // Best effort.
+          }
+        });
+        this.subtitleOverlay?.setCueList(cues);
+        this.selectedSubtitleTrackIndex = -1;
+        this.selectedEmbeddedSubtitleTrackIndex = -1;
+        this.selectedManifestSubtitleTrackId = null;
+        this.applySubtitlePresentationSettings();
+        this.renderControlButtons();
+        this.renderSubtitleDialog();
+        return;
+      }
+      console.warn("Overlay subtitle parse failed, falling back to native track", { subtitleUrl: subtitle.url });
+    }
+
+    const resolvedSubtitleUrl = await this.resolveSubtitlePlaybackUrl(subtitle.url, { languageHint: subtitle.lang || "" });
     if (!resolvedSubtitleUrl) {
       return;
     }
@@ -9359,6 +9552,7 @@ export const PlayerScreen = {
         }
         if (language.key === SUBTITLE_LANGUAGE_OFF_KEY) {
           this.applySubtitleEntry(this.getSubtitleEntries("builtIn").find((entry) => entry.id === "subtitle-off") || { trackIndex: -1 });
+          this.saveItemSubtitlePreferences({ languageKey: SUBTITLE_LANGUAGE_OFF_KEY });
         } else {
           const selected = this.selectFirstSubtitleOptionForLanguage(language.key, { focusOptions: true });
           if (!selected) {
@@ -9376,6 +9570,9 @@ export const PlayerScreen = {
         const option = options[this.subtitleOptionRailIndex];
         if (option?.entry) {
           this.applySubtitleEntry(option.entry);
+          if (option.languageKey && option.languageKey !== SUBTITLE_LANGUAGE_OFF_KEY) {
+            this.saveItemSubtitlePreferences({ languageKey: option.languageKey });
+          }
           this.subtitleFocusedRail = "style";
           this.subtitleStyleControlSide = "minus";
         }
@@ -10819,7 +11016,16 @@ export const PlayerScreen = {
             {
               videoHash: subtitleLookup.videoHash || null,
               videoSize: subtitleLookup.videoSize || null,
-              filename: subtitleLookup.filename || null
+              filename: subtitleLookup.filename || null,
+              // Show each addon's subtitles as they arrive instead of
+              // waiting for the slowest addon.
+              onResults: (partialResults) => {
+                if (requestToken !== this.subtitleLoadToken) {
+                  return;
+                }
+                this.subtitles = this.mergeSubtitleCandidates(sidecarSubtitles, partialResults);
+                this.refreshTrackDialogs();
+              }
             }
           );
         }
@@ -10852,38 +11058,6 @@ export const PlayerScreen = {
     }
   },
 
-  attachExternalSubtitles() {
-    const video = PlayerController.video;
-    if (!video) {
-      return;
-    }
-
-    this.clearMountedExternalSubtitleTracks();
-
-    this.builtInSubtitleCount = this.getTextTracks().length;
-    const usingAvPlay = typeof PlayerController.isUsingAvPlay === "function"
-      ? PlayerController.isUsingAvPlay()
-      : false;
-    if (usingAvPlay) {
-      return;
-    }
-
-    this.subtitles.forEach((subtitle, index) => {
-      if (!subtitle.url) {
-        return;
-      }
-      const subtitleId = subtitle.id || subtitle.url || `subtitle-${index}`;
-      const track = document.createElement("track");
-      track.kind = "subtitles";
-      track.label = subtitle.lang || subtitleLabel(index);
-      track.srclang = normalizeTrackLanguageCode(subtitle.lang) || "und";
-      track.src = subtitle.url;
-      track.default = false;
-      track.setAttribute("data-addon-subtitle-id", subtitleId);
-      video.appendChild(track);
-      this.externalTrackNodes.push(track);
-    });
-  },
   moveControlFocus(delta) {
     const controls = this.getControlDefinitions();
     if (!controls.length) {
@@ -11776,6 +11950,7 @@ export const PlayerScreen = {
 
     this.clearSubtitleCueStyleBindings();
     this.clearMountedExternalSubtitleTracks();
+    this.subtitleOverlay?.detach();
 
     this.clearControlsAutoHide();
     this.skipIntroAutoHidden = false;

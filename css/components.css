@@ -10267,6 +10267,59 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   transform: translateY(var(--player-subtitle-offset));
 }
 
+/* HTML overlay subtitle renderer (subtitleRenderMode: "html"). Sized and
+   colored by the same settings that drive ::cue in native mode; JS sets
+   --player-subtitle-overlay-font-size / -offset from the style settings. */
+.player-subtitle-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  padding-bottom: calc(7vh + var(--player-subtitle-overlay-offset, 0vh));
+  pointer-events: none;
+  z-index: 15;
+}
+
+.player-subtitle-overlay.hidden {
+  display: none;
+}
+
+.player-subtitle-overlay-cue {
+  max-width: 84%;
+  text-align: center;
+}
+
+.player-subtitle-overlay-cue.is-top {
+  position: absolute;
+  top: 6vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 84%;
+}
+
+.player-subtitle-overlay-cue.is-middle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 84%;
+}
+
+.player-subtitle-overlay-text {
+  display: inline-block;
+  color: var(--player-subtitle-color);
+  font-size: var(--player-subtitle-overlay-font-size, 4.2vh);
+  font-weight: var(--player-subtitle-font-weight);
+  line-height: 1.3;
+  text-shadow: var(--player-subtitle-shadow);
+  white-space: pre-wrap;
+}
+
 .player-loading-overlay {
   position: absolute;
   top: 0;

@@ -1,6 +1,7 @@
 import { AuthState } from "./authState.js";
 import { SessionStore } from "../storage/sessionStore.js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../config.js";
+import { fetchWithTimeout } from "../network/fetchWithTimeout.js";
 
 function isJwtLike(token) {
   const value = String(token || "").trim();
@@ -149,7 +150,7 @@ class AuthManagerClass {
 
     this.refreshPromise = (async () => {
       try {
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
           {
             method: "POST",
@@ -158,9 +159,18 @@ class AuthManagerClass {
               "apikey": SUPABASE_ANON_KEY
             },
             body: JSON.stringify({ refresh_token: refreshToken })
-          }
+          },
+          8000
         );
         if (!res.ok) {
+          // Only 4xx means the session itself is invalid. A 5xx/522 is a
+          // backend outage: keep the session so a flaky backend can't sign
+          // the user out at boot; API calls will retry refresh via their
+          // own 401 handling once the backend recovers.
+          if (res.status >= 500) {
+            console.warn(`Session refresh unavailable (HTTP ${res.status}); keeping existing session`);
+            return Boolean(accessToken);
+          }
           return false;
         }
         const data = await res.json();
@@ -173,8 +183,9 @@ class AuthManagerClass {
         }
         return true;
       } catch (error) {
-        console.warn("Session refresh failed", error);
-        return false;
+        // Network failure/timeout - same reasoning as 5xx above.
+        console.warn("Session refresh failed; keeping existing session", error);
+        return Boolean(accessToken);
       } finally {
         this.refreshPromise = null;
       }

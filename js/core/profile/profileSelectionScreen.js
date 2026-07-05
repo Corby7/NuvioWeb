@@ -310,12 +310,44 @@ export const ProfileSelectionScreen = {
     this.lastKeyboardActivation = null;
     this.suppressHoldMenuEnterUntilKeyUp = false;
 
-    await ProfileSyncService.pull();
+    // Paint immediately from local data — cloud sync must never hold up the
+    // first frame (a slow backend used to mean a black screen here). The
+    // background refresh below re-renders once fresh data lands.
     this.profiles = await ProfileManager.getProfiles();
-    await this.refreshProfilePinStates();
     this.lastProfileFocusKey = `profile:${this.activeProfileId || "1"}`;
-    await this.loadAvatarCatalog();
     this.render();
+
+    const refreshToken = (this.mountRefreshToken || 0) + 1;
+    this.mountRefreshToken = refreshToken;
+    void (async () => {
+      try {
+        await Promise.all([
+          (async () => {
+            await ProfileSyncService.pull();
+            const profiles = await ProfileManager.getProfiles();
+            if (this.mountRefreshToken === refreshToken) {
+              this.profiles = profiles;
+            }
+          })(),
+          (async () => {
+            const pinStates = await ProfileSyncService.pullProfileLockStates();
+            if (this.mountRefreshToken === refreshToken) {
+              this.profilePinEnabled = pinStates;
+            }
+          })(),
+          this.loadAvatarCatalog()
+        ]);
+      } catch (error) {
+        console.warn("Profile selection background refresh failed", error);
+      }
+      const safeToRerender = this.mountRefreshToken === refreshToken
+        && this.container?.style?.display !== "none"
+        && !this.editorState
+        && this.pinOverlayPhase === "closed";
+      if (safeToRerender) {
+        this.render();
+      }
+    })();
   },
 
   async loadAvatarCatalog() {

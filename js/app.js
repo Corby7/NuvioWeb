@@ -17,6 +17,9 @@ import { warmStreamingLibs } from "./runtime/loadStreamingLibs.js";
 import { Platform } from "./platform/index.js";
 import { LocalStore } from "./core/storage/localStore.js";
 import { I18n } from "./i18n/index.js";
+import { bootMark } from "./core/diagnostics/bootTrace.js";
+
+bootMark("bundle evaluated");
 
 (function applyLegacyPatches() {
   const originalGetElementById = document.getElementById;
@@ -37,6 +40,36 @@ let appShellRendered = false;
 
 function isSignedOutRouteAllowed() {
   return SIGNED_OUT_ALLOWED_ROUTES.has(Router.getCurrent());
+}
+
+// Boot must never wait long on cloud sync: home renders from the local
+// snapshot and every pull merges into local stores whenever it finishes, so
+// after the budget we proceed and let the request complete in the background.
+const BOOT_SYNC_BUDGET_MS = 3500;
+
+function awaitBootSyncValue(promise, fallbackValue, label, budgetMs = BOOT_SYNC_BUDGET_MS) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        bootMark(`${label} exceeded ${budgetMs}ms budget (continuing in background)`);
+        resolve(fallbackValue);
+      }
+    }, budgetMs);
+    Promise.resolve(promise)
+      .catch((error) => {
+        console.warn(`Boot sync '${label}' failed`, error);
+        return fallbackValue;
+      })
+      .then((value) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        }
+      });
+  });
 }
 
 function formatErrorMessage(error) {
@@ -151,10 +184,14 @@ function isAddonRemoteMode() {
 }
 
 async function shouldShowProfileSelection() {
-  await ProfileSyncService.pull();
+  await awaitBootSyncValue(ProfileSyncService.pull(), [], "profile sync pull");
+  bootMark("profile sync pulled");
   const profiles = await ProfileManager.getProfiles();
   const activeProfileId = ProfileManager.getActiveProfileId();
-  const pinStates = await ProfileSyncService.pullProfileLockStates();
+  // On timeout this falls back to {} (no PINs), which matches the existing
+  // error behavior of pullProfileLockStates.
+  const pinStates = await awaitBootSyncValue(ProfileSyncService.pullProfileLockStates(), {}, "profile lock states pull");
+  bootMark("profile lock states pulled");
   const activeProfileHasPin = Boolean(
     pinStates?.[String(activeProfileId)] ||
     pinStates?.[Number(activeProfileId)],
@@ -191,11 +228,17 @@ async function enterWithLastProfile() {
   if (activeProfile) {
     await ProfileManager.setActiveProfile(activeProfile.id);
     detailWatchedEnrichmentService.invalidateAllCache();
-    await Promise.all([
-      ProfileSettingsSyncService.pull(activeProfile.id),
-      LibrarySyncService.pull()
-    ]);
+    await awaitBootSyncValue(
+      Promise.all([
+        ProfileSettingsSyncService.pull(activeProfile.id),
+        LibrarySyncService.pull()
+      ]),
+      null,
+      "settings/library sync pull"
+    );
+    bootMark("settings/library sync pulled");
   }
+  bootMark("navigating home");
   Router.navigate("home");
 }
 
@@ -212,9 +255,11 @@ async function routeAfterAuthentication() {
 async function bootstrapApp() {
   renderAppShell();
   appShellRendered = true;
+  bootMark("app shell rendered");
   Platform.init();
   applyPerformanceMode();
   await I18n.init();
+  bootMark("i18n ready");
 
   Router.init();
   RootSidebarController.init();
@@ -226,6 +271,7 @@ async function bootstrapApp() {
 
   ThemeManager.apply();
   I18n.apply();
+  bootMark("controllers ready");
   warmStreamingLibs({ delayMs: 800 });
 
   AuthManager.subscribe((state) => {

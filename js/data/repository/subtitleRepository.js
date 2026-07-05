@@ -2,15 +2,59 @@ import { safeApiCall } from "../../core/network/safeApiCall.js";
 import { addonRepository } from "./addonRepository.js";
 import { SubtitleApi } from "../remote/api/subtitleApi.js";
 
-const PER_ADDON_TIMEOUT_MS = 20000;
+const PER_ADDON_TIMEOUT_MS = 10000;
+const RESULT_CACHE_TTL_MS = 10 * 60 * 1000;
+const RESULT_CACHE_MAX_ENTRIES = 20;
+
+// Session cache so reopening the player (or the subtitle dialog after a
+// source switch) does not refetch every addon.
+const resultCache = new Map();
+
+function readCachedResults(cacheKey) {
+  const entry = resultCache.get(cacheKey);
+  if (!entry) {
+    return null;
+  }
+  if (Date.now() - entry.at > RESULT_CACHE_TTL_MS) {
+    resultCache.delete(cacheKey);
+    return null;
+  }
+  return entry.items;
+}
+
+function writeCachedResults(cacheKey, items) {
+  resultCache.set(cacheKey, { at: Date.now(), items });
+  while (resultCache.size > RESULT_CACHE_MAX_ENTRIES) {
+    const oldestKey = resultCache.keys().next().value;
+    resultCache.delete(oldestKey);
+  }
+}
 
 class SubtitleRepository {
 
+  // options.onResults(items) is invoked with the merged list so far as each
+  // addon responds, letting the caller render results progressively instead
+  // of waiting for the slowest addon.
   async getSubtitles(type, id, videoId = null, options = {}) {
     const normalizedType = this.canonicalSubtitleType(type);
     const rawId = String(id || "").trim();
     const normalizedId = this.normalizeIdForLookup(rawId);
     const idCandidates = this.uniqueNonEmpty([normalizedId, rawId]);
+    const onResults = typeof options?.onResults === "function" ? options.onResults : null;
+
+    const cacheKey = [
+      normalizedType,
+      normalizedId,
+      String(videoId || ""),
+      String(options?.videoHash || ""),
+      String(options?.videoSize || ""),
+      String(options?.filename || "")
+    ].join("::");
+    const cached = readCachedResults(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const addons = await addonRepository.getInstalledAddons({
       cacheOnly: Boolean(options?.manifestCacheOnly)
     });
@@ -22,16 +66,22 @@ class SubtitleRepository {
       return this.supportsType(resource, normalizedType, normalizedId);
     }));
 
-    const allResults = await Promise.all(subtitleAddons.map((addon) =>
-      this.fetchSubtitlesFromAddon(addon, normalizedType, idCandidates, videoId, options)
-    ));
-
     const mergedResults = [];
-    allResults.forEach((items) => {
+    await Promise.all(subtitleAddons.map(async (addon) => {
+      const items = await this.fetchSubtitlesFromAddon(addon, normalizedType, idCandidates, videoId, options);
       if (Array.isArray(items) && items.length) {
         mergedResults.push(...items);
+        if (onResults) {
+          try {
+            onResults([...mergedResults]);
+          } catch (_) {
+            // Progressive listeners must not break the fetch.
+          }
+        }
       }
-    });
+    }));
+
+    writeCachedResults(cacheKey, mergedResults);
     return mergedResults;
   }
 

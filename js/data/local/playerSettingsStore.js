@@ -10,7 +10,7 @@ const DEFAULTS = {
   preferredAudioLanguage: "system",
   trailerAutoplay: false,
   skipIntroEnabled: true,
-  subtitleRenderMode: "native",
+  subtitleRenderMode: "html",
   subtitleDelayMs: 0,
   subtitleStyle: {
     fontSize: 100,
@@ -32,6 +32,8 @@ const DEFAULTS = {
   streamAutoPlayRegex: "",
   streamAutoPlayTimeoutSeconds: 3
 };
+
+export const DEFAULT_SUBTITLE_STYLE = Object.freeze({ ...DEFAULTS.subtitleStyle });
 
 const STREAM_AUTO_PLAY_MODES = ["MANUAL", "FIRST_STREAM", "REGEX_MATCH"];
 const STREAM_AUTO_PLAY_SOURCES = ["ALL_SOURCES", "INSTALLED_ADDONS_ONLY", "ENABLED_PLUGINS_ONLY"];
@@ -120,9 +122,19 @@ function normalizePlayerSettings(settings = {}) {
     secondaryPreferredLanguage = "off";
   }
 
+  // The render mode setting existed before anything read it, so persisted
+  // "native" values carry no user intent. Migrate everyone to the HTML
+  // overlay once; explicit choices made after this migration stick.
+  let subtitleRenderMode = String(settings.subtitleRenderMode || DEFAULTS.subtitleRenderMode).toLowerCase();
+  if (!settings.subtitleRenderModeMigratedToHtml) {
+    subtitleRenderMode = "html";
+  }
+
   return {
     ...DEFAULTS,
     ...settings,
+    subtitleRenderMode,
+    subtitleRenderModeMigratedToHtml: true,
     subtitlesEnabled,
     subtitleLanguage: preferredLanguage,
     secondarySubtitleLanguage: secondaryPreferredLanguage,
