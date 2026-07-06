@@ -12974,6 +12974,18 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   flex: 0 0 286px;
   scroll-snap-align: start;
   box-sizing: border-box;
+  /* Skip layout/paint for cards outside the viewport (same technique as the
+     home rows). Long seasons keep only the visible window rendered; the
+     intrinsic block size preserves the rail height and scroll range. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 166px;
+}
+
+/* content-visibility's paint containment would clip the focused card's ring /
+   thumb shadow at the card bounds — exempt the active card. */
+.series-episode-card.focused,
+.series-episode-card:focus-within {
+  content-visibility: visible;
 }
 
 .series-episode-card.focused {
@@ -17267,6 +17279,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 .series-episode-card {
   flex-basis: 600px;
   border-radius: 64px;
+  contain-intrinsic-block-size: auto 395px;
 }
 
 .series-episode-thumb {
