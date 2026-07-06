@@ -5261,6 +5261,23 @@ export const SettingsScreen = {
       </div>
     `;
 
+    const p2pBody = `
+      <div class="settings-stack">
+        ${this.renderToggleRow({
+          focusKey: "playback:p2pEnabled",
+          title: t("settings_p2p_title"),
+          subtitle: t("settings_p2p_subtitle"),
+          checked: Boolean(torrentSettings.p2pEnabled)
+        })}
+        ${this.renderToggleRow({
+          focusKey: "playback:hideTorrentStats",
+          title: t("settings_p2p_hide_stats_title"),
+          subtitle: t("settings_p2p_hide_stats_subtitle"),
+          checked: Boolean(torrentSettings.hideTorrentStats)
+        })}
+      </div>
+    `;
+
     return `
       ${this.renderSectionHeader(SECTION_META.find((item) => item.id === "playback"))}
       <div class="settings-group-card settings-group-card-fill">

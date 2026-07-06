@@ -35,6 +35,9 @@ function buildNormalizedEvent(event) {
   };
 }
 
+// Pointer-only modal guard. Key events are NOT gated on this: fork screens
+// drive dialogs and pickers through screen.onKeyDown, and dialogs that own
+// their keys already stop propagation via a capture-phase listener.
 function hasActiveModal() {
   return Boolean(globalThis?.document?.body?.classList?.contains("nuvio-modal-open"));
 }
@@ -120,10 +123,6 @@ export const FocusEngine = {
       return;
     }
 
-    if (hasActiveModal()) {
-      return;
-    }
-
     const normalizedEvent = buildNormalizedEvent(event);
     const keyIdentity = this.getKeyIdentity(normalizedEvent);
     // A non-repeat keydown is a fresh press: always restart its timestamp. Only
@@ -158,10 +157,6 @@ export const FocusEngine = {
 
   handleKeyUp(event) {
     if (event?.target && !document.contains(event.target)) return;
-
-    if (hasActiveModal()) {
-      return;
-    }
 
     const normalizedEvent = buildNormalizedEvent(event);
     const keyIdentity = this.getKeyIdentity(normalizedEvent);

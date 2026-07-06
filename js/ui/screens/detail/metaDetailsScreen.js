@@ -2697,6 +2697,20 @@ export const MetaDetailsScreen = {
       if (n !== target) n.classList.remove("focused");
     });
     target.focus({ preventScroll: true });
+    // Keep the focused option visible inside the menu's own scroll area.
+    // Scroll only the menu (not scrollIntoView) so the page scroller and the
+    // absolutely-positioned dropdown never move together.
+    const menu = target.closest(".library-picker-menu");
+    if (menu && menu.scrollHeight > menu.clientHeight) {
+      const menuRect = menu.getBoundingClientRect();
+      const optionRect = target.getBoundingClientRect();
+      const padding = 12;
+      if (optionRect.top < menuRect.top + padding) {
+        menu.scrollTop += optionRect.top - menuRect.top - padding;
+      } else if (optionRect.bottom > menuRect.bottom - padding) {
+        menu.scrollTop += optionRect.bottom - menuRect.bottom + padding;
+      }
+    }
     return true;
   },
 

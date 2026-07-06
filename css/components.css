@@ -17277,8 +17277,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .series-episode-card {
-  flex-basis: 600px;
-  border-radius: 64px;
+  flex-basis: 600px;  
   contain-intrinsic-block-size: auto 395px;
 }
 

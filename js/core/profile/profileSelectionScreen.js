@@ -1342,8 +1342,15 @@ export const ProfileSelectionScreen = {
       return this._bgThemeColors;
     }
     const rootStyles = getComputedStyle(document.documentElement);
-    const background = parseHexColor(rootStyles.getPropertyValue("--bg-color"), { r: 13, g: 13, b: 13 });
-    const elevated = parseHexColor(rootStyles.getPropertyValue("--bg-elevated"), { r: 26, g: 26, b: 26 });
+    this._bgThemeColors = {
+      background: parseHexColor(rootStyles.getPropertyValue("--bg-color"), { r: 13, g: 13, b: 13 }),
+      elevated: parseHexColor(rootStyles.getPropertyValue("--bg-elevated"), { r: 26, g: 26, b: 26 })
+    };
+    return this._bgThemeColors;
+  },
+
+  buildBackgroundStyleFromColor(accent, themeColors = null) {
+    const { background, elevated } = themeColors || this.getBackgroundThemeColors();
     return this.buildBackgroundGradient(accent, background, elevated);
   },
 
