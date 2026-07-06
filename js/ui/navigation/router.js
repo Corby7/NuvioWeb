@@ -338,6 +338,7 @@ export const Router = {
         }
       }
     }
+    this.persistWebOsResumeRoute(this.current, this.currentParams);
   },
 
   async back(options = {}) {
@@ -390,6 +391,7 @@ export const Router = {
     });
 
     await this.routes[previousRoute].mount(previousParams, navigationContext);
+    this.persistWebOsResumeRoute(this.current, this.currentParams);
   },
 
   getCurrent() {

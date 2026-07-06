@@ -10,6 +10,7 @@ import { WebOsLunaService } from "../../platform/webos/webosLunaService.js";
 import { loadStreamingLibs } from "../../runtime/loadStreamingLibs.js";
 
 const MIN_PROGRESS_SYNC_DURATION_MS = 60000;
+const WEBOS_AUDIO_TRACK_SELECTION_TIMEOUT_MS = 4000;
 
 function logEngineFsDebug(...args) {
   if (globalThis.__NUVIO_DEBUG_ENGINEFS__) {
@@ -60,6 +61,7 @@ export const PlayerController = {
   nativeMediaIdLookupToken: 0,
   selectedWebOsEmbeddedAudioTrackIndex: -1,
   selectedWebOsEmbeddedSubtitleTrackIndex: -1,
+  webOsAudioSelectionRequestToken: 0,
   webosDeviceInfoPromise: null,
   webosUnsupportedAudioCodecs: new Set(["dts", "truehd"]),
   viewportSyncHandler: null,
@@ -2386,60 +2388,172 @@ export const PlayerController = {
     return applied;
   },
 
+  nativeAudioTrackListToArray() {
+    const audioTrackList = this.video?.audioTracks || this.video?.webkitAudioTracks || this.video?.mozAudioTracks || null;
+    if (!audioTrackList) {
+      return [];
+    }
+    try {
+      return Array.from(audioTrackList).filter(Boolean);
+    } catch (_) {
+      const tracks = [];
+      const trackCount = Number(audioTrackList.length || 0);
+      for (let trackIndex = 0; trackIndex < trackCount; trackIndex += 1) {
+        const track = audioTrackList[trackIndex] || audioTrackList.item?.(trackIndex) || null;
+        if (track) {
+          tracks.push(track);
+        }
+      }
+      return tracks;
+    }
+  },
+
+  // Luna selectTrack is asynchronous and can silently fail (or arrive before
+  // the pipeline has a media id). Wait for the media id, race the request
+  // against a timeout, and only commit the selection state on success so the
+  // UI cannot claim a track that never actually switched.
+  requestConfirmedWebOsAudioTrackSelection({
+    targetTrackIndex,
+    selectedTrackIndex = targetTrackIndex,
+    selectionKind = "native",
+    applySelection = null
+  } = {}) {
+    if (!Platform.isWebOS() || !this.video || !this.isUsingNativePlayback()) {
+      return false;
+    }
+
+    const targetIndex = Number(targetTrackIndex);
+    const selectedIndex = Number(selectedTrackIndex);
+    if (!Number.isFinite(targetIndex) || targetIndex < 0) {
+      return false;
+    }
+
+    const requestToken = Number(this.webOsAudioSelectionRequestToken || 0) + 1;
+    this.webOsAudioSelectionRequestToken = requestToken;
+    const detail = {
+      requestToken,
+      selectionKind,
+      targetTrackIndex: targetIndex,
+      selectedTrackIndex: Number.isFinite(selectedIndex) && selectedIndex >= 0
+        ? selectedIndex
+        : targetIndex
+    };
+
+    const emitSelectionState = (status, extra = {}) => {
+      if (requestToken !== this.webOsAudioSelectionRequestToken) {
+        return;
+      }
+      this.emitVideoEvent("webosaudiotrackselectionchanged", { ...detail, status, ...extra });
+    };
+
+    const commitSelection = () => {
+      if (typeof applySelection === "function") {
+        applySelection();
+      }
+      this.selectedWebOsEmbeddedAudioTrackIndex = selectionKind === "embedded"
+        ? detail.selectedTrackIndex
+        : -1;
+    };
+
+    emitSelectionState("pending");
+
+    if (!WebOsLunaService.isAvailable()) {
+      commitSelection();
+      emitSelectionState("confirmed");
+      return true;
+    }
+
+    void (async () => {
+      try {
+        const mediaId = this.syncNativeMediaId() || await this.waitForNativeMediaId();
+        if (requestToken !== this.webOsAudioSelectionRequestToken) {
+          return;
+        }
+        if (!mediaId) {
+          throw new Error("webOS media id unavailable");
+        }
+
+        let timeoutId = 0;
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error("webOS audio track selection timed out"));
+          }, WEBOS_AUDIO_TRACK_SELECTION_TIMEOUT_MS);
+        });
+        let result;
+        try {
+          result = await Promise.race([
+            this.requestWebOsMediaCommand("selectTrack", {
+              type: "audio",
+              mediaId,
+              index: targetIndex
+            }),
+            timeoutPromise
+          ]);
+        } finally {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+        }
+        if (requestToken !== this.webOsAudioSelectionRequestToken) {
+          return;
+        }
+        if (result?.returnValue === false || result?.errorCode) {
+          throw new Error(result?.errorText || "webOS audio track selection failed");
+        }
+
+        commitSelection();
+        emitSelectionState("confirmed");
+      } catch (error) {
+        emitSelectionState("failed", {
+          error: String(error?.errorText || error?.message || error || "webOS audio track selection failed")
+        });
+      }
+    })();
+
+    return true;
+  },
+
   setNativeAudioTrack(index) {
     if (!this.video) {
       return false;
     }
     const targetIndex = Number(index);
-    const audioTrackList = this.video.audioTracks || this.video.webkitAudioTracks || this.video.mozAudioTracks || null;
-    let tracks = [];
-    if (audioTrackList) {
-      try {
-        tracks = Array.from(audioTrackList).filter(Boolean);
-      } catch (_) {
-        const trackCount = Number(audioTrackList.length || 0);
-        for (let trackIndex = 0; trackIndex < trackCount; trackIndex += 1) {
-          const track = audioTrackList[trackIndex] || audioTrackList.item?.(trackIndex) || null;
-          if (track) {
-            tracks.push(track);
-          }
-        }
-      }
-    }
+    const tracks = this.nativeAudioTrackListToArray();
     if (!Number.isFinite(targetIndex) || targetIndex < 0 || targetIndex >= tracks.length) {
       return false;
     }
 
-    this.selectedWebOsEmbeddedAudioTrackIndex = -1;
+    const applySelection = () => {
+      tracks.forEach((track, trackIndex) => {
+        const selected = trackIndex === targetIndex;
+        try {
+          if ("enabled" in track) {
+            track.enabled = selected;
+          }
+        } catch (_) {
+          // Best effort.
+        }
+        try {
+          if ("selected" in track) {
+            track.selected = selected;
+          }
+        } catch (_) {
+          // Best effort.
+        }
+      });
+    };
 
-    const mediaId = this.syncNativeMediaId();
-    if (mediaId) {
-      this.requestWebOsMediaCommand("selectTrack", {
-        type: "audio",
-        mediaId,
-        index: targetIndex
-      }).catch(() => {
-        // Ignore Luna audio track selection failures and keep native toggles.
+    if (Platform.isWebOS() && this.isUsingNativePlayback()) {
+      return this.requestConfirmedWebOsAudioTrackSelection({
+        targetTrackIndex: targetIndex,
+        selectedTrackIndex: targetIndex,
+        selectionKind: "native",
+        applySelection
       });
     }
 
-    tracks.forEach((track, trackIndex) => {
-      const selected = trackIndex === targetIndex;
-      try {
-        if ("enabled" in track) {
-          track.enabled = selected;
-        }
-      } catch (_) {
-        // Best effort.
-      }
-      try {
-        if ("selected" in track) {
-          track.selected = selected;
-        }
-      } catch (_) {
-        // Best effort.
-      }
-    });
+    this.selectedWebOsEmbeddedAudioTrackIndex = -1;
+    applySelection();
     return true;
   },
 
@@ -2458,37 +2572,8 @@ export const PlayerController = {
       return false;
     }
 
-    const applySelection = (mediaId) => {
-      if (!mediaId) {
-        return;
-      }
-
-      this.requestWebOsMediaCommand("selectTrack", {
-        type: "audio",
-        mediaId,
-        index: targetIndex
-      }).catch(() => {
-        // Ignore Luna audio track selection failures.
-      });
-
-      const audioTrackList = this.video?.audioTracks || this.video?.webkitAudioTracks || this.video?.mozAudioTracks || null;
-      if (!audioTrackList) {
-        return;
-      }
-
-      let tracks = [];
-      try {
-        tracks = Array.from(audioTrackList).filter(Boolean);
-      } catch (_) {
-        const trackCount = Number(audioTrackList.length || 0);
-        for (let trackIndex = 0; trackIndex < trackCount; trackIndex += 1) {
-          const track = audioTrackList[trackIndex] || audioTrackList.item?.(trackIndex) || null;
-          if (track) {
-            tracks.push(track);
-          }
-        }
-      }
-
+    const applySelection = () => {
+      const tracks = this.nativeAudioTrackListToArray();
       tracks.forEach((track, trackListIndex) => {
         const selected = trackListIndex === targetIndex;
         try {
@@ -2508,24 +2593,12 @@ export const PlayerController = {
       });
     };
 
-    this.selectedWebOsEmbeddedAudioTrackIndex = storedSelectedIndex;
-
-    const mediaId = this.syncNativeMediaId();
-    if (mediaId) {
-      applySelection(mediaId);
-      return true;
-    }
-
-    this.waitForNativeMediaId().then((resolvedMediaId) => {
-      if (Number(this.selectedWebOsEmbeddedAudioTrackIndex) !== storedSelectedIndex) {
-        return;
-      }
-      applySelection(resolvedMediaId);
-    }).catch(() => {
-      // Ignore media-id lookup failures.
+    return this.requestConfirmedWebOsAudioTrackSelection({
+      targetTrackIndex: targetIndex,
+      selectedTrackIndex: storedSelectedIndex,
+      selectionKind: "embedded",
+      applySelection
     });
-
-    return true;
   },
 
   setNativeTextTrack(index) {
