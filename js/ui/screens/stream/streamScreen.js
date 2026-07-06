@@ -2424,94 +2424,9 @@ export const StreamScreen = {
     return false;
   },
 
-  maybeAutoPlayStream() {
-    if (this.autoPlayAttempted || this.autoPlayCountdown) {
-      return;
-    }
-    if (Router.getCurrent() !== "stream" || !this.streams.length) {
-      return;
-    }
-    const settings = PlayerSettingsStore.get();
-    if (!isAutoPlayEffectivelyEnabled(settings)) {
-      return;
-    }
-    this.autoPlayAttempted = true;
-    const installedAddonNames = new Set(
-      (addonRepository.getCachedInstalledAddons() || [])
-        .map((addon) => String(addon?.displayName || addon?.name || "").trim())
-        .filter(Boolean)
-    );
-    const selected = selectAutoPlayStream(this.getFilteredStreams(), {
-      mode: settings.streamAutoPlayMode,
-      source: settings.streamAutoPlaySource,
-      regexPattern: settings.streamAutoPlayRegex,
-      installedAddonNames
-    });
-    if (!selected?.id) {
-      return;
-    }
-    this.startAutoPlayCountdown(selected, Number(settings.streamAutoPlayTimeoutSeconds || 0));
-  },
 
-  startAutoPlayCountdown(stream, seconds) {
-    this.cancelAutoPlayCountdown();
-    const visible = this.getFilteredStreams();
-    const idx = visible.findIndex((entry) => String(entry?.id || "") === String(stream.id || ""));
-    if (idx >= 0) {
-      this.focusState = { zone: "card", index: idx, row: idx, action: "play" };
-    }
-    const total = Math.max(0, Math.trunc(Number(seconds) || 0));
-    if (total <= 0) {
-      void this.playStream(stream.id);
-      return;
-    }
-    this.autoPlayCountdown = {
-      streamId: stream.id,
-      label: getStreamHeadline(stream) || stream.addonName || "stream",
-      secondsLeft: total
-    };
-    this.requestRender({ delayMs: 0 });
-    this.autoPlayTimer = setInterval(() => {
-      if (!this.autoPlayCountdown) {
-        return;
-      }
-      this.autoPlayCountdown.secondsLeft -= 1;
-      if (this.autoPlayCountdown.secondsLeft <= 0) {
-        const targetId = this.autoPlayCountdown.streamId;
-        this.cancelAutoPlayCountdown();
-        void this.playStream(targetId);
-        return;
-      }
-      this.requestRender({ delayMs: 0 });
-    }, 1000);
-  },
 
-  cancelAutoPlayCountdown() {
-    if (this.autoPlayTimer) {
-      clearInterval(this.autoPlayTimer);
-      this.autoPlayTimer = null;
-    }
-    if (this.autoPlayCountdown) {
-      this.autoPlayCountdown = null;
-      this.requestRender({ delayMs: 0 });
-    }
-  },
 
-  renderAutoPlayOverlay() {
-    if (!this.autoPlayCountdown) {
-      return "";
-    }
-    const { label, secondsLeft } = this.autoPlayCountdown;
-    return `
-      <div class="stream-route-autoplay">
-        <div class="stream-route-autoplay-card">
-          <div class="stream-route-autoplay-title">${escapeHtml(t("stream_autoplay_title", {}, "Auto-playing"))}</div>
-          <div class="stream-route-autoplay-name">${escapeHtml(label)}</div>
-          <div class="stream-route-autoplay-count">${escapeHtml(t("stream_autoplay_countdown", [secondsLeft], `Starting in ${secondsLeft}s`))}</div>
-          <div class="stream-route-autoplay-hint">${escapeHtml(t("stream_autoplay_hint", {}, "Press OK to play now, or any key to choose manually"))}</div>
-        </div>
-      </div>`;
-  },
 
   onKeyDown(event) {
     // Any key during the auto-play countdown hands control back to the user.

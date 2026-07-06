@@ -166,49 +166,8 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
     this.traktClockTimer = null;
   },
 
-  deferTraktAutoWork(kind) {
-    if (!this.traktRouteAutoWorkDeferred || Router.getCurrent() !== "trakt") {
-      return false;
-    }
-    if (!this.pendingTraktAutoWork) {
-      this.pendingTraktAutoWork = {};
-    }
-    this.pendingTraktAutoWork[kind] = true;
-    this.scheduleTraktRouteAutoWork();
-    return true;
-  },
 
-  scheduleTraktRouteAutoWork() {
-    if (this.traktRouteAutoWorkTimer) {
-      return;
-    }
-    this.traktRouteAutoWorkTimer = setTimeout(() => {
-      this.traktRouteAutoWorkTimer = null;
-      this.runTraktRouteAutoWork();
-    }, TRAKT_ROUTE_ENTER_DURATION_MS + 80);
-  },
 
-  runTraktRouteAutoWork() {
-    if (Router.getCurrent() !== "trakt") {
-      return;
-    }
-    this.traktRouteAutoWorkDeferred = false;
-    const pending = this.pendingTraktAutoWork || {};
-    this.pendingTraktAutoWork = {};
-    if (pending.clock) {
-      this.startTraktClock();
-    }
-    if (pending.polling) {
-      this.startTraktPolling();
-    }
-    if (pending.stats && !this.traktStats && !this.traktStatsLoading) {
-      void this.loadTraktStats(false).then(() => {
-        if (this.container && Router.getCurrent() === "trakt") {
-          void this.render();
-        }
-      });
-    }
-  },
 
   updateTraktCountdowns() {
     if (!this.container) {

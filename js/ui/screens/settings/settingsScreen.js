@@ -1977,8 +1977,7 @@ function readSettingsUiState() {
     appearanceThemeFocusKey:
       typeof state?.appearanceThemeFocusKey === "string" ? state.appearanceThemeFocusKey : null,
     integrationView: typeof state?.integrationView === "string" ? state.integrationView : "hub",
-    expandedSections: normalizeExpandedSections(state?.expandedSections),
-    railScrollTop: Number.isFinite(state?.railScrollTop) ? state.railScrollTop : null
+    expandedSections: normalizeExpandedSections(state?.expandedSections)
   };
 }
 
@@ -2087,12 +2086,6 @@ export const SettingsScreen = {
     );
   },
 
-  getCurrentRailScrollTop() {
-    const navSlot = this.container?.querySelector("[data-settings-nav]");
-    const value = Number(navSlot?.scrollTop || 0);
-    this.railScrollTop = value;
-    return value;
-  },
 
   persistUiState() {
     LocalStore.set(SETTINGS_UI_STATE_KEY, {
