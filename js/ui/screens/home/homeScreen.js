@@ -1572,7 +1572,10 @@ function buildHeroDisplayModel(hero, layoutMode) {
   if (isCollectionFolderItem(hero)) {
     const normalized = normalizeCollectionFolderItem(hero);
     return {
-      title: normalized?.heroTitle || normalized?.name || normalized?.collectionTitle || "Untitled",
+      title: normalized?.hideTitle
+        ? ""
+        : (normalized?.heroTitle || normalized?.name || normalized?.collectionTitle || "Untitled"),
+      hideTitle: Boolean(normalized?.hideTitle),
       description: " ",
       logo: firstNonEmpty(normalized?.titleLogoUrl, normalized?.logo),
       backdrop: firstNonEmpty(normalized?.heroBackdropUrl, normalized?.background, normalized?.backdrop, normalized?.poster),
@@ -1636,7 +1639,10 @@ export function buildModernHeroPresentation(hero) {
     }
     const collectionBackdrops = buildHeroBackdropSources(normalizedCollection);
     return {
-      title: normalizedCollection.heroTitle || normalizedCollection.name || normalizedCollection.rawTitle || "",
+      title: normalizedCollection.hideTitle
+        ? ""
+        : (normalizedCollection.heroTitle || normalizedCollection.name || ""),
+      hideTitle: Boolean(normalizedCollection.hideTitle),
       logo: optimizeLogoUrl(firstNonEmpty(normalizedCollection.titleLogoUrl, normalizedCollection.logo)),
       description: "",
       backdrop: optimizeBackdropUrl(collectionBackdrops[0] || ""),
@@ -1802,7 +1808,7 @@ function renderHeroMarkup(layoutMode, heroItem, heroCandidates) {
         <div class="home-hero-copy">
           <div class="home-hero-brand">
             ${display.logo ? `<img class="home-hero-logo" src="${escapeAttribute(display.logo)}" alt="${escapeAttribute(display.title)}" decoding="async" fetchpriority="high" onerror="${getLogoErrorHandler()}" />` : ""}
-            <h1 class="home-hero-title-text${display.logo ? " is-hidden" : ""}">${escapeHtml(display.title)}</h1>
+            <h1 class="home-hero-title-text${display.logo || display.hideTitle ? " is-hidden" : ""}">${escapeHtml(display.title)}</h1>
           </div>
           <div class="home-hero-meta-primary${display.metaPrimary.length ? "" : " is-empty"}">${renderMetaTokens(display.metaPrimary)}</div>
           <div class="home-hero-chip-row${display.chips.length ? "" : " is-empty"}">${display.chips.map((chip) => `<span class="home-hero-chip">${escapeHtml(chip)}</span>`).join("")}</div>
@@ -3421,7 +3427,7 @@ export const HomeScreen = {
     const titleNode = heroNode.querySelector(".home-hero-title-text");
     if (titleNode) {
       titleNode.textContent = display.title || "Untitled";
-      titleNode.classList.toggle("is-hidden", Boolean(display.logo));
+      titleNode.classList.toggle("is-hidden", Boolean(display.logo) || Boolean(display.hideTitle));
     }
 
     if (this.layoutMode === "modern") {
@@ -5059,7 +5065,7 @@ export const HomeScreen = {
     if (source.kind === "video" && source.url) {
       const shouldMute = source.muted !== false;
       container.innerHTML = `
-        <video class="home-inline-trailer-video" autoplay loop playsinline>
+        <video class="home-inline-trailer-video" autoplay playsinline>
           <source src="${escapeAttribute(source.url)}" />
         </video>
       `;

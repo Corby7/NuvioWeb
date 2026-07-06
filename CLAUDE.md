@@ -114,7 +114,7 @@ local.properties           runtime env source (gitignored) — build generates d
   RPC-blob-based (`sync_pull_*` / `sync_push_*`), keyed by profile id. Collections JSON flows
   through verbatim — new folder fields (e.g. `heroVideoUrl`, `heroBackdropUrl`, `titleLogoUrl`,
   `focusGifUrl`) only need `collectionsStore.normalizeFolder` support.
-- Collection hero videos: muted looping H.264 MP4 (yuv420p, faststart, no audio) mounted by
+- Collection hero videos: muted, plays once (no loop) H.264 MP4 (yuv420p, faststart, no audio) mounted by
   `homeScreen.syncCollectionHeroMedia`. Assets live in `Corby7/nuvio-assets` on GitHub, served
   via jsDelivr (`https://cdn.jsdelivr.net/gh/Corby7/nuvio-assets@main/...`); pipeline script:
   `nuvio-assets/scripts/make-ident.sh`. Never use animated GIF for full-screen surfaces —
