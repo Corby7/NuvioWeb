@@ -682,10 +682,14 @@ function shouldUseDirectYoutubeEmbedOnTv() {
 }
 
 function getYoutubeProxyBaseUrl() {
+  const configured = String(YOUTUBE_PROXY_URL || "").trim();
   if (Platform.isWebOS() || Platform.isTizen()) {
-    return LOCAL_YOUTUBE_PROXY_URL;
+    // The local proxy is served from a file:// origin, which YouTube rejects
+    // (embed error 153). Prefer a configured https-hosted proxy when available
+    // so the embedding origin is valid; otherwise fall back to the local file.
+    return /^https?:\/\//i.test(configured) ? configured : LOCAL_YOUTUBE_PROXY_URL;
   }
-  return String(YOUTUBE_PROXY_URL || LOCAL_YOUTUBE_PROXY_URL).trim();
+  return configured || LOCAL_YOUTUBE_PROXY_URL;
 }
 
 function resolveTrailerPostMessageTargetOrigin(src = "") {
@@ -2205,6 +2209,7 @@ export const MetaDetailsScreen = {
     if (isSeriesDetailMeta(meta, this.episodes)) {
       this.seedEpisodeDesc();
     }
+    this.observeEpisodeThumbnails();
   },
   renderHeroSection({ meta, playLabel, creditLine = "", creditPrefix = "", showWatchedButton = false }) {
     const logoOrTitle = meta.logo
@@ -2456,6 +2461,7 @@ export const MetaDetailsScreen = {
     const episodeMount = this.container.querySelector("#detailEpisodeTrackMount");
     if (isSeries && episodeMount) {
       episodeMount.innerHTML = `<div class="series-episode-track" data-scroll-key="episodes:${this.selectedSeason || 1}">${this.renderEpisodeCards()}</div>`;
+      this.observeEpisodeThumbnails();
     }
 
     const insightMount = this.container.querySelector("#detailInsightSectionMount");
@@ -2694,6 +2700,51 @@ export const MetaDetailsScreen = {
     return true;
   },
 
+  applyEpisodeThumb(el) {
+    if (!(el instanceof HTMLElement)) {
+      return;
+    }
+    const url = el.getAttribute("data-thumb");
+    if (!url) {
+      return;
+    }
+    el.style.backgroundImage = `url('${String(url).replace(/'/g, "%27")}')`;
+    el.removeAttribute("data-thumb");
+  },
+
+  // Lazy-load episode thumbnails: decoding a whole season's thumbnails at once
+  // stalls low-end TVs when switching seasons. Cards render immediately; images
+  // hydrate as they approach the viewport.
+  observeEpisodeThumbnails() {
+    const root = this.container;
+    if (!root) {
+      return;
+    }
+    const thumbs = Array.from(root.querySelectorAll(".series-episode-thumb[data-thumb]"));
+    if (!thumbs.length) {
+      return;
+    }
+    if (typeof IntersectionObserver !== "function") {
+      thumbs.forEach((el) => this.applyEpisodeThumb(el));
+      return;
+    }
+    if (!this.episodeThumbObserver) {
+      this.episodeThumbObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            this.applyEpisodeThumb(entry.target);
+            try {
+              this.episodeThumbObserver.unobserve(entry.target);
+            } catch (_) {
+              // Ignore unobserve failures.
+            }
+          }
+        });
+      }, { root: null, rootMargin: "300px", threshold: 0.01 });
+    }
+    thumbs.forEach((el) => this.episodeThumbObserver.observe(el));
+  },
+
   renderEpisodeCards() {
     if (!this.episodes?.length) {
       return `<p>${escapeHtml(t("detail.noEpisodesFound", {}, "No episodes found."))}</p>`;
@@ -2724,7 +2775,7 @@ export const MetaDetailsScreen = {
              data-action="openEpisodeStreams"
              data-video-id="${episode.id}"
              data-overview="${escapeHtml(episode.overview || "")}">
-          <div class="series-episode-thumb"${episode.thumbnail ? ` style="background-image:url('${episode.thumbnail.replace(/'/g, "%27")}')"` : ""}>
+          <div class="series-episode-thumb"${episode.thumbnail ? ` data-thumb="${escapeHtml(episode.thumbnail)}"` : ""}>
             <div class="series-episode-overlay"></div>
             <div class="series-episode-copy">
               <div class="series-episode-top-row">
@@ -6854,6 +6905,14 @@ export const MetaDetailsScreen = {
 
   cleanup() {
     this.detailLoadToken = (this.detailLoadToken || 0) + 1;
+    if (this.episodeThumbObserver) {
+      try {
+        this.episodeThumbObserver.disconnect();
+      } catch (_) {
+        // Ignore disconnect failures.
+      }
+      this.episodeThumbObserver = null;
+    }
     this.cancelPendingEpisodeHold();
     this.cancelPendingSeasonHold();
     this.cancelPendingPosterHold();
