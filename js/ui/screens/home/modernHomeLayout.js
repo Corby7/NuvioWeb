@@ -38,8 +38,10 @@ export function renderModernHomeLayout({
   renderHeroBackdropImage,
   renderContinueWatchingSection,
   createPosterCardMarkup,
-  createSeeAllCardMarkup,
+  createSeeAllCardMarkup: _createSeeAllCardMarkup,
   formatCatalogRowTitle,
+  shouldDeferRowImages,
+  watchedTitleIds = null,
   escapeHtml,
   escapeAttribute
 } = {}) {

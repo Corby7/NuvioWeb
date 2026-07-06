@@ -35,6 +35,10 @@ function buildNormalizedEvent(event) {
   };
 }
 
+function hasActiveModal() {
+  return Boolean(globalThis?.document?.body?.classList?.contains("nuvio-modal-open"));
+}
+
 export const FocusEngine = {
   lastBackHandledAt: 0,
   lastPointerFocusTarget: null,
@@ -58,6 +62,7 @@ export const FocusEngine = {
     window.addEventListener("blur", this.boundHandleWindowBlur);
     if (Platform.isTizen()) {
       document.addEventListener("tizenhwkey", this.boundHandleTizenHardwareKey, true);
+      window.addEventListener("tizenhwkey", this.boundHandleTizenHardwareKey, true);
     }
     if (Platform.isWebOS()) {
       document.addEventListener("mousemove", this.boundHandlePointerMove, true);
@@ -66,6 +71,22 @@ export const FocusEngine = {
       document.documentElement?.classList?.add("webos-pointer-remote");
       document.body?.classList?.add("webos-pointer-remote");
     }
+  },
+
+  handleTizenHardwareKey(event) {
+    const normalizedEvent = buildNormalizedEvent(event);
+    if (!Platform.isBackEvent({
+      target: normalizedEvent.target,
+      key: normalizedEvent.key,
+      code: normalizedEvent.code,
+      keyName: normalizedEvent.keyName,
+      keyCode: normalizedEvent.keyCode,
+      originalKeyCode: normalizedEvent.originalKeyCode,
+      detail: event?.detail || null
+    })) {
+      return;
+    }
+    this.handleBack(event, normalizedEvent);
   },
 
   handleBack(event, normalizedEvent = buildNormalizedEvent(event)) {
@@ -82,7 +103,11 @@ export const FocusEngine = {
     normalizedEvent.stopImmediatePropagation();
 
     const currentScreen = Router.getCurrentScreen();
-    if (currentScreen?.consumeBackRequest?.()) {
+    const consumeResult = currentScreen?.consumeBackRequest?.();
+    if (consumeResult) {
+      if (consumeResult === "history") {
+        return;
+      }
       Router.suppressNextPopstate?.();
       return;
     }
@@ -95,6 +120,10 @@ export const FocusEngine = {
       return;
     }
 
+    if (hasActiveModal()) {
+      return;
+    }
+
     const normalizedEvent = buildNormalizedEvent(event);
     const keyIdentity = this.getKeyIdentity(normalizedEvent);
     // A non-repeat keydown is a fresh press: always restart its timestamp. Only
@@ -104,13 +133,14 @@ export const FocusEngine = {
       this.activeKeyDownStartedAt.set(keyIdentity, Date.now());
     }
 
-    if (Platform.isBackEvent({
+    if (
+      Platform.isBackEvent({
         target: normalizedEvent.target,
         key: normalizedEvent.key,
         code: normalizedEvent.code,
         keyName: normalizedEvent.keyName,
         keyCode: normalizedEvent.keyCode,
-        originalKeyCode: normalizedEvent.originalKeyCode,
+        originalKeyCode: normalizedEvent.originalKeyCode
       })
     ) {
       this.handleBack(event, normalizedEvent);
@@ -129,6 +159,10 @@ export const FocusEngine = {
   handleKeyUp(event) {
     if (event?.target && !document.contains(event.target)) return;
 
+    if (hasActiveModal()) {
+      return;
+    }
+
     const normalizedEvent = buildNormalizedEvent(event);
     const keyIdentity = this.getKeyIdentity(normalizedEvent);
     if (keyIdentity) {
@@ -146,13 +180,6 @@ export const FocusEngine = {
     });
   },
 
-  handleTizenHardwareKey(event) {
-    if (!Platform.isBackEvent(event)) {
-      return;
-    }
-    this.handleBack(event, buildNormalizedEvent(event));
-  },
-
   getKeyIdentity(event) {
     const keyCode = Number(event?.keyCode || event?.which || 0);
     if (keyCode) {
@@ -168,10 +195,10 @@ export const FocusEngine = {
       return null;
     }
     if (
-      target.disabled
-      || target.classList.contains("is-disabled")
-      || target.classList.contains("disabled")
-      || target.getAttribute("aria-disabled") === "true"
+      target.disabled ||
+      target.classList.contains("is-disabled") ||
+      target.classList.contains("disabled") ||
+      target.getAttribute("aria-disabled") === "true"
     ) {
       return null;
     }
@@ -186,10 +213,14 @@ export const FocusEngine = {
     if (!target) {
       return false;
     }
+    if (hasActiveModal() && !target.closest?.(".nuvio-dialog-backdrop")) {
+      return false;
+    }
     const currentScreen = Router.getCurrentScreen();
-    const screenContainer = currentScreen?.container instanceof HTMLElement
-      ? currentScreen.container
-      : target.closest(".screen");
+    const screenContainer =
+      currentScreen?.container instanceof HTMLElement
+        ? currentScreen.container
+        : target.closest(".screen");
     if (screenContainer && !screenContainer.contains(target)) {
       return false;
     }
@@ -206,8 +237,7 @@ export const FocusEngine = {
     } catch (_) {
       try {
         target.focus();
-      } catch (_) {
-      }
+      } catch (_) {}
     }
     currentScreen?.onPointerFocus?.(target, event);
     this.lastPointerFocusTarget = target;
@@ -239,8 +269,13 @@ export const FocusEngine = {
     if (!Platform.isWebOS()) {
       return;
     }
+    const currentScreen = Router.getCurrentScreen();
+    currentScreen?.onPointerMove?.(event);
     const target = this.getPointerFocusable(event);
     if (!target || target === this.lastPointerFocusTarget) {
+      return;
+    }
+    if (hasActiveModal() && !target.closest?.(".nuvio-dialog-backdrop")) {
       return;
     }
     this.focusPointerTarget(target, event);
@@ -254,8 +289,14 @@ export const FocusEngine = {
     if (!target) {
       return;
     }
+    if (hasActiveModal() && !target.closest?.(".nuvio-dialog-backdrop")) {
+      return;
+    }
     this.focusPointerTarget(target, event);
     const currentScreen = Router.getCurrentScreen();
+    if (hasActiveModal()) {
+      return;
+    }
     if (typeof currentScreen?.onPointerActivate !== "function") {
       return;
     }
@@ -265,5 +306,5 @@ export const FocusEngine = {
       event?.stopPropagation?.();
       event?.stopImmediatePropagation?.();
     }
-  },
+  }
 };

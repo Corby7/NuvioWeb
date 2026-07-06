@@ -315,6 +315,12 @@
     <string name="about_privacy_policy_subtitle">Unsere Datenschutzerklärung anzeigen</string>
     <string name="about_supporters_contributors">Unterstützer und Mitwirkende</string>
     <string name="about_supporters_contributors_subtitle">Offene Anerkennung und Projekt-Credits</string>
+    <string name="about_debug_console_title">Debug-Konsole</string>
+    <string name="about_debug_console_subtitle">Neueste Fehler/Warnungen anzeigen</string>
+    <string name="debug_console_subtitle">Letzte Warnungen und Fehler aus dieser App-Sitzung</string>
+    <string name="debug_console_empty_title">Keine Warnungen oder Fehler</string>
+    <string name="debug_console_empty_subtitle">Console-Warnungen/Fehler erscheinen hier, bis die App geschlossen wird.</string>
+    <string name="debug_console_event_count">%d Ereignisse</string>
     <string name="about_licenses_attributions">Lizenzen &amp; Quellen</string>
     <string name="about_licenses_attributions_subtitle">Data sources, acknowledgements, and Android licenses</string>
     <string name="licenses_attributions_title">Lizenzen &amp; Quellen</string>
@@ -2068,4 +2074,13 @@
     <string name="trakt_related_error_request_failed">Trakt related request failed</string>
     <string name="trakt_comments_error_request_failed">Trakt comments request failed</string>
     <string name="trakt_library_error_fetch_list_items">Failed to fetch list items</string>
+    <string name="detail.resume">Fortsetzen</string>
+    <string name="detail.resumeEpisodeShort">S{{season}}E{{episode}} fortsetzen</string>
+    <string name="detail.playFromBeginning">Von Anfang an abspielen</string>
+    <string name="detail.resumeAvailable">Fortsetzen verfügbar</string>
+    <string name="detail.currentEpisode">Folge {{episode}}</string>
+    <string name="detail.timeLeftDuration">{{time}} verbleibend</string>
+    <string name="player.audio.unsupported">Nicht unterstützt</string>
+    <string name="player.audio.unsupportedCodec">Codec wird von diesem Gerät nicht unterstützt</string>
+    <string name="player.audio.noSupportedTracks">Keine unterstützten Audiospuren verfügbar</string>
 </resources>

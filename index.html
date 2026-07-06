@@ -1,57 +1,116 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <script>
-    (function configureTizenLaunch() {
-      var root = typeof globalThis !== "undefined" ? globalThis : window;
-      var search = String((window.location && window.location.search) || "").toLowerCase();
-      var userAgent = String((window.navigator && window.navigator.userAgent) || "").toLowerCase();
-      var webapis = root.webapis || {};
-      var isTizenLaunch = Boolean(
-        root.__NUVIO_PLATFORM__ === "tizen"
-        || root.tizen
-        || root.avplay
-        || webapis.avplay
-        || webapis.avPlay
-        || webapis.productinfo
-        || search.indexOf("wrapper=tizen") !== -1
-        || userAgent.indexOf("tizen") !== -1
-      );
+<!doctype html>
+<html
+  lang="en"
+  class="no-flex-gap no-css-grid no-css-vars no-css-math no-backdrop-filter no-aspect-ratio"
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <script>
+      (function detectLegacyFeatureSupport() {
+        var root = document.documentElement;
+        function removeClass(name) {
+          root.className = (" " + root.className + " ")
+            .replace(new RegExp(" " + name + " ", "g"), " ")
+            .replace(/^\s+|\s+$/g, "");
+        }
+        function supports(prop, value) {
+          var css = window.CSS;
+          return Boolean(css && typeof css.supports === "function" && css.supports(prop, value));
+        }
+        try {
+          var test = document.createElement("div");
+          var child = document.createElement("div");
+          test.style.position = "absolute";
+          test.style.left = "-9999px";
+          test.style.top = "-9999px";
+          test.style.display = "flex";
+          test.style.flexDirection = "column";
+          test.style.rowGap = "1px";
+          child.style.height = "1px";
+          test.appendChild(child.cloneNode());
+          test.appendChild(child.cloneNode());
+          root.appendChild(test);
+          if (test.scrollHeight === 3) {
+            removeClass("no-flex-gap");
+          }
+          root.removeChild(test);
+        } catch (error) {
+          removeClass("no-flex-gap");
+        }
+        if (supports("display", "grid")) {
+          removeClass("no-css-grid");
+        }
+        if (supports("--nuvio-probe", "0")) {
+          removeClass("no-css-vars");
+        }
+        if (supports("font-size", "clamp(1px, 2px, 3px)")) {
+          removeClass("no-css-math");
+        }
+        if (supports("aspect-ratio", "1 / 1")) {
+          removeClass("no-aspect-ratio");
+        }
+        if (supports("backdrop-filter", "blur(1px)") || supports("-webkit-backdrop-filter", "blur(1px)")) {
+          removeClass("no-backdrop-filter");
+        }
+      })();
 
-      if (!isTizenLaunch) {
-        return;
-      }
+      (function configureTizenLaunch() {
+        var root = typeof globalThis !== "undefined" ? globalThis : window;
+        var search = String((window.location && window.location.search) || "").toLowerCase();
+        var userAgent = String(
+          (window.navigator && window.navigator.userAgent) || ""
+        ).toLowerCase();
+        var webapis = root.webapis || {};
+        var isTizenLaunch = Boolean(
+          root.__NUVIO_PLATFORM__ === "tizen" ||
+          root.tizen ||
+          root.avplay ||
+          webapis.avplay ||
+          webapis.avPlay ||
+          webapis.productinfo ||
+          search.indexOf("wrapper=tizen") !== -1 ||
+          userAgent.indexOf("tizen") !== -1
+        );
 
-      root.__NUVIO_PLATFORM__ = "tizen";
-      var viewport = document.querySelector("meta[name='viewport']");
-      if (!viewport) {
-        viewport = document.createElement("meta");
-        viewport.name = "viewport";
-        document.head.appendChild(viewport);
-      }
-      viewport.setAttribute("content", "width=1920, height=1080, initial-scale=1.0, maximum-scale=1.0, user-scalable=no");
-    }());
-  </script>
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>Nuvio TV</title>
-  
-  <link rel="preconnect" href="https://live.metahub.space">
-  <link rel="preconnect" href="https://api.trakt.tv">
-  <link rel="dns-prefetch" href="https://live.metahub.space">
-  <link rel="dns-prefetch" href="https://api.trakt.tv">
-  <link rel="stylesheet" href="css/base.css?v=20260509s" />
-  <link rel="stylesheet" href="css/layout.css?v=20260509s" />
-  <link rel="stylesheet" href="css/components.css?v=20260531supporters2" />
-  <link rel="stylesheet" href="css/themes.css?v=20260509s" />
-</head>
-<body>
-  <script src="nuvio.env.js"></script>
-  
-  <script src="assets/libs/qrcode-generator.js"></script>
-  
-  <script src="app.bundle.js?v=20260531supporters2"></script>
- </body>
- </html>
+        if (!isTizenLaunch) {
+          return;
+        }
+
+        root.__NUVIO_PLATFORM__ = "tizen";
+        var viewport = document.querySelector("meta[name='viewport']");
+        if (!viewport) {
+          viewport = document.createElement("meta");
+          viewport.name = "viewport";
+          document.head.appendChild(viewport);
+        }
+        viewport.setAttribute(
+          "content",
+          "width=1920, height=1080, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        );
+      })();
+    </script>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Nuvio TV</title>
+
+    <link rel="preconnect" href="https://live.metahub.space" />
+    <link rel="preconnect" href="https://api.trakt.tv" />
+    <link rel="dns-prefetch" href="https://live.metahub.space" />
+    <link rel="dns-prefetch" href="https://api.trakt.tv" />
+    <link rel="stylesheet" href="css/base.css?v=20260509s" />
+    <link rel="stylesheet" href="css/layout.css?v=20260509s" />
+    <link rel="stylesheet" href="css/components.css?v=20260531supporters2" />
+    <link rel="stylesheet" href="css/themes.css?v=20260509s" />
+  </head>
+  <body>
+    <script src="nuvio.env.js"></script>
+
+    <script src="assets/libs/qrcode-generator.js"></script>
+
+    <script src="app.bundle.js?v=20260531supporters2"></script>
+  </body>
+</html>

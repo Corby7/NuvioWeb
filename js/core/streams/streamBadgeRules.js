@@ -5,15 +5,34 @@ function isPlainObject(value) {
 }
 
 function normalizeText(value = "") {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function normalizeColor(value = "") {
-  const hex = normalizeText(value).replace(/^#/, "");
+  const text = normalizeText(value);
+  if (/^(transparent|rgba?\([\d\s,%.]+\))$/i.test(text)) {
+    return text;
+  }
+  const hex = text.replace(/^#/, "");
   if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) {
     return "";
   }
-  return `#${hex.length === 8 ? hex.slice(2) : hex}`.toUpperCase();
+  if (hex.length === 6) {
+    return `#${hex}`.toUpperCase();
+  }
+  const alpha = parseInt(hex.slice(0, 2), 16);
+  const red = parseInt(hex.slice(2, 4), 16);
+  const green = parseInt(hex.slice(4, 6), 16);
+  const blue = parseInt(hex.slice(6, 8), 16);
+  if (alpha >= 255) {
+    return `#${hex.slice(2)}`.toUpperCase();
+  }
+  if (alpha <= 0) {
+    return "transparent";
+  }
+  return `rgba(${red}, ${green}, ${blue}, ${(alpha / 255).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")})`;
 }
 
 function toBadgeArray(value) {
@@ -78,7 +97,7 @@ export function normalizeStreamBadgeRules(value = {}) {
   const source = isPlainObject(value) ? value : {};
   const importsSource = Array.isArray(source.imports)
     ? source.imports
-    : (source.streamBadgeRules && Array.isArray(source.streamBadgeRules.imports))
+    : source.streamBadgeRules && Array.isArray(source.streamBadgeRules.imports)
       ? source.streamBadgeRules.imports
       : [];
   const normalizedImports = [];
@@ -88,7 +107,9 @@ export function normalizeStreamBadgeRules(value = {}) {
     if (!normalized) {
       return;
     }
-    const existingIndex = normalizedImports.findIndex((importItem) => importItem.sourceUrl.toLowerCase() === normalized.sourceUrl.toLowerCase());
+    const existingIndex = normalizedImports.findIndex(
+      (importItem) => importItem.sourceUrl.toLowerCase() === normalized.sourceUrl.toLowerCase()
+    );
     if (existingIndex >= 0) {
       normalizedImports[existingIndex] = normalized;
     } else if (normalizedImports.length < STREAM_BADGE_IMPORT_LIMIT) {
@@ -142,7 +163,9 @@ export function parseStreamBadgeRulesFromPayload(value, sourceUrl = "") {
 
   const nestedRules = parsed.streamBadgeRules || parsed.settings?.streamBadgeRules;
   if (nestedRules) {
-    const normalizedNested = normalizeStreamBadgeRules(parseBadgePayload(nestedRules) || nestedRules);
+    const normalizedNested = normalizeStreamBadgeRules(
+      parseBadgePayload(nestedRules) || nestedRules
+    );
     if (normalizedNested.imports.length) {
       return normalizedNested;
     }
@@ -172,7 +195,10 @@ function streamBadgeDedupeKey(badge = {}) {
 
 function mergeStreamBadges(existing = [], matched = []) {
   const merged = new Map();
-  [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(matched) ? matched : [])].forEach((badge) => {
+  [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(matched) ? matched : [])
+  ].forEach((badge) => {
     if (!badge) {
       return;
     }
@@ -225,7 +251,10 @@ function badgeMatchCandidates(stream = {}) {
     .flatMap((value) => String(value || "").split(/\r?\n/))
     .map((value) => normalizeText(value))
     .filter(Boolean)
-    .filter((value, index, array) => array.findIndex((entry) => entry.toLowerCase() === value.toLowerCase()) === index);
+    .filter(
+      (value, index, array) =>
+        array.findIndex((entry) => entry.toLowerCase() === value.toLowerCase()) === index
+    );
 
   if (candidates.length <= 1) {
     return candidates;
@@ -238,7 +267,10 @@ function stableStringify(value) {
     return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
   }
   if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -255,43 +287,47 @@ function compileStreamBadgeFilters(rules = {}) {
 
   const compiled = normalized.imports
     .filter((importItem) => importItem.isActive)
-    .flatMap((importItem) => importItem.filters.map((filter) => {
-      try {
-        const pattern = String(filter.pattern || "").trim();
-        let source = pattern;
-        let flags = "";
-        let inlineMatch = source.match(/^\(\?([imxs]+)\)/i);
-        while (inlineMatch) {
-          const inlineFlags = String(inlineMatch[1] || "").toLowerCase();
-          if (inlineFlags.includes("i")) {
-            flags += "i";
+    .flatMap((importItem) =>
+      importItem.filters
+        .map((filter) => {
+          try {
+            const pattern = String(filter.pattern || "").trim();
+            let source = pattern;
+            let flags = "";
+            let inlineMatch = source.match(/^\(\?([imxs]+)\)/i);
+            while (inlineMatch) {
+              const inlineFlags = String(inlineMatch[1] || "").toLowerCase();
+              if (inlineFlags.includes("i")) {
+                flags += "i";
+              }
+              if (inlineFlags.includes("m")) {
+                flags += "m";
+              }
+              if (inlineFlags.includes("s")) {
+                flags += "s";
+              }
+              source = source.slice(inlineMatch[0].length);
+              inlineMatch = source.match(/^\(\?([imxs]+)\)/i);
+            }
+            flags = Array.from(new Set(flags.split(""))).join("");
+            return {
+              name: filter.name,
+              badge: {
+                name: filter.name,
+                imageURL: filter.imageURL,
+                tagColor: filter.tagColor,
+                tagStyle: filter.tagStyle,
+                textColor: filter.textColor,
+                borderColor: filter.borderColor
+              },
+              regex: new RegExp(source, flags)
+            };
+          } catch {
+            return null;
           }
-          if (inlineFlags.includes("m")) {
-            flags += "m";
-          }
-          if (inlineFlags.includes("s")) {
-            flags += "s";
-          }
-          source = source.slice(inlineMatch[0].length);
-          inlineMatch = source.match(/^\(\?([imxs]+)\)/i);
-        }
-        flags = Array.from(new Set(flags.split(""))).join("");
-        return {
-          name: filter.name,
-          badge: {
-            name: filter.name,
-            imageURL: filter.imageURL,
-            tagColor: filter.tagColor,
-            tagStyle: filter.tagStyle,
-            textColor: filter.textColor,
-            borderColor: filter.borderColor
-          },
-          regex: new RegExp(source, flags)
-        };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean));
+        })
+        .filter(Boolean)
+    );
 
   compiledBadgeCache.set(fingerprint, compiled);
   return compiled;
@@ -341,8 +377,9 @@ export function applyStreamBadgePresentation(groups = [], rules = {}) {
 }
 
 export function getStreamBadgePreviewSections(importItem = {}) {
-  const filters = (Array.isArray(importItem.filters) ? importItem.filters : [])
-    .filter((filter) => normalizeText(filter?.imageURL));
+  const filters = (Array.isArray(importItem.filters) ? importItem.filters : []).filter((filter) =>
+    normalizeText(filter?.imageURL)
+  );
   if (!filters.length) {
     return [];
   }

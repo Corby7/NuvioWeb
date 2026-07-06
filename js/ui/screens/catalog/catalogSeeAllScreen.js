@@ -1,6 +1,7 @@
 import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
+import { watchedItemsRepository } from "../../../data/repository/watchedItemsRepository.js";
 import { Environment } from "../../../platform/environment.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { I18n } from "../../../i18n/index.js";
@@ -9,6 +10,11 @@ import {
   posterItemFromNode,
   PosterOptionsDialogController
 } from "../../components/posterOptionsMenu.js";
+import {
+  buildWatchedTitleIdSet,
+  isTitleItemWatched,
+  renderTitleWatchedBadge
+} from "../../components/watchedTitleBadge.js";
 
 const POSTER_HOLD_DELAY_MS = 650;
 
@@ -86,7 +92,11 @@ function setContainerScrollTop(container, top, behavior = "auto") {
   return resolvedTop;
 }
 
-function scrollNodeIntoContainerView(node, container, { center = false, padding = 18, behavior = "smooth" } = {}) {
+function scrollNodeIntoContainerView(
+  node,
+  container,
+  { center = false, padding = 18, behavior = "smooth" } = {}
+) {
   if (!(node instanceof HTMLElement) || !(container instanceof HTMLElement)) {
     return null;
   }
@@ -98,7 +108,7 @@ function scrollNodeIntoContainerView(node, container, { center = false, padding 
   let nextScrollTop = currentTop;
 
   if (center) {
-    nextScrollTop = itemTop - ((container.clientHeight - node.offsetHeight) / 2);
+    nextScrollTop = itemTop - (container.clientHeight - node.offsetHeight) / 2;
   } else if (itemTop < viewTop) {
     nextScrollTop = itemTop - padding;
   } else if (itemBottom > viewBottom) {
@@ -117,7 +127,6 @@ function scrollNodeIntoContainerView(node, container, { center = false, padding 
 }
 
 export const CatalogSeeAllScreen = {
-
   getRouteStateKey(params = {}) {
     const addonBaseUrl = String(params?.addonBaseUrl || "").trim();
     const catalogId = String(params?.catalogId || "").trim();
@@ -161,6 +170,11 @@ export const CatalogSeeAllScreen = {
     return true;
   },
 
+  async refreshWatchedTitleIds() {
+    const watchedItems = await watchedItemsRepository.getAll(5000).catch(() => []);
+    this.watchedTitleIds = buildWatchedTitleIdSet(watchedItems);
+  },
+
   async mount(params = {}, navigationContext = {}) {
     this.container = document.getElementById("catalogSeeAll");
     ScreenUtils.show(this.container);
@@ -179,8 +193,12 @@ export const CatalogSeeAllScreen = {
     this.posterOptionsFocusKey = "";
     this.pendingPosterHoldTarget = null;
     this.pendingPosterHoldTimer = null;
+    await this.refreshWatchedTitleIds();
 
-    if (navigationContext?.isBackNavigation && this.hydrateFromRouteState(navigationContext?.restoredState || null, params)) {
+    if (
+      navigationContext?.isBackNavigation &&
+      this.hydrateFromRouteState(navigationContext?.restoredState || null, params)
+    ) {
       this.loading = false;
       this.render();
       return;
@@ -267,7 +285,7 @@ export const CatalogSeeAllScreen = {
     if (this.loading || !this.hasMore) {
       return false;
     }
-    const remaining = (this.items.length - 1) - Number(index || 0);
+    const remaining = this.items.length - 1 - Number(index || 0);
     return remaining <= 10;
   },
 
@@ -332,13 +350,15 @@ export const CatalogSeeAllScreen = {
     const shell = this.container?.querySelector(".seeall-shell") || null;
     const isFirstRow = Number(target.dataset.navRow || 0) === 0;
     const shouldLoadMore = this.shouldAutoLoadMore(target.dataset.itemIndex);
+    // Instant scroll on per-keypress focus: a smooth scrollTo restarts its easing
+    // on every held-down repeat, so the view jittered and only caught up on release.
     const nextScrollTop = isFirstRow
-      ? setContainerScrollTop(shell, 0, "smooth")
+      ? setContainerScrollTop(shell, 0, "auto")
       : scrollNodeIntoContainerView(target, shell, {
-        center: false,
-        padding: 20,
-        behavior: shouldLoadMore ? "auto" : "smooth"
-      });
+          center: false,
+          padding: 20,
+          behavior: "auto"
+        });
     if (Number.isFinite(nextScrollTop)) {
       this.savedScrollTop = nextScrollTop;
     }
@@ -350,11 +370,16 @@ export const CatalogSeeAllScreen = {
 
   handleGridDpad(event) {
     const code = Number(event?.keyCode || 0);
-    const direction = code === 38 ? "up"
-      : code === 40 ? "down"
-        : code === 37 ? "left"
-          : code === 39 ? "right"
-            : null;
+    const direction =
+      code === 38
+        ? "up"
+        : code === 40
+          ? "down"
+          : code === 37
+            ? "left"
+            : code === 39
+              ? "right"
+              : null;
     if (!direction) {
       return false;
     }
@@ -397,11 +422,12 @@ export const CatalogSeeAllScreen = {
 
   restoreFocusedCard({ scrollMode = "center" } = {}) {
     const shell = this.container?.querySelector(".seeall-shell");
-    const target = (this.lastFocusedKey
-      ? this.container?.querySelector(`.seeall-card[data-focus-key="${this.lastFocusedKey}"]`)
-      : null)
-      || this.container?.querySelector(".seeall-card.focusable")
-      || null;
+    const target =
+      (this.lastFocusedKey
+        ? this.container?.querySelector(`.seeall-card[data-focus-key="${this.lastFocusedKey}"]`)
+        : null) ||
+      this.container?.querySelector(".seeall-card.focusable") ||
+      null;
 
     if (shell) {
       this.savedScrollTop = setContainerScrollTop(shell, this.savedScrollTop, "auto");
@@ -453,7 +479,9 @@ export const CatalogSeeAllScreen = {
     };
     this.pendingPosterHoldTimer = setTimeout(() => {
       this.pendingPosterHoldTimer = null;
-      const current = this.container?.querySelector(".seeall-card.focusable.focused[data-action='openDetail']") || null;
+      const current =
+        this.container?.querySelector(".seeall-card.focusable.focused[data-action='openDetail']") ||
+        null;
       if (!this.hasPendingPosterHold(current)) {
         return;
       }
@@ -509,7 +537,7 @@ export const CatalogSeeAllScreen = {
           this.render();
         },
         onChanged: () => {
-          this.render();
+          void this.refreshWatchedTitleIds().then(() => this.render());
         }
       });
     }
@@ -544,7 +572,9 @@ export const CatalogSeeAllScreen = {
     const descriptor = this.params || {};
     const title = descriptor.catalogName || "Catalog";
     const cards = this.items.length
-      ? this.items.map((item, index) => `
+      ? this.items
+          .map(
+            (item, index) => `
           <article class="seeall-card focusable"
                    data-action="openDetail"
                    data-item-id="${item.id || ""}"
@@ -555,31 +585,42 @@ export const CatalogSeeAllScreen = {
                     data-focus-key="item:${item.id || index}"
                     data-item-index="${index}">
             <div class="seeall-card-poster-wrap">
-              ${item.poster
-                ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
-                : `<div class="seeall-card-poster placeholder"></div>`}
+              ${
+                item.poster
+                  ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
+                  : `<div class="seeall-card-poster placeholder"></div>`
+              }
+              ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge() : ""}
             </div>
-            ${this.layoutPrefs?.posterLabelsEnabled !== false ? `
+            ${
+              this.layoutPrefs?.posterLabelsEnabled !== false
+                ? `
               <div class="library-grid-title">${escapeHtml(item.name || "Untitled")}</div>
               <div class="seeall-card-year">${escapeHtml(extractReleaseYear(item))}</div>
-            ` : ""}
+            `
+                : ""
+            }
           </article>
-        `).join("")
+        `
+          )
+          .join("")
       : `<div class="seeall-empty">${escapeHtml(t("catalog_see_all_empty_title", {}, "No items available"))}</div>`;
 
     this.container.innerHTML = `
       <div class="nav-screen seeall-shell">
         <div class="nav-screen-body">
-          <header class="seeall-header">
-            <h1 class="library-page-title">${escapeHtml(title)}</h1>
-            ${this.layoutPrefs?.catalogAddonNameEnabled !== false && descriptor.addonName
+        <header class="seeall-header">
+          <h1 class="library-page-title">${escapeHtml(title)}</h1>
+          ${
+            this.layoutPrefs?.catalogAddonNameEnabled !== false && descriptor.addonName
               ? `<div class="seeall-subtitle">${escapeHtml(t("catalog_see_all_from", [descriptor.addonName], "from %1$s"))}</div>`
-              : ""}
-          </header>
-          <section class="seeall-grid">
-            ${cards}
-          </section>
-          ${this.loading ? `<div class="seeall-loading">${escapeHtml(t("discover_loading", {}, "Loading..."))}</div>` : ""}
+              : ""
+          }
+        </header>
+        <section class="seeall-grid">
+          ${cards}
+        </section>
+        ${this.loading ? `<div class="seeall-loading">${escapeHtml(t("discover_loading", {}, "Loading..."))}</div>` : ""}
         </div>
       </div>
     `;
@@ -618,12 +659,16 @@ export const CatalogSeeAllScreen = {
       return;
     }
     shell.__catalogSeeAllShellBound = true;
-    shell.addEventListener("scroll", () => {
-      this.savedScrollTop = Number(shell.scrollTop || 0);
-      if (this.shouldAutoLoadMoreFromScroll(shell)) {
-        this.loadNextPage({ preserveViewport: true });
-      }
-    }, { passive: true });
+    shell.addEventListener(
+      "scroll",
+      () => {
+        this.savedScrollTop = Number(shell.scrollTop || 0);
+        if (this.shouldAutoLoadMoreFromScroll(shell)) {
+          this.loadNextPage({ preserveViewport: true });
+        }
+      },
+      { passive: true }
+    );
   },
 
   async onKeyDown(event) {
@@ -664,7 +709,9 @@ export const CatalogSeeAllScreen = {
     if (Number(event?.keyCode || 0) !== 13) {
       return;
     }
-    const current = this.container?.querySelector(".seeall-card.focusable.focused[data-action='openDetail']") || null;
+    const current =
+      this.container?.querySelector(".seeall-card.focusable.focused[data-action='openDetail']") ||
+      null;
     if (this.completePendingPosterHold(current, event)) {
       event?.preventDefault?.();
     }
@@ -682,5 +729,4 @@ export const CatalogSeeAllScreen = {
     this.posterOptionsFocusKey = "";
     ScreenUtils.hide(this.container);
   }
-
 };

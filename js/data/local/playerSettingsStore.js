@@ -12,6 +12,11 @@ const DEFAULTS = {
   skipIntroEnabled: true,
   subtitleRenderMode: "html",
   subtitleDelayMs: 0,
+  nextEpisodeThresholdMode: "PERCENTAGE",
+  nextEpisodeThresholdPercent: 99,
+  nextEpisodeThresholdMinutesBeforeEnd: 2,
+  stillWatchingEnabled: false,
+  stillWatchingEpisodeThreshold: 3,
   subtitleStyle: {
     fontSize: 100,
     textColor: "#FFFFFF",
@@ -37,6 +42,7 @@ export const DEFAULT_SUBTITLE_STYLE = Object.freeze({ ...DEFAULTS.subtitleStyle 
 
 const STREAM_AUTO_PLAY_MODES = ["MANUAL", "FIRST_STREAM", "REGEX_MATCH"];
 const STREAM_AUTO_PLAY_SOURCES = ["ALL_SOURCES", "INSTALLED_ADDONS_ONLY", "ENABLED_PLUGINS_ONLY"];
+const NEXT_EPISODE_THRESHOLD_MODES = ["PERCENTAGE", "MINUTES_BEFORE_END"];
 
 function normalizeStreamAutoPlayMode(value) {
   const normalized = String(value || "").trim().toUpperCase();
@@ -56,9 +62,33 @@ function normalizeStreamAutoPlayTimeout(value) {
   return Math.min(60, seconds);
 }
 
+function normalizeNextEpisodeThresholdMode(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  return NEXT_EPISODE_THRESHOLD_MODES.includes(normalized) ? normalized : DEFAULTS.nextEpisodeThresholdMode;
+}
+
+function normalizeHalfStep(value, min, max, fallback) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) {
+    return fallback;
+  }
+  return Math.round(Math.max(min, Math.min(max, next)) * 2) / 2;
+}
+
+function normalizeStillWatchingThreshold(value) {
+  const threshold = Math.trunc(Number(value));
+  if (!Number.isFinite(threshold)) {
+    return DEFAULTS.stillWatchingEpisodeThreshold;
+  }
+  return Math.min(6, Math.max(2, threshold));
+}
+
 function extractLanguageCode(value, fallback = "off") {
   if (value && typeof value === "object") {
-    return extractLanguageCode(value.id ?? value.value ?? value.code ?? value.language ?? value.languageCode, fallback);
+    return extractLanguageCode(
+      value.id ?? value.value ?? value.code ?? value.language ?? value.languageCode,
+      fallback
+    );
   }
   const code = String(value ?? "").trim();
   if (!code || code.toLowerCase() === "[object object]") {
@@ -112,9 +142,12 @@ function normalizePlayerSettings(settings = {}) {
 
   if (preferredLanguage === "forced") {
     useForcedSubtitles = true;
-    preferredLanguage = secondaryPreferredLanguage && secondaryPreferredLanguage !== "forced" && secondaryPreferredLanguage !== "off"
-      ? secondaryPreferredLanguage
-      : "en";
+    preferredLanguage =
+      secondaryPreferredLanguage &&
+      secondaryPreferredLanguage !== "forced" &&
+      secondaryPreferredLanguage !== "off"
+        ? secondaryPreferredLanguage
+        : "en";
     secondaryPreferredLanguage = "off";
   }
   if (secondaryPreferredLanguage === "forced") {
@@ -135,6 +168,25 @@ function normalizePlayerSettings(settings = {}) {
     ...settings,
     subtitleRenderMode,
     subtitleRenderModeMigratedToHtml: true,
+    nextEpisodeThresholdMode: normalizeNextEpisodeThresholdMode(
+      settings.nextEpisodeThresholdMode ?? DEFAULTS.nextEpisodeThresholdMode
+    ),
+    nextEpisodeThresholdPercent: normalizeHalfStep(
+      settings.nextEpisodeThresholdPercent ?? DEFAULTS.nextEpisodeThresholdPercent,
+      97,
+      100,
+      DEFAULTS.nextEpisodeThresholdPercent
+    ),
+    nextEpisodeThresholdMinutesBeforeEnd: normalizeHalfStep(
+      settings.nextEpisodeThresholdMinutesBeforeEnd ?? DEFAULTS.nextEpisodeThresholdMinutesBeforeEnd,
+      0,
+      3.5,
+      DEFAULTS.nextEpisodeThresholdMinutesBeforeEnd
+    ),
+    stillWatchingEnabled: Boolean(settings.stillWatchingEnabled ?? DEFAULTS.stillWatchingEnabled),
+    stillWatchingEpisodeThreshold: normalizeStillWatchingThreshold(
+      settings.stillWatchingEpisodeThreshold ?? DEFAULTS.stillWatchingEpisodeThreshold
+    ),
     subtitlesEnabled,
     subtitleLanguage: preferredLanguage,
     secondarySubtitleLanguage: secondaryPreferredLanguage,
@@ -167,7 +219,6 @@ const store = createProfileScopedStore({
 });
 
 export const PlayerSettingsStore = {
-
   getForProfile(profileId) {
     return store.getForProfile(profileId);
   },
@@ -187,5 +238,4 @@ export const PlayerSettingsStore = {
   set(partial, options = {}) {
     return store.set(partial, options);
   }
-
 };

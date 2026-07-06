@@ -2,7 +2,11 @@ import { ScreenUtils } from "../../navigation/screen.js";
 import { Router } from "../../navigation/router.js";
 import { Platform } from "../../../platform/index.js";
 import { TraktAuthService } from "../../../data/repository/traktAuthService.js";
-import { SettingsScreen, bindSettingsScrollIndicators, scrollSettingsContentItem } from "../settings/settingsScreen.js";
+import {
+  SettingsScreen,
+  bindSettingsScrollIndicators,
+  scrollSettingsContentItem
+} from "../settings/settingsScreen.js";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -64,6 +68,51 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
     }
     await this.render();
     this.deferTraktAutoWork("clock");
+  },
+
+  deferTraktAutoWork(kind) {
+    const key = String(kind || "");
+    if (!key || Router.getCurrent() !== "trakt" || !this.traktRouteAutoWorkDeferred) {
+      return false;
+    }
+    this.pendingTraktAutoWork = {
+      ...(this.pendingTraktAutoWork || {}),
+      [key]: true
+    };
+    this.scheduleTraktRouteAutoWork();
+    return true;
+  },
+
+  scheduleTraktRouteAutoWork() {
+    if (this.traktRouteAutoWorkTimer) {
+      return;
+    }
+    this.traktRouteAutoWorkTimer = setTimeout(() => {
+      this.traktRouteAutoWorkTimer = null;
+      this.runTraktRouteAutoWork();
+    }, TRAKT_ROUTE_ENTER_DURATION_MS + 80);
+  },
+
+  runTraktRouteAutoWork() {
+    const pending = this.pendingTraktAutoWork || {};
+    this.pendingTraktAutoWork = null;
+    this.traktRouteAutoWorkDeferred = false;
+    if (Router.getCurrent() !== "trakt") {
+      return;
+    }
+    if (pending.clock) {
+      this.startTraktClock();
+    }
+    if (pending.polling) {
+      this.startTraktPolling();
+    }
+    if (pending.stats && !this.traktStats && !this.traktStatsLoading) {
+      void this.loadTraktStats(false).then(() => {
+        if (Router.getCurrent() === "trakt" && this.container && this.activeSection === "trakt") {
+          void this.render();
+        }
+      });
+    }
   },
 
   async render({ refreshModel = true } = {}) {
@@ -179,10 +228,14 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
   },
 
   applyFocus() {
-    this.container?.querySelectorAll?.(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    this.container
+      ?.querySelectorAll?.(".focusable.focused")
+      .forEach((node) => node.classList.remove("focused"));
     if (this.optionDialog) {
-      const dialogNode = this.container.querySelector(`.settings-dialog-option[data-dialog-index="${this.dialogFocusIndex}"]`)
-        || this.container.querySelector(".settings-dialog-option");
+      const dialogNode =
+        this.container.querySelector(
+          `.settings-dialog-option[data-dialog-index="${this.dialogFocusIndex}"]`
+        ) || this.container.querySelector(".settings-dialog-option");
       if (dialogNode) {
         dialogNode.classList.add("focused");
         focusNode(dialogNode);
@@ -215,7 +268,9 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
       return;
     }
     event?.preventDefault?.();
-    this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    this.container
+      .querySelectorAll(".focusable.focused")
+      .forEach((node) => node.classList.remove("focused"));
     target.classList.add("focused");
     focusNode(target);
     if (target.classList.contains("settings-dialog-option")) {
@@ -264,7 +319,9 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
     if (!target) {
       return false;
     }
-    this.container?.querySelectorAll?.(".focusable.focused")?.forEach((node) => node.classList.remove("focused"));
+    this.container
+      ?.querySelectorAll?.(".focusable.focused")
+      ?.forEach((node) => node.classList.remove("focused"));
     target.classList.add("focused");
     focusNode(target);
     scrollSettingsContentItem(target);
@@ -278,10 +335,18 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
     const beforeFocusKey = String(before?.dataset?.focusKey || "");
 
     if (!this.optionDialog) {
-      if (direction === "up" && beforeFocusKey === "trakt:librarySource" && this.focusContentByKey("trakt:disconnect")) {
+      if (
+        direction === "up" &&
+        beforeFocusKey === "trakt:librarySource" &&
+        this.focusContentByKey("trakt:disconnect")
+      ) {
         return;
       }
-      if (direction === "down" && beforeFocusKey === "trakt:disconnect" && this.focusContentByKey("trakt:librarySource")) {
+      if (
+        direction === "down" &&
+        beforeFocusKey === "trakt:disconnect" &&
+        this.focusContentByKey("trakt:librarySource")
+      ) {
         return;
       }
     }
@@ -378,10 +443,13 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
       await this.render();
       const nextState = TraktAuthService.getCurrentAuthState();
       if (nextState.deviceCode && !this.traktPollTimer) {
-        this.traktPollTimer = setTimeout(() => {
-          this.traktPollTimer = null;
-          void poll();
-        }, Math.max(1, Number(nextState.pollInterval || 5)) * 1000);
+        this.traktPollTimer = setTimeout(
+          () => {
+            this.traktPollTimer = null;
+            void poll();
+          },
+          Math.max(1, Number(nextState.pollInterval || 5)) * 1000
+        );
       }
     };
     void poll();
@@ -397,6 +465,12 @@ export const TraktScreen = Object.assign(Object.create(SettingsScreen), {
   },
 
   cleanup() {
+    if (this.traktRouteAutoWorkTimer) {
+      clearTimeout(this.traktRouteAutoWorkTimer);
+      this.traktRouteAutoWorkTimer = null;
+    }
+    this.pendingTraktAutoWork = null;
+    this.traktRouteAutoWorkDeferred = false;
     this.stopTraktPolling?.();
     this.stopTraktClock();
     if (this.traktRouteAutoWorkTimer) {

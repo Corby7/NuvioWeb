@@ -4,9 +4,11 @@ import path from "node:path";
 import { readFile, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { buildRuntimeEnvScript, readEnvProperties } from "./envProperties.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
+const distDir = path.join(rootDir, "dist");
 const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT || 4173);
 const mediaRuntimePath = path.join(rootDir, "services", "webos", "runtime", "media-http.cjs");
@@ -61,7 +63,40 @@ function resolveRequestPath(urlPathname) {
   return path.join(rootDir, normalized);
 }
 
-function requestLocalMediaPath(portNumber, requestPath, { method = "GET", timeoutMs = mediaProbeTimeoutMs } = {}) {
+function resolveDistPathForRootFile(rootFilePath) {
+  const relativePath = path.relative(rootDir, rootFilePath);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return "";
+  }
+  return path.join(distDir, relativePath);
+}
+
+async function resolveRequestFile(pathname) {
+  const rootPath = resolveRequestPath(pathname);
+  const rootStat = await stat(rootPath).catch(() => null);
+
+  if (!String(pathname || "").startsWith("/css/")) {
+    return { filePath: rootPath, fileStat: rootStat };
+  }
+
+  const distPath = resolveDistPathForRootFile(rootPath);
+  const distStat = distPath ? await stat(distPath).catch(() => null) : null;
+  if (!distStat?.isFile()) {
+    return { filePath: rootPath, fileStat: rootStat };
+  }
+
+  if (!rootStat?.isFile() || distStat.mtimeMs >= rootStat.mtimeMs) {
+    return { filePath: distPath, fileStat: distStat };
+  }
+
+  return { filePath: rootPath, fileStat: rootStat };
+}
+
+function requestLocalMediaPath(
+  portNumber,
+  requestPath,
+  { method = "GET", timeoutMs = mediaProbeTimeoutMs } = {}
+) {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -95,7 +130,9 @@ async function findLocalMediaServerPort() {
   const candidates = Array.from(new Set([cachedMediaServerPort, ...mediaServerPorts]));
   for (const candidatePort of candidates) {
     try {
-      const result = await requestLocalMediaPath(candidatePort, "/settings", { timeoutMs: mediaProbeTimeoutMs });
+      const result = await requestLocalMediaPath(candidatePort, "/settings", {
+        timeoutMs: mediaProbeTimeoutMs
+      });
       if (result.statusCode >= 200 && result.statusCode < 500) {
         cachedMediaServerPort = candidatePort;
         return candidatePort;
@@ -163,13 +200,26 @@ async function proxyLocalMediaRequest(request, response, pathname) {
 const server = http.createServer(async (request, response) => {
   try {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
-    if (requestUrl.pathname === "/settings" || requestUrl.pathname.startsWith("/tracks/")) {
-      await proxyLocalMediaRequest(request, response, `${requestUrl.pathname}${requestUrl.search || ""}`);
+    if (requestUrl.pathname === "/nuvio.env.js") {
+      const { env } = await readEnvProperties({ rootDir });
+      response.writeHead(200, {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/javascript; charset=utf-8"
+      });
+      response.end(buildRuntimeEnvScript(env));
       return;
     }
 
-    let filePath = resolveRequestPath(requestUrl.pathname);
-    let fileStat = await stat(filePath).catch(() => null);
+    if (requestUrl.pathname === "/settings" || requestUrl.pathname.startsWith("/tracks/")) {
+      await proxyLocalMediaRequest(
+        request,
+        response,
+        `${requestUrl.pathname}${requestUrl.search || ""}`
+      );
+      return;
+    }
+
+    let { filePath, fileStat } = await resolveRequestFile(requestUrl.pathname);
 
     if (fileStat?.isDirectory()) {
       filePath = path.join(filePath, "index.html");
@@ -204,10 +254,14 @@ server.listen(port, host, async () => {
   for (const lanUrl of getLanUrls()) {
     console.log(`LAN URL: ${lanUrl}`);
   }
-  console.log(mediaPort
-    ? `Local media tracks endpoint: http://${localHost}:${port}/tracks/<media-url> -> 127.0.0.1:${mediaPort}`
-    : "Local media tracks endpoint unavailable. Install/enable the media runtime to inspect internal tracks.");
-  console.log("Use one of the URLs above if you want to test the app over http(s) during development.");
+  console.log(
+    mediaPort
+      ? `Local media tracks endpoint: http://${localHost}:${port}/tracks/<media-url> -> 127.0.0.1:${mediaPort}`
+      : "Local media tracks endpoint unavailable. Install/enable the media runtime to inspect internal tracks."
+  );
+  console.log(
+    "Use one of the URLs above if you want to test the app over http(s) during development."
+  );
 });
 
 function stopMediaRuntime() {

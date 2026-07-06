@@ -12,11 +12,15 @@ let cachedCatalog = null;
 let refreshInFlight = null;
 
 function avatarImageUrl(storagePath = "") {
-  const normalizedPath = String(storagePath || "").trim().replace(/^\/+/, "");
+  const normalizedPath = String(storagePath || "")
+    .trim()
+    .replace(/^\/+/, "");
   if (!normalizedPath) {
     return null;
   }
-  const configuredBaseUrl = String(AVATAR_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+  const configuredBaseUrl = String(AVATAR_PUBLIC_BASE_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
   if (configuredBaseUrl) {
     return `${configuredBaseUrl}/${normalizedPath}`;
   }
@@ -28,7 +32,9 @@ function mapAvatar(row = {}) {
     id: String(row.id || ""),
     displayName: String(row.display_name || row.displayName || "Avatar"),
     imageUrl: avatarImageUrl(row.storage_path || row.storagePath || ""),
-    category: String(row.category || "all").trim().toLowerCase(),
+    category: String(row.category || "all")
+      .trim()
+      .toLowerCase(),
     sortOrder: Number(row.sort_order || row.sortOrder || 0),
     bgColor: row.bg_color || row.bgColor || null
   };
@@ -69,7 +75,6 @@ function refreshCatalogInBackground() {
 }
 
 export const AvatarRepository = {
-
   async getAvatarCatalog() {
     if (Array.isArray(cachedCatalog) && cachedCatalog.length) {
       return cachedCatalog;
@@ -101,5 +106,4 @@ export const AvatarRepository = {
     cachedCatalog = null;
     LocalStore.remove(CATALOG_CACHE_KEY);
   }
-
 };

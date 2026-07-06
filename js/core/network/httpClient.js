@@ -1,5 +1,6 @@
 import { SessionStore } from "../storage/sessionStore.js";
 import { AuthManager } from "../auth/authManager.js";
+import { fetchViaWebOsSupabaseProxy } from "../../platform/webos/webosSupabaseProxy.js";
 import { fetchWithTimeout } from "./fetchWithTimeout.js";
 
 // Callers with special needs pass options.timeoutMs (0 disables the bound).
@@ -18,6 +19,14 @@ function toHeaderObject(headers) {
 function hasHeader(headers, name) {
   const target = String(name || "").toLowerCase();
   return Object.keys(headers || {}).some((key) => String(key).toLowerCase() === target);
+}
+
+async function dispatchRequest(url, fetchInit, timeoutMs) {
+  const proxied = await fetchViaWebOsSupabaseProxy(url, fetchInit);
+  if (proxied) {
+    return proxied;
+  }
+  return fetchWithTimeout(url, fetchInit, timeoutMs);
 }
 
 export async function httpRequest(url, options = {}) {
@@ -49,24 +58,27 @@ export async function httpRequest(url, options = {}) {
     ...fetchOptions
   } = options;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-
-  let response = await fetchWithTimeout(url, {
+  const fetchInit = {
     ...fetchOptions,
     method,
+    credentials: fetchOptions.credentials || "omit",
     headers
-  }, timeoutMs);
+  };
+
+  let response = await dispatchRequest(url, fetchInit, timeoutMs);
 
   if (response.status === 401 && includeSessionAuth && SessionStore.refreshToken) {
     const refreshed = await AuthManager.refreshSessionIfNeeded({ force: true });
     if (refreshed && SessionStore.accessToken) {
-      response = await fetchWithTimeout(url, {
-        ...fetchOptions,
+      const retryInit = {
+        ...fetchInit,
         method,
         headers: {
           ...headers,
           Authorization: `Bearer ${SessionStore.accessToken}`
         }
-      }, timeoutMs);
+      };
+      response = await dispatchRequest(url, retryInit, timeoutMs);
     }
   }
 

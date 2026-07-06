@@ -40,6 +40,16 @@
           "name": "enginefsDiagnostic",
           "description": "Run an EngineFS torrent diagnostic against the local media runtime",
           "public": true
+        },
+        {
+          "name": "enginefsKeepAlive",
+          "description": "Keep the local EngineFS runtime active while playback is using it",
+          "public": true
+        },
+        {
+          "name": "enginefsKeepAliveStop",
+          "description": "Stop an active EngineFS runtime keep-alive subscription",
+          "public": true
         }
       ]
     }

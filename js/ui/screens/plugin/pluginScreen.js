@@ -1,22 +1,10 @@
 import { ScreenUtils } from "../../navigation/screen.js";
 import { Router } from "../../navigation/router.js";
+import { AuthManager } from "../../../core/auth/authManager.js";
+import { LibrarySyncService } from "../../../core/profile/librarySyncService.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
-import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { Platform } from "../../../platform/index.js";
 import { QrCodeGenerator } from "../../../core/qr/qrCodeGenerator.js";
-import {
-  activateLegacySidebarAction,
-  getLegacySidebarNodes,
-  getLegacySidebarSelectedNode,
-  getModernSidebarNodes,
-  getModernSidebarSelectedNode,
-  isSelectedSidebarAction,
-  isRootSidebarNode,
-  setModernSidebarExpanded,
-  setModernSidebarPillIconOnly,
-  setLegacySidebarExpanded
-} from "../../components/sidebarNavigation.js";
-import { RootSidebarController } from "../../components/rootSidebarController.js";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -32,39 +20,82 @@ function escapeHtml(value) {
 }
 
 const PHONE_MANAGER_URL = "https://nuvio.tv/account?tab=addons";
+const ADDONS_ROUTE_ENTER_DURATION_MS = 350;
 
 async function getPhoneManagerUrl() {
   return PHONE_MANAGER_URL;
 }
 
 export const PluginScreen = {
-
   async mount() {
     this.container = document.getElementById("plugin");
     ScreenUtils.show(this.container);
     this.pluginRouteEnterPending = true;
-    this.layoutPrefs = LayoutPreferences.get();
-    this.focusZone = "content";
-    this.sidebarFocusIndex = Number.isFinite(this.sidebarFocusIndex) ? this.sidebarFocusIndex : 0;
-    this.sidebarExpanded = false;
-    this.pillIconOnly = false;
     this.contentRow = Number.isFinite(this.contentRow) ? this.contentRow : 0;
     this.contentCol = Number.isFinite(this.contentCol) ? this.contentCol : 0;
     this.qrOverlayOpen = false;
+    this.syncing = false;
     this.model = await this.collectModel();
-    RootSidebarController.register("plugin", {
-      onExpand: () => this.openSidebar(),
-      onCollapse: () => this.closeSidebarToContent()
-    });
     await this.render({ refreshModel: false });
+    if (AuthManager.isAuthenticated) {
+      this.scheduleInitialRefresh();
+    }
+  },
+
+  scheduleInitialRefresh() {
+    if (this.initialRefreshTimer) {
+      clearTimeout(this.initialRefreshTimer);
+    }
+    this.initialRefreshTimer = setTimeout(() => {
+      this.initialRefreshTimer = null;
+      if (Router.getCurrent() === "plugin") {
+        void this.refreshAddons();
+      }
+    }, ADDONS_ROUTE_ENTER_DURATION_MS + 80);
   },
 
   async collectModel() {
     const addonUrls = addonRepository.getInstalledAddonUrls();
     return {
       addonCount: addonUrls.length,
+      authenticated: AuthManager.isAuthenticated,
+      syncStatus: LibrarySyncService.getLastPullStatus(),
       phoneManagerUrl: await getPhoneManagerUrl()
     };
+  },
+
+  buildSyncStatusText() {
+    if (this.syncing) {
+      return "Syncing addons...";
+    }
+    if (!this.model?.authenticated) {
+      return "Sign in on your phone to link addons.";
+    }
+    const status = this.model?.syncStatus || {};
+    if (status.state === "error") {
+      return "Couldn't reach the addon service. Check the TV internet connection and try Refresh.";
+    }
+    if (this.model?.addonCount > 0) {
+      return "Addons are up to date.";
+    }
+    return "No addons linked yet. Add them on your phone, then press Refresh.";
+  },
+
+  async refreshAddons() {
+    if (this.syncing) {
+      return;
+    }
+    this.syncing = true;
+    await this.render({ refreshModel: true });
+    try {
+      await LibrarySyncService.pull();
+    } catch (error) {
+      console.warn("Addon refresh failed", error);
+    }
+    this.syncing = false;
+    if (Router.getCurrent() === "plugin") {
+      await this.render({ refreshModel: true });
+    }
   },
 
   setRowColumns(row, cols) {
@@ -81,11 +112,9 @@ export const PluginScreen = {
 
   normalizeFocus() {
     const rows = this.getAvailableRows();
-    this.contentRow = rows.includes(this.contentRow) ? this.contentRow : (rows[0] || 0);
+    this.contentRow = rows.includes(this.contentRow) ? this.contentRow : rows[0] || 0;
     const cols = this.getAvailableCols(this.contentRow);
     this.contentCol = cols.includes(this.contentCol) ? this.contentCol : cols[0];
-    const sidebarNodes = this.layoutPrefs?.modernSidebar ? getModernSidebarNodes(this.container) : getLegacySidebarNodes(this.container);
-    this.sidebarFocusIndex = clamp(this.sidebarFocusIndex, 0, Math.max(0, sidebarNodes.length - 1));
   },
 
   ensureMainVisibility(target) {
@@ -93,7 +122,8 @@ export const PluginScreen = {
     if (!container || !target) {
       return;
     }
-    const anchor = target.closest(".addons-installed-card, .addons-large-row, .addons-install-card") || target;
+    const anchor =
+      target.closest(".addons-installed-card, .addons-large-row, .addons-install-card") || target;
     const pad = 56;
     const containerRect = container.getBoundingClientRect();
     const anchorRect = anchor.getBoundingClientRect();
@@ -147,7 +177,6 @@ export const PluginScreen = {
       });
 
       node.addEventListener("click", async () => {
-        this.focusZone = "content";
         this.contentRow = Number(node.dataset.row || 0);
         this.contentCol = Number(node.dataset.col || 0);
         this.applyFocus();
@@ -164,6 +193,7 @@ export const PluginScreen = {
     this.actionMap = new Map();
     this.setRowColumns(0, [0]);
     this.setRowColumns(1, [0]);
+    this.setRowColumns(2, [0]);
 
     this.actionMap.set("manage_from_phone", async () => {
       await this.openQrOverlay();
@@ -171,58 +201,82 @@ export const PluginScreen = {
     this.actionMap.set("reorder_home_catalogs", async () => {
       Router.navigate("catalogOrder");
     });
+    this.actionMap.set("refresh_addons", async () => {
+      await this.refreshAddons();
+    });
     this.actionMap.set("close_qr_overlay", async () => {
       await this.closeQrOverlay();
     });
 
+    const enterClass = this.pluginRouteEnterPending ? " nuvio-route-slide-enter" : "";
     this.container.innerHTML = `
-      <div class="home-shell addons-shell${this.pluginRouteEnterPending ? " addons-route-enter" : ""}">
-        <main class="home-main addons-main addons-main-centered">
-          <header class="library-page-header">
-            <h1 class="library-page-title">Addons</h1>
-          </header>
-          <p class="addons-lede">
-            Manage addons and home catalogs from your phone.
-          </p>
-          <div class="addons-panel addons-panel-centered">
-            <section class="addons-hero-card">
-              <p class="addons-meta">${escapeHtml(`${this.model.addonCount} addon${this.model.addonCount === 1 ? "" : "s"} currently linked`)}</p>
-              <div role="button"
-                   class="addons-large-row addons-large-row-centered addons-focusable"
-                   data-zone="content"
-                   data-row="0"
-                   data-col="0"
-                   data-action-id="manage_from_phone"
-                   tabindex="-1">
-                <span class="addons-large-row-icon material-icons" aria-hidden="true">qr_code_2</span>
-                <span class="addons-large-row-copy">
-                  <strong>Manage from phone</strong>
-                  <small>Scan a QR code to manage addons, catalogs, and collections from your phone</small>
-                </span>
-                <span class="addons-large-row-tail-group">
-                  <span class="addons-large-row-tail material-icons" aria-hidden="true">phone_android</span>
-                </span>
-              </div>
-              <div role="button"
-                   class="addons-large-row addons-large-row-centered addons-focusable"
-                   data-zone="content"
-                   data-row="1"
-                   data-col="0"
-                   data-action-id="reorder_home_catalogs"
-                   tabindex="-1">
-                <span class="addons-large-row-icon material-icons" aria-hidden="true">tune</span>
-                <span class="addons-large-row-copy">
-                  <strong>Reorder &amp; hide catalogs</strong>
-                  <small>Change the order of home rows and hide catalogs you don't want shown</small>
-                </span>
-                <span class="addons-large-row-tail-group">
-                  <span class="addons-large-row-tail material-icons" aria-hidden="true">chevron_right</span>
-                </span>
-              </div>
-            </section>
-          </div>
-        </main>
-        ${this.qrOverlayOpen ? `
+      <div class="addons-shell addons-route-shell">
+        <div class="addons-route-content${enterClass}">
+          <main class="home-main addons-main addons-main-centered">
+            <div class="addons-panel addons-panel-centered">
+              <section class="addons-hero-card">
+                <h1 class="addons-title addons-title-centered">Addons</h1>
+                <p class="addons-lede">
+                  Manage addons and home catalogs from your phone.
+                </p>
+                <p class="addons-meta">${escapeHtml(`${this.model.addonCount} addon${this.model.addonCount === 1 ? "" : "s"} currently linked`)}</p>
+                <p class="addons-sync-status">${escapeHtml(this.buildSyncStatusText())}</p>
+                <div role="button"
+                     class="addons-large-row addons-large-row-centered addons-focusable"
+                     data-zone="content"
+                     data-row="0"
+                     data-col="0"
+                     data-action-id="manage_from_phone"
+                     tabindex="-1">
+                  <span class="addons-large-row-icon material-icons" aria-hidden="true">qr_code_2</span>
+                  <span class="addons-large-row-copy">
+                    <strong>Manage from phone</strong>
+                    <small>Scan a QR code to manage addons, catalogs, and collections from your phone</small>
+                  </span>
+                  <span class="addons-large-row-tail-group">
+                    <span class="addons-large-row-tail material-icons" aria-hidden="true">phone_android</span>
+                  </span>
+                </div>
+                <div role="button"
+                     class="addons-large-row addons-large-row-centered addons-focusable"
+                     data-zone="content"
+                     data-row="1"
+                     data-col="0"
+                     data-action-id="reorder_home_catalogs"
+                     tabindex="-1">
+                  <span class="addons-large-row-icon material-icons" aria-hidden="true">tune</span>
+                  <span class="addons-large-row-copy">
+                    <strong>Reorder &amp; hide catalogs</strong>
+                    <small>Change the order of home rows and hide catalogs you don't want shown</small>
+                  </span>
+                  <span class="addons-large-row-tail-group">
+                    <span class="addons-large-row-tail material-icons" aria-hidden="true">chevron_right</span>
+                  </span>
+                </div>
+                <div role="button"
+                     class="addons-large-row addons-large-row-centered addons-focusable"
+                     data-zone="content"
+                     data-row="2"
+                     data-col="0"
+                     data-action-id="refresh_addons"
+                     tabindex="-1"
+                     aria-disabled="${this.syncing ? "true" : "false"}">
+                  <span class="addons-large-row-icon material-icons" aria-hidden="true">${this.syncing ? "hourglass_top" : "sync"}</span>
+                  <span class="addons-large-row-copy">
+                    <strong>${this.syncing ? "Refreshing..." : "Refresh addons"}</strong>
+                    <small>Re-check your account for addons you enabled on your phone</small>
+                  </span>
+                  <span class="addons-large-row-tail-group">
+                    <span class="addons-large-row-tail material-icons" aria-hidden="true">refresh</span>
+                  </span>
+                </div>
+              </section>
+            </div>
+          </main>
+        </div>
+        ${
+          this.qrOverlayOpen
+            ? `
           <div class="addons-qr-overlay">
             <div class="addons-qr-dialog">
               <p class="addons-qr-instruction">Scan with your phone to manage addons, catalogs, and collections</p>
@@ -234,11 +288,12 @@ export const PluginScreen = {
               </div>
             </div>
           </div>
-        ` : ""}
+        `
+            : ""
+        }
       </div>
     `;
     this.pluginRouteEnterPending = false;
-
     this.bindContentEvents();
     this.normalizeFocus();
     this.applyFocus();
@@ -246,7 +301,9 @@ export const PluginScreen = {
   },
 
   applyFocus() {
-    this.container.querySelectorAll(".addons-focusable.focused, .focusable.focused").forEach((node) => node.classList.remove("focused"));
+    this.container
+      .querySelectorAll(".addons-focusable.focused, .focusable.focused")
+      .forEach((node) => node.classList.remove("focused"));
 
     if (this.qrOverlayOpen) {
       const closeButton = this.container.querySelector(".addons-qr-close");
@@ -257,29 +314,14 @@ export const PluginScreen = {
       return;
     }
 
-    if (this.focusZone === "sidebar") {
-      const sidebarNodes = this.layoutPrefs?.modernSidebar ? getModernSidebarNodes(this.container) : getLegacySidebarNodes(this.container);
-      const node = sidebarNodes[this.sidebarFocusIndex]
-        || (this.layoutPrefs?.modernSidebar ? getModernSidebarSelectedNode(this.container) : getLegacySidebarSelectedNode(this.container));
-      if (node) {
-        node.classList.add("focused");
-        node.focus();
-        if (!this.layoutPrefs?.modernSidebar) {
-          setLegacySidebarExpanded(this.container, true);
-        }
-        return;
-      }
-      this.focusZone = "content";
-    }
-
-    if (!this.layoutPrefs?.modernSidebar) {
-      setLegacySidebarExpanded(this.container, false);
-    }
-    const target = this.container.querySelector(
-      `.addons-focusable[data-zone="content"][data-row="${this.contentRow}"][data-col="${this.contentCol}"]`
-    ) || this.container.querySelector(
-      `.addons-focusable[data-zone="content"][data-row="${this.contentRow}"][data-col="0"]`
-    ) || this.container.querySelector(".addons-focusable[data-zone='content']");
+    const target =
+      this.container.querySelector(
+        `.addons-focusable[data-zone="content"][data-row="${this.contentRow}"][data-col="${this.contentCol}"]`
+      ) ||
+      this.container.querySelector(
+        `.addons-focusable[data-zone="content"][data-row="${this.contentRow}"][data-col="0"]`
+      ) ||
+      this.container.querySelector(".addons-focusable[data-zone='content']");
 
     if (target) {
       target.classList.add("focused");
@@ -305,51 +347,9 @@ export const PluginScreen = {
     this.applyFocus();
   },
 
-  moveSidebar(delta) {
-    const sidebarNodes = this.layoutPrefs?.modernSidebar ? getModernSidebarNodes(this.container) : getLegacySidebarNodes(this.container);
-    this.sidebarFocusIndex = clamp(this.sidebarFocusIndex + delta, 0, Math.max(0, sidebarNodes.length - 1));
-    this.applyFocus();
-  },
-
-  async openSidebar() {
-    const sidebarNodes = this.layoutPrefs?.modernSidebar ? getModernSidebarNodes(this.container) : getLegacySidebarNodes(this.container);
-    const selected = this.layoutPrefs?.modernSidebar ? getModernSidebarSelectedNode(this.container) : getLegacySidebarSelectedNode(this.container);
-    this.sidebarFocusIndex = Math.max(0, sidebarNodes.indexOf(selected));
-    if (this.layoutPrefs?.modernSidebar && !this.sidebarExpanded) {
-      this.sidebarExpanded = true;
-      RootSidebarController.expanded = true;
-      this.focusZone = "sidebar";
-      setModernSidebarExpanded(this.container, true);
-      this.applyFocus();
-      return;
-    }
-    this.focusZone = "sidebar";
-    this.applyFocus();
-  },
-
-  async closeSidebarToContent() {
-    this.focusZone = "content";
-    if (this.layoutPrefs?.modernSidebar && this.sidebarExpanded) {
-      this.sidebarExpanded = false;
-      RootSidebarController.expanded = false;
-      setModernSidebarExpanded(this.container, false);
-      this.applyFocus();
-      return;
-    }
-    this.applyFocus();
-  },
-
   async activateFocused() {
     const current = this.container.querySelector(".addons-focusable.focused, .focusable.focused");
     if (!current) {
-      return;
-    }
-
-    if (isRootSidebarNode(current)) {
-      activateLegacySidebarAction(String(current.dataset.action || ""), "plugin");
-      if (isSelectedSidebarAction(String(current.dataset.action || ""), "plugin")) {
-        await this.closeSidebarToContent();
-      }
       return;
     }
 
@@ -369,12 +369,7 @@ export const PluginScreen = {
       this.closeQrOverlay();
       return true;
     }
-    if (this.focusZone === "sidebar") {
-      Platform.exitApp();
-    } else {
-      void this.openSidebar();
-    }
-    return true;
+    return false;
   },
 
   async onKeyDown(event) {
@@ -394,60 +389,19 @@ export const PluginScreen = {
 
     if (Platform.isBackEvent(event)) {
       event?.preventDefault?.();
-      if (this.focusZone === "sidebar") {
-        Platform.exitApp();
-      } else {
-        await this.openSidebar();
-      }
+      await Router.back();
       return;
     }
 
     const code = Number(event?.keyCode || 0);
-    if (this.layoutPrefs?.modernSidebar && !this.sidebarExpanded) {
-      if (code === 40) {
-        this.pillIconOnly = true;
-        setModernSidebarPillIconOnly(this.container, true);
-      } else if (code === 38) {
-        this.pillIconOnly = false;
-        setModernSidebarPillIconOnly(this.container, false);
-      }
-    }
 
     if (code === 38 || code === 40 || code === 37 || code === 39) {
       event?.preventDefault?.();
-      if (this.focusZone === "sidebar") {
-        if (code === 38) this.moveSidebar(-1);
-        else if (code === 40) this.moveSidebar(1);
-        else if (code === 39) {
-          this.focusZone = "content";
-          if (this.layoutPrefs?.modernSidebar) {
-            this.sidebarExpanded = false;
-            setModernSidebarExpanded(this.container, false);
-            this.applyFocus();
-            return;
-          }
-          this.applyFocus();
-        }
-        return;
-      }
-
       if (code === 38) this.moveContent(-1);
       else if (code === 40) this.moveContent(1);
       else if (code === 37) {
         if (this.contentCol > 0) {
           this.moveContent(0, -1);
-        } else {
-          const nodes = this.layoutPrefs?.modernSidebar ? getModernSidebarNodes(this.container) : getLegacySidebarNodes(this.container);
-          const selected = this.layoutPrefs?.modernSidebar ? getModernSidebarSelectedNode(this.container) : getLegacySidebarSelectedNode(this.container);
-          this.focusZone = "sidebar";
-          this.sidebarFocusIndex = Math.max(0, nodes.indexOf(selected));
-          if (this.layoutPrefs?.modernSidebar && !this.sidebarExpanded) {
-            this.sidebarExpanded = true;
-            setModernSidebarExpanded(this.container, true);
-            this.applyFocus();
-          } else {
-            this.applyFocus();
-          }
         }
       } else if (code === 39) {
         this.moveContent(0, 1);
@@ -461,8 +415,10 @@ export const PluginScreen = {
   },
 
   cleanup() {
-    RootSidebarController.unregister("plugin");
+    if (this.initialRefreshTimer) {
+      clearTimeout(this.initialRefreshTimer);
+      this.initialRefreshTimer = null;
+    }
     ScreenUtils.hide(this.container);
   }
-
 };

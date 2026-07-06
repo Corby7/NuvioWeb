@@ -303,6 +303,12 @@
     <string name="about_privacy_policy_subtitle">Consulter notre politique de confidentialité</string>
     <string name="about_supporters_contributors">Soutiens et contributeurs</string>
     <string name="about_supporters_contributors_subtitle">Remerciements et crédits du projet</string>
+    <string name="about_debug_console_title">Console debug</string>
+    <string name="about_debug_console_subtitle">Afficher les derniers événements erreur/avertissement</string>
+    <string name="debug_console_subtitle">Derniers avertissements et erreurs capturés dans cette session de l’application</string>
+    <string name="debug_console_empty_title">Aucun avertissement ni erreur</string>
+    <string name="debug_console_empty_subtitle">Les événements warning/error de la console apparaîtront ici jusqu’à la fermeture de l’application.</string>
+    <string name="debug_console_event_count">%d événements</string>
     <string name="settings_account">Compte</string>
     <string name="settings_account_subtitle">Compte et état de la synchronisation</string>
     <string name="settings_profiles">Profils</string>
@@ -2453,7 +2459,7 @@
     <string name="player.track.surround">Surround</string>
     <string name="sidebar.profileFallback">Profile</string>
     <string name="sidebar.switchProfile">Switch profile</string>
-    <string name="settings.about.portedBy">Ported by edoedac0 and WhiteGiso.</string>
+    <string name="settings.about.portedBy">Ported by WhiteGiso and edoedac0.</string>
     <string name="settings.account.signOutSubtitle">Disconnect this TV from your account.</string>
     <string name="settings.appearance.themes.amber">Amber</string>
     <string name="settings.appearance.themes.crimson">Crimson</string>
@@ -2503,4 +2509,13 @@
     <string name="auth.syncCode.setCode">Set Code</string>
     <string name="common_all">Tout</string>
     <string name="subtitle_none_forced_only">Aucun (forcés uniquement)</string>
+    <string name="detail.resume">Reprendre</string>
+    <string name="detail.resumeEpisodeShort">Reprendre S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Lire depuis le début</string>
+    <string name="detail.resumeAvailable">Reprise disponible</string>
+    <string name="detail.currentEpisode">Épisode {{episode}}</string>
+    <string name="detail.timeLeftDuration">{{time}} restantes</string>
+    <string name="player.audio.unsupported">Non pris en charge</string>
+    <string name="player.audio.unsupportedCodec">Codec non pris en charge par cet appareil</string>
+    <string name="player.audio.noSupportedTracks">Aucune piste audio prise en charge disponible</string>
 </resources>

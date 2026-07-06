@@ -1,27 +1,16 @@
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
-import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { transformAsync } from "@babel/core";
 import { readAppMetadata, syncVersionFiles } from "./appMetadata.mjs";
+import { runWebOsToolsBinary } from "./aresCli.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 
-function resolveAresBinary(binaryName) {
-  const require = createRequire(import.meta.url);
-  const packageJsonPath = require.resolve("@webos-tools/cli/package.json");
-  const packageJson = JSON.parse(require("fs").readFileSync(packageJsonPath, "utf8"));
-  const binPath = packageJson.bin?.[binaryName];
-  if (!binPath) {
-    throw new Error(`Binary ${binaryName} not found in @webos-tools/cli`);
-  }
-  return path.join(path.dirname(packageJsonPath), binPath);
-}
 const cacheDir = path.join(rootDir, ".cache");
 const stagingDir = path.join(cacheDir, "webos-package");
 const appStageDir = path.join(stagingDir, "app");
@@ -54,6 +43,56 @@ const webOsLegacyPreloadScript = `  <script>
       };
     }
   </script>`;
+const flexGapDetectionScript = `  <script>
+    (function detectLegacyFeatureSupport() {
+      var root = document.documentElement;
+      function removeClass(name) {
+        root.className = (" " + root.className + " ")
+          .replace(new RegExp(" " + name + " ", "g"), " ")
+          .replace(/^\\s+|\\s+$/g, "");
+      }
+      function supports(prop, value) {
+        var css = window.CSS;
+        return Boolean(css && typeof css.supports === "function" && css.supports(prop, value));
+      }
+      try {
+        var test = document.createElement("div");
+        var child = document.createElement("div");
+        test.style.position = "absolute";
+        test.style.left = "-9999px";
+        test.style.top = "-9999px";
+        test.style.display = "flex";
+        test.style.flexDirection = "column";
+        test.style.rowGap = "1px";
+        child.style.height = "1px";
+        test.appendChild(child.cloneNode());
+        test.appendChild(child.cloneNode());
+        root.appendChild(test);
+        if (test.scrollHeight === 3) {
+          removeClass("no-flex-gap");
+        }
+        root.removeChild(test);
+      } catch (error) {
+        removeClass("no-flex-gap");
+      }
+      if (supports("display", "grid")) {
+        removeClass("no-css-grid");
+      }
+      if (supports("--nuvio-probe", "0")) {
+        removeClass("no-css-vars");
+      }
+      if (supports("font-size", "clamp(1px, 2px, 3px)")) {
+        removeClass("no-css-math");
+      }
+      if (supports("aspect-ratio", "1 / 1")) {
+        removeClass("no-aspect-ratio");
+      }
+      if (supports("backdrop-filter", "blur(1px)") || supports("-webkit-backdrop-filter", "blur(1px)")) {
+        removeClass("no-backdrop-filter");
+      }
+    })();
+  </script>
+`;
 
 async function assertDistExists() {
   try {
@@ -83,18 +122,16 @@ async function resolveWebOsScriptPath(targetDir) {
 }
 
 function buildWebOsIndexHtml({ webOsScriptPath = "" } = {}) {
-  const webOsScriptTag = webOsScriptPath
-    ? `  <script src="${webOsScriptPath}"></script>\n`
-    : "";
+  const webOsScriptTag = webOsScriptPath ? `  <script src="${webOsScriptPath}"></script>\n` : "";
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-flex-gap no-css-grid no-css-vars no-css-math no-backdrop-filter no-aspect-ratio">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <title>${appName}</title>
-  <link rel="stylesheet" href="css/base.css" />
+${flexGapDetectionScript}  <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/layout.css" />
   <link rel="stylesheet" href="css/components.css" />
   <link rel="stylesheet" href="css/themes.css" />
@@ -125,12 +162,19 @@ async function stageApp() {
 
   await Promise.all([
     cp(path.join(rootDir, "assets", "images", "icon.png"), path.join(appStageDir, "icon.png")),
-    cp(path.join(rootDir, "assets", "images", "largeIcon.png"), path.join(appStageDir, "largeIcon.png")),
+    cp(
+      path.join(rootDir, "assets", "images", "largeIcon.png"),
+      path.join(appStageDir, "largeIcon.png")
+    ),
     cp(path.join(rootDir, "assets", "images", "splash.png"), path.join(appStageDir, "splash.png"))
   ]);
 
   const webOsScriptPath = await resolveWebOsScriptPath(appStageDir);
-  await writeFile(path.join(appStageDir, "index.html"), buildWebOsIndexHtml({ webOsScriptPath }), "utf8");
+  await writeFile(
+    path.join(appStageDir, "index.html"),
+    buildWebOsIndexHtml({ webOsScriptPath }),
+    "utf8"
+  );
 }
 
 async function stageService() {
@@ -143,8 +187,15 @@ async function stageService() {
   await mkdir(path.join(serviceStageDir, "runtime"), { recursive: true });
 
   await Promise.all([
-    writeFile(path.join(serviceStageDir, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8"),
-    cp(path.join(webOsServiceSourceDir, "services.json"), path.join(serviceStageDir, "services.json")),
+    writeFile(
+      path.join(serviceStageDir, "package.json"),
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+      "utf8"
+    ),
+    cp(
+      path.join(webOsServiceSourceDir, "services.json"),
+      path.join(serviceStageDir, "services.json")
+    ),
     cp(
       path.join(webOsServiceSourceDir, "runtime", "media-http.cjs"),
       path.join(serviceStageDir, "runtime", "media-http.cjs")
@@ -173,24 +224,6 @@ async function stageService() {
   await rm(serviceTempBundlePath, { force: true });
 }
 
-function runCommand(command, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: rootDir,
-      stdio: "inherit"
-    });
-
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`${command} exited with code ${code}`));
-    });
-  });
-}
-
 async function packageWebOs() {
   await syncVersionFiles();
   await assertDistExists();
@@ -201,14 +234,21 @@ async function packageWebOs() {
   await Promise.all([stageApp(), stageService()]);
 
   console.log("creating webOS IPK...");
-  const aresPackage = resolveAresBinary("ares-package");
   try {
-    await runCommand(aresPackage, [appStageDir, serviceStageDir, "--outdir", rootDir, "--no-minify"]);
+    await runWebOsToolsBinary("ares-package", [
+      appStageDir,
+      serviceStageDir,
+      "--outdir",
+      rootDir,
+      "--no-minify"
+    ]);
   } catch (error) {
     const { version } = await readAppMetadata();
     const expectedIpk = path.join(rootDir, `space.nuvio.webos_${version}_all.ipk`);
     if (await pathExists(expectedIpk)) {
-      console.warn(`ares-package exited with an error, but ${expectedIpk} was created successfully. Continuing.`);
+      console.warn(
+        `ares-package exited with an error, but ${expectedIpk} was created successfully. Continuing.`
+      );
     } else {
       throw error;
     }

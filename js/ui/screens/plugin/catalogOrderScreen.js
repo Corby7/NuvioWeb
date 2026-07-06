@@ -2,7 +2,11 @@ import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { HomeCatalogStore } from "../../../data/local/homeCatalogStore.js";
-import { buildOrderedCatalogItems, toDisplayTypeLabel } from "../../../core/addons/homeCatalogs.js";
+import { CollectionsStore } from "../../../data/local/collectionsStore.js";
+import {
+  buildOrderedHomeCatalogItems,
+  toDisplayTypeLabel
+} from "../../../core/addons/homeCatalogs.js";
 import { Platform } from "../../../platform/index.js";
 
 function clamp(value, min, max) {
@@ -19,7 +23,6 @@ function escapeHtml(value) {
 }
 
 export const CatalogOrderScreen = {
-
   async mount() {
     this.container = document.getElementById("catalogOrder");
     ScreenUtils.show(this.container);
@@ -30,9 +33,16 @@ export const CatalogOrderScreen = {
 
   async collectModel() {
     const addons = await addonRepository.getInstalledAddons();
+    const collections = CollectionsStore.get();
     const prefs = HomeCatalogStore.get();
     return {
-      items: buildOrderedCatalogItems(addons, prefs.order, prefs.disabled)
+      items: buildOrderedHomeCatalogItems(
+        addons,
+        collections,
+        prefs.order,
+        prefs.disabled,
+        prefs.customTitles
+      )
     };
   },
 
@@ -87,12 +97,17 @@ export const CatalogOrderScreen = {
   },
 
   applyFocus() {
-    this.container?.querySelectorAll(".catalog-order-focusable.focused").forEach((node) => node.classList.remove("focused"));
-    const target = this.container?.querySelector(
-      `.catalog-order-focusable[data-row="${this.focusRow}"][data-col="${this.focusCol}"]`
-    ) || this.container?.querySelector(
-      `.catalog-order-focusable[data-row="${this.focusRow}"][data-col="0"]`
-    ) || this.container?.querySelector(".catalog-order-focusable");
+    this.container
+      ?.querySelectorAll(".catalog-order-focusable.focused")
+      .forEach((node) => node.classList.remove("focused"));
+    const target =
+      this.container?.querySelector(
+        `.catalog-order-focusable[data-row="${this.focusRow}"][data-col="${this.focusCol}"]`
+      ) ||
+      this.container?.querySelector(
+        `.catalog-order-focusable[data-row="${this.focusRow}"][data-col="0"]`
+      ) ||
+      this.container?.querySelector(".catalog-order-focusable");
 
     if (!target) {
       return;
@@ -125,18 +140,19 @@ export const CatalogOrderScreen = {
   async render() {
     this.model = await this.collectModel();
     this.rowColumns = new Map();
-    const itemsHtml = this.model.items.map((item, index) => {
-      const cols = [];
-      if (item.canMoveUp) {
-        cols.push(0);
-      }
-      if (item.canMoveDown) {
-        cols.push(1);
-      }
-      cols.push(2);
-      this.setRowColumns(index, cols);
+    const itemsHtml = this.model.items
+      .map((item, index) => {
+        const cols = [];
+        if (item.canMoveUp) {
+          cols.push(0);
+        }
+        if (item.canMoveDown) {
+          cols.push(1);
+        }
+        cols.push(2);
+        this.setRowColumns(index, cols);
 
-      return `
+        return `
         <article class="catalog-order-card">
           <div class="catalog-order-card-copy">
             <h2>${escapeHtml(item.catalogName)} - ${escapeHtml(toDisplayTypeLabel(item.type))}</h2>
@@ -164,7 +180,8 @@ export const CatalogOrderScreen = {
           </div>
         </article>
       `;
-    }).join("");
+      })
+      .join("");
 
     this.container.innerHTML = `
       <div class="nav-screen catalog-order-shell">
@@ -242,6 +259,8 @@ export const CatalogOrderScreen = {
     }
 
     if (code === 13) {
+      // Prevent the focused button's native click from also firing, otherwise
+      // the action runs twice and rows jump two slots at a time.
       event?.preventDefault?.();
       event?.stopPropagation?.();
       await this.activateFocused();
@@ -251,5 +270,4 @@ export const CatalogOrderScreen = {
   cleanup() {
     ScreenUtils.hide(this.container);
   }
-
 };

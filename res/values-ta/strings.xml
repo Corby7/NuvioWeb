@@ -313,6 +313,12 @@
     <string name="about_privacy_policy_subtitle">எங்கள் தனியுரிமைக் கொள்கையை காண்க</string>
     <string name="about_supporters_contributors">ஆதரவாளர்கள் &amp; பங்களிப்பாளர்கள்</string>
     <string name="about_supporters_contributors_subtitle">திறந்த அங்கீகாரம் மற்றும் திட்ட நன்றிகள்</string>
+    <string name="about_debug_console_title">டிபக் கன்சோல்</string>
+    <string name="about_debug_console_subtitle">சமீபத்திய பிழை/எச்சரிக்கை நிகழ்வுகளை காட்டு</string>
+    <string name="debug_console_subtitle">இந்த செயலி அமர்வில் பிடிக்கப்பட்ட கடைசி எச்சரிக்கைகள் மற்றும் பிழைகள்</string>
+    <string name="debug_console_empty_title">எச்சரிக்கைகள் அல்லது பிழைகள் இல்லை</string>
+    <string name="debug_console_empty_subtitle">செயலி மூடப்படும் வரை கன்சோல் warning/error நிகழ்வுகள் இங்கே தோன்றும்.</string>
+    <string name="debug_console_event_count">%d நிகழ்வுகள்</string>
     <string name="about_licenses_attributions">உரிமங்கள் &amp; நன்றிக்குறிப்புகள்</string>
     <string name="about_licenses_attributions_subtitle">தரவு மூலங்கள், நன்றிகள் மற்றும் ஆண்ட்ராய்டு உரிமங்கள்</string>
     <string name="licenses_attributions_title">உரிமங்கள் &amp; நன்றிக்குறிப்புகள்</string>
@@ -2069,4 +2075,13 @@
     <string name="trakt_related_error_request_failed">ட்ராக்ட் தொடர்புடைய கோரிக்கை தோல்வியடைந்தது</string>
     <string name="trakt_comments_error_request_failed">ட்ராக்ட் கருத்துகள் கோரிக்கை தோல்வியடைந்தது</string>
     <string name="trakt_library_error_fetch_list_items">பட்டியல் உருப்படிகளைப் பெற முடியவில்லை</string>
+    <string name="detail.resume">தொடரவும்</string>
+    <string name="detail.resumeEpisodeShort">S{{season}}E{{episode}} தொடரவும்</string>
+    <string name="detail.playFromBeginning">ஆரம்பத்திலிருந்து இயக்கு</string>
+    <string name="detail.resumeAvailable">தொடர்வு கிடைக்கிறது</string>
+    <string name="detail.currentEpisode">எபிசோடு {{episode}}</string>
+    <string name="detail.timeLeftDuration">{{time}} மீதம்</string>
+    <string name="player.audio.unsupported">ஆதரிக்கப்படவில்லை</string>
+    <string name="player.audio.unsupportedCodec">இந்தச் சாதனம் இந்த கோடெக்கை ஆதரிக்கவில்லை</string>
+    <string name="player.audio.noSupportedTracks">ஆதரிக்கப்படும் ஆடியோ தடங்கள் எதுவும் இல்லை</string>
 </resources>

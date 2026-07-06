@@ -4,7 +4,8 @@ const KEY = "homeCatalogPrefs";
 
 const DEFAULTS = {
   order: [],
-  disabled: []
+  disabled: [],
+  customTitles: {}
 };
 
 function unique(array) {
@@ -18,10 +19,34 @@ function sameArray(left = [], right = []) {
   return left.every((entry, index) => entry === right[index]);
 }
 
+function normalizeCustomTitles(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.entries(value).reduce((accumulator, [key, title]) => {
+    const normalizedKey = String(key || "").trim();
+    const normalizedTitle = String(title || "").trim();
+    if (normalizedKey && normalizedTitle) {
+      accumulator[normalizedKey] = normalizedTitle;
+    }
+    return accumulator;
+  }, {});
+}
+
+function sameObject(left = {}, right = {}) {
+  const leftKeys = Object.keys(left || {}).sort();
+  const rightKeys = Object.keys(right || {}).sort();
+  if (!sameArray(leftKeys, rightKeys)) {
+    return false;
+  }
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
 function normalizeHomeCatalogPrefs(value = {}) {
   return {
     order: unique(Array.isArray(value.order) ? value.order : []),
-    disabled: unique(Array.isArray(value.disabled) ? value.disabled : [])
+    disabled: unique(Array.isArray(value.disabled) ? value.disabled : []),
+    customTitles: normalizeCustomTitles(value.customTitles || value.custom_titles)
   };
 }
 
@@ -30,8 +55,17 @@ const store = createProfileScopedStore({
   normalize: normalizeHomeCatalogPrefs
 });
 
-export const HomeCatalogStore = {
+function queueHomeCatalogSettingsSync(profileId = null) {
+  import("../../core/profile/homeCatalogSettingsSyncService.js")
+    .then(({ HomeCatalogSettingsSyncService }) =>
+      HomeCatalogSettingsSyncService.triggerPush(profileId)
+    )
+    .catch((error) => {
+      console.warn("Home catalog settings sync enqueue failed", error);
+    });
+}
 
+export const HomeCatalogStore = {
   getForProfile(profileId) {
     return store.getForProfile(profileId);
   },
@@ -46,10 +80,17 @@ export const HomeCatalogStore = {
       ...current,
       ...(partial || {})
     });
-    if (sameArray(current.order, next.order) && sameArray(current.disabled, next.disabled)) {
+    if (
+      sameArray(current.order, next.order) &&
+      sameArray(current.disabled, next.disabled) &&
+      sameObject(current.customTitles, next.customTitles)
+    ) {
       return;
     }
     store.replaceForProfile(profileId, next, options);
+    if (!options.silentSync) {
+      queueHomeCatalogSettingsSync(profileId);
+    }
   },
 
   set(partial, { silentSync = false, profileId = null } = {}) {
@@ -72,12 +113,19 @@ export const HomeCatalogStore = {
     this.set({ order: unique(order || []) }, options);
   },
 
+  setCustomTitles(customTitles, options = {}) {
+    this.set({ customTitles: normalizeCustomTitles(customTitles) }, options);
+  },
+
   ensureOrderKeys(keys) {
     const current = this.get();
-    const valid = current.order.filter((key) => keys.includes(key));
-    const missing = keys.filter((key) => !valid.includes(key));
-    const next = [...valid, ...missing];
-    this.set({ order: next }, { silentSync: true });
+    const saved = unique(current.order || []).filter(Boolean);
+    const savedSet = new Set(saved);
+    const missing = unique(keys || []).filter((key) => key && !savedSet.has(key));
+    const next = [...saved, ...missing];
+    if (!sameArray(current.order, next)) {
+      this.set({ order: next }, { silentSync: true });
+    }
     return next;
   },
 
@@ -86,5 +134,4 @@ export const HomeCatalogStore = {
       silentSync: Boolean(options.silentSync)
     });
   }
-
 };

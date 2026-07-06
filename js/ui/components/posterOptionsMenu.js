@@ -1,10 +1,10 @@
 import { I18n } from "../../i18n/index.js";
+import { DIALOG_ICONS } from "./dialogIcons.js";
 import { savedLibraryRepository } from "../../data/repository/savedLibraryRepository.js";
 import { libraryRepository, LibrarySourceMode } from "../../data/repository/libraryRepository.js";
 import { watchedItemsRepository } from "../../data/repository/watchedItemsRepository.js";
 import { watchProgressRepository } from "../../data/repository/watchProgressRepository.js";
 import { NuvioDialog } from "./nuvioDialog.js";
-import { DIALOG_ICONS } from "./dialogIcons.js";
 
 function t(key, params = {}, fallback = key) {
   return I18n.t(key, params, { fallback });
@@ -22,7 +22,10 @@ export function posterItemFromNode(node, fallbackType = "movie") {
   return {
     id: String(node.dataset.itemId || "").trim(),
     type: String(node.dataset.itemType || fallbackType || "movie").trim() || "movie",
-    title: String(node.dataset.itemTitle || node.dataset.title || node.dataset.itemId || "Untitled").trim() || "Untitled",
+    title:
+      String(
+        node.dataset.itemTitle || node.dataset.title || node.dataset.itemId || "Untitled"
+      ).trim() || "Untitled",
     poster: String(node.dataset.posterSrc || node.dataset.poster || "").trim(),
     background: String(node.dataset.backdropSrc || node.dataset.background || "").trim()
   };
@@ -55,7 +58,9 @@ export async function createPosterOptionsState(item, options = {}) {
     : await watchedItemsRepository.getAll(2000).catch(() => []);
   const sourceMode = await libraryRepository.getSourceMode().catch(() => LibrarySourceMode.LOCAL);
   const libraryItem = toLibraryItem(item);
-  const membershipSnapshot = await libraryRepository.getMembershipSnapshot(libraryItem).catch(() => ({ listMembership: {} }));
+  const membershipSnapshot = await libraryRepository
+    .getMembershipSnapshot(libraryItem)
+    .catch(() => ({ listMembership: {} }));
   return {
     item: {
       ...item,
@@ -65,8 +70,12 @@ export async function createPosterOptionsState(item, options = {}) {
     },
     sourceMode,
     membership: membershipSnapshot.listMembership || {},
-    isSaved: isInMembership(membershipSnapshot) || await savedLibraryRepository.isSaved(item.id).catch(() => false),
-    isWatched: watchedItems.some((entry) => String(entry?.contentId || "") === String(item.id || "")),
+    isSaved:
+      isInMembership(membershipSnapshot) ||
+      (await savedLibraryRepository.isSaved(item.id).catch(() => false)),
+    isWatched: watchedItems.some(
+      (entry) => String(entry?.contentId || "") === String(item.id || "")
+    ),
     optionIndex: 0,
     focusKey: options.focusKey || "",
     itemIndex: Number.isFinite(Number(options.itemIndex)) ? Number(options.itemIndex) : -1
@@ -81,16 +90,21 @@ export function getPosterOptions(state, options = {}) {
   const includeLibrary = options.includeLibrary !== false;
   const includeWatched = options.includeWatched !== false && !isSeriesType(item.type);
   const actions = [
-    { action: "details", label: t("cw_action_go_to_details", {}, "Go to details"), icon: DIALOG_ICONS.details }
+    {
+      action: "details",
+      label: t("cw_action_go_to_details", {}, "Go to details"),
+      icon: DIALOG_ICONS.details
+    }
   ];
   if (includeLibrary) {
     actions.push({
       action: "toggleLibrary",
-      label: state.sourceMode === LibrarySourceMode.TRAKT
-        ? t("library_manage_lists", {}, "Manage Lists")
-        : state.isSaved
-        ? t("detail.removeFromLibrary", {}, "Remove from Library")
-        : t("detail.addToLibrary", {}, "Add to Library"),
+      label:
+        state.sourceMode === LibrarySourceMode.TRAKT
+          ? t("library_manage_lists", {}, "Manage Lists")
+          : state.isSaved
+            ? t("detail.removeFromLibrary", {}, "Remove from Library")
+            : t("detail.addToLibrary", {}, "Add to Library"),
       icon: state.isSaved ? DIALOG_ICONS.removeFromLibrary : DIALOG_ICONS.toggleLibrary
     });
   }
@@ -158,15 +172,20 @@ export async function createPosterListPickerState(state) {
     return null;
   }
   const tabs = await libraryRepository.getListTabs().catch(() => []);
-  const resolvedTabs = Array.isArray(tabs) && tabs.length
-    ? tabs
-    : [{ key: "local", title: t("detail.library", {}, "Library"), type: "local" }];
+  const resolvedTabs =
+    Array.isArray(tabs) && tabs.length
+      ? tabs
+      : [{ key: "local", title: t("detail.library", {}, "Library"), type: "local" }];
   const libraryItem = toLibraryItem(item);
-  const snapshot = await libraryRepository.getMembershipSnapshot(libraryItem).catch(() => ({ listMembership: {} }));
+  const snapshot = await libraryRepository
+    .getMembershipSnapshot(libraryItem)
+    .catch(() => ({ listMembership: {} }));
   return {
     item: libraryItem,
     tabs: resolvedTabs,
-    membership: Object.fromEntries(resolvedTabs.map((tab) => [tab.key, Boolean(snapshot?.listMembership?.[tab.key])])),
+    membership: Object.fromEntries(
+      resolvedTabs.map((tab) => [tab.key, Boolean(snapshot?.listMembership?.[tab.key])])
+    ),
     error: ""
   };
 }
@@ -184,7 +203,11 @@ export function getPosterListPickerOptions(picker) {
       selected: membership[tab.key] === true,
       className: "poster-list-picker-list-button"
     })),
-    { action: "saveLibraryLists", label: t("action_save", {}, "Save"), className: "poster-list-picker-save-button" }
+    {
+      action: "saveLibraryLists",
+      label: t("action_save", {}, "Save"),
+      className: "poster-list-picker-save-button"
+    }
   ];
 }
 

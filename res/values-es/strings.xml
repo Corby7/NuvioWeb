@@ -135,6 +135,12 @@
     <string name="about_check_updates_subtitle">Descargar la última versión</string>
     <string name="about_privacy_policy">Política de privacidad</string>
     <string name="about_privacy_policy_subtitle">Ver nuestra política de privacidad</string>
+    <string name="about_debug_console_title">Consola debug</string>
+    <string name="about_debug_console_subtitle">Mostrar últimos errores/avisos</string>
+    <string name="debug_console_subtitle">Últimos avisos y errores capturados en esta sesión de la app</string>
+    <string name="debug_console_empty_title">Sin avisos ni errores</string>
+    <string name="debug_console_empty_subtitle">Los eventos warning/error de la consola aparecerán aquí hasta cerrar la app.</string>
+    <string name="debug_console_event_count">%d eventos</string>
     <string name="settings_account">Cuenta</string>
     <string name="settings_account_subtitle">Estado de la cuenta y sincronización</string>
     <string name="settings_profiles">Perfiles</string>
@@ -1021,7 +1027,7 @@
     <string name="player.track.surround">Surround</string>
     <string name="sidebar.profileFallback">Profile</string>
     <string name="sidebar.switchProfile">Switch profile</string>
-    <string name="settings.about.portedBy">Ported by edoedac0 and WhiteGiso.</string>
+    <string name="settings.about.portedBy">Ported by WhiteGiso and edoedac0.</string>
     <string name="settings.account.signOutSubtitle">Disconnect this TV from your account.</string>
     <string name="settings.appearance.themes.amber">Amber</string>
     <string name="settings.appearance.themes.crimson">Crimson</string>
@@ -1070,4 +1076,13 @@
     <string name="auth.syncCode.prompt">Insert sync code</string>
     <string name="auth.syncCode.setCode">Set Code</string>
     <string name="common_all">Todo</string>
+    <string name="detail.resume">Reanudar</string>
+    <string name="detail.resumeEpisodeShort">Reanudar T{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Reproducir desde el principio</string>
+    <string name="detail.resumeAvailable">Reanudación disponible</string>
+    <string name="detail.currentEpisode">Episodio {{episode}}</string>
+    <string name="detail.timeLeftDuration">Quedan {{time}}</string>
+    <string name="player.audio.unsupported">No compatible</string>
+    <string name="player.audio.unsupportedCodec">Códec no compatible con este dispositivo</string>
+    <string name="player.audio.noSupportedTracks">No hay pistas de audio compatibles disponibles</string>
 </resources>

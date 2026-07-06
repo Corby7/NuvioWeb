@@ -39,12 +39,16 @@ const ACCENT_BY_THEME = {
 
 function normalizeTheme(settings = {}) {
   const accent = String(settings?.accentColor || DEFAULT_THEME.accentColor).toLowerCase();
+  const storedThemeName = String(settings?.themeName || DEFAULT_THEME.themeName).toUpperCase();
+  const themeFromAccent = THEME_BY_ACCENT.get(accent);
   const themeName = String(
-    settings?.themeName
-    || THEME_BY_ACCENT.get(accent)
-    || DEFAULT_THEME.themeName
+    themeFromAccent && themeFromAccent !== storedThemeName
+      ? themeFromAccent
+      : storedThemeName || themeFromAccent || DEFAULT_THEME.themeName
   ).toUpperCase();
-  const normalizedAccent = String(ACCENT_BY_THEME[themeName] || accent || DEFAULT_THEME.accentColor).toLowerCase();
+  const normalizedAccent = String(
+    ACCENT_BY_THEME[themeName] || accent || DEFAULT_THEME.accentColor
+  ).toLowerCase();
 
   return {
     ...DEFAULT_THEME,
@@ -60,7 +64,6 @@ const store = createProfileScopedStore({
 });
 
 export const ThemeStore = {
-
   getForProfile(profileId) {
     return store.getForProfile(profileId);
   },
@@ -80,5 +83,4 @@ export const ThemeStore = {
   set(partial, options = {}) {
     return store.set(partial, options);
   }
-
 };

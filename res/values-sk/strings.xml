@@ -315,6 +315,12 @@
     <string name="about_privacy_policy_subtitle">Zobraziť zásady ochrany osobných údajov</string>
     <string name="about_supporters_contributors">Podporovatelia &amp; Prispievatelia</string>
     <string name="about_supporters_contributors_subtitle">Verejné uznanie a kredity projektu</string>
+    <string name="about_debug_console_title">Ladiaca konzola</string>
+    <string name="about_debug_console_subtitle">Zobraziť posledné chyby/varovania</string>
+    <string name="debug_console_subtitle">Posledné varovania a chyby zachytené v tejto relácii aplikácie</string>
+    <string name="debug_console_empty_title">Žiadne varovania ani chyby</string>
+    <string name="debug_console_empty_subtitle">Udalosti warning/error z konzoly sa tu zobrazia až do zatvorenia aplikácie.</string>
+    <string name="debug_console_event_count">%d udalostí</string>
     <string name="about_licenses_attributions">Licencie a atribúcie</string>
     <string name="about_licenses_attributions_subtitle">Zdroje dát, poďakovania a Android licencie</string>
     <string name="licenses_attributions_title">Licencie a atribúcie</string>
@@ -2324,7 +2330,7 @@
     <string name="player.track.surround">Surround</string>
     <string name="sidebar.profileFallback">Profile</string>
     <string name="sidebar.switchProfile">Switch profile</string>
-    <string name="settings.about.portedBy">Ported by edoedac0 and WhiteGiso.</string>
+    <string name="settings.about.portedBy">Ported by WhiteGiso and edoedac0.</string>
     <string name="settings.account.signOutSubtitle">Disconnect this TV from your account.</string>
     <string name="settings.appearance.themes.amber">Amber</string>
     <string name="settings.appearance.themes.crimson">Crimson</string>
@@ -2374,4 +2380,13 @@
     <string name="auth.syncCode.setCode">Set Code</string>
     <string name="common_all">Všetko</string>
     <string name="subtitle_none_forced_only">Žiadne (len vynútené)</string>
+    <string name="detail.resume">Pokračovať</string>
+    <string name="detail.resumeEpisodeShort">Pokračovať S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Prehrať od začiatku</string>
+    <string name="detail.resumeAvailable">Pokračovanie je dostupné</string>
+    <string name="detail.currentEpisode">Epizóda {{episode}}</string>
+    <string name="detail.timeLeftDuration">Zostáva {{time}}</string>
+    <string name="player.audio.unsupported">Nepodporované</string>
+    <string name="player.audio.unsupportedCodec">Toto zariadenie nepodporuje kodek</string>
+    <string name="player.audio.noSupportedTracks">Nie sú k dispozícii žiadne podporované zvukové stopy</string>
 </resources>

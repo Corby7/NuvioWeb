@@ -32,17 +32,31 @@ function isJwtExpired(token, leewaySeconds = 30) {
     return false;
   }
   const nowSeconds = Math.floor(Date.now() / 1000);
-  return exp <= (nowSeconds + leewaySeconds);
+  return exp <= nowSeconds + leewaySeconds;
+}
+
+function isTransientNetworkError(error) {
+  const name = String(error?.name || "").toLowerCase();
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    name === "typeerror" ||
+    name === "aborterror" ||
+    message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("load failed") ||
+    message.includes("internet") ||
+    message.includes("offline")
+  );
 }
 
 class AuthManagerClass {
-
   constructor() {
     this.state = AuthState.LOADING;
     this.listeners = [];
     this.cachedEffectiveUserId = null;
     this.cachedEffectiveUserSourceUserId = null;
     this.refreshPromise = null;
+    this.lastRefreshFailureKind = null;
   }
 
   // ------------------------------------
@@ -58,7 +72,7 @@ class AuthManagerClass {
 
   setState(newState) {
     this.state = newState;
-    this.listeners.forEach(l => l(newState));
+    this.listeners.forEach((l) => l(newState));
   }
 
   // ------------------------------------
@@ -94,6 +108,10 @@ class AuthManagerClass {
     return this.state === AuthState.AUTHENTICATED;
   }
 
+  wasLastSessionRefreshTransientFailure() {
+    return this.lastRefreshFailureKind === "transient";
+  }
+
   isAccessTokenExpired(leewaySeconds = 30) {
     return isJwtExpired(SessionStore.accessToken, leewaySeconds);
   }
@@ -102,18 +120,14 @@ class AuthManagerClass {
   // EMAIL LOGIN
   // ------------------------------------
   async signInWithEmail(email, password) {
-
-    const res = await fetch(
-      `${SUPABASE_URL}/auth/v1/token?grant_type=password`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({ email, password })
-      }
-    );
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ email, password })
+    });
 
     if (!res.ok) throw new Error("Login failed");
 
@@ -138,6 +152,7 @@ class AuthManagerClass {
       return this.refreshPromise;
     }
 
+    this.lastRefreshFailureKind = null;
     const accessToken = SessionStore.accessToken;
     const refreshToken = SessionStore.refreshToken;
     if (!refreshToken) {
@@ -156,7 +171,7 @@ class AuthManagerClass {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "apikey": SUPABASE_ANON_KEY
+              apikey: SUPABASE_ANON_KEY
             },
             body: JSON.stringify({ refresh_token: refreshToken })
           },
@@ -167,25 +182,33 @@ class AuthManagerClass {
           // backend outage: keep the session so a flaky backend can't sign
           // the user out at boot; API calls will retry refresh via their
           // own 401 handling once the backend recovers.
-          if (res.status >= 500) {
+          if (res.status >= 500 && accessToken) {
+            this.lastRefreshFailureKind = "transient";
             console.warn(`Session refresh unavailable (HTTP ${res.status}); keeping existing session`);
-            return Boolean(accessToken);
+            return true;
           }
+          this.lastRefreshFailureKind = "rejected";
           return false;
         }
         const data = await res.json();
         if (!data?.access_token) {
+          this.lastRefreshFailureKind = "invalid";
           return false;
         }
         SessionStore.accessToken = data.access_token;
         if (data.refresh_token) {
           SessionStore.refreshToken = data.refresh_token;
         }
+        this.lastRefreshFailureKind = null;
         return true;
       } catch (error) {
-        // Network failure/timeout - same reasoning as 5xx above.
-        console.warn("Session refresh failed; keeping existing session", error);
-        return Boolean(accessToken);
+        console.warn("Session refresh failed", error);
+        if (isTransientNetworkError(error) && accessToken) {
+          this.lastRefreshFailureKind = "transient";
+          return true;
+        }
+        this.lastRefreshFailureKind = "failed";
+        return false;
       } finally {
         this.refreshPromise = null;
       }
@@ -199,23 +222,19 @@ class AuthManagerClass {
   // ------------------------------------
 
   async startTvLoginSession(deviceNonce, deviceName, redirectBaseUrl) {
-
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/rpc/start_tv_login_session`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${SessionStore.accessToken}`
-        },
-        body: JSON.stringify({
-          p_device_nonce: deviceNonce,
-          p_redirect_base_url: redirectBaseUrl,
-          ...(deviceName && { p_device_name: deviceName })
-        })
-      }
-    );
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/start_tv_login_session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SessionStore.accessToken}`
+      },
+      body: JSON.stringify({
+        p_device_nonce: deviceNonce,
+        p_redirect_base_url: redirectBaseUrl,
+        ...(deviceName && { p_device_name: deviceName })
+      })
+    });
 
     if (!res.ok) throw new Error(await res.text());
 
@@ -224,22 +243,18 @@ class AuthManagerClass {
   }
 
   async pollTvLoginSession(code, deviceNonce) {
-
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/rpc/poll_tv_login_session`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${SessionStore.accessToken}`
-        },
-        body: JSON.stringify({
-          p_code: code,
-          p_device_nonce: deviceNonce
-        })
-      }
-    );
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/poll_tv_login_session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SessionStore.accessToken}`
+      },
+      body: JSON.stringify({
+        p_code: code,
+        p_device_nonce: deviceNonce
+      })
+    });
 
     if (!res.ok) throw new Error(await res.text());
 
@@ -248,22 +263,18 @@ class AuthManagerClass {
   }
 
   async exchangeTvLoginSession(code, deviceNonce) {
-
-    const res = await fetch(
-      `${SUPABASE_URL}/functions/v1/tv-logins-exchange`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${SessionStore.accessToken}`
-        },
-        body: JSON.stringify({
-          code,
-          device_nonce: deviceNonce
-        })
-      }
-    );
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/tv-logins-exchange`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SessionStore.accessToken}`
+      },
+      body: JSON.stringify({
+        code,
+        device_nonce: deviceNonce
+      })
+    });
 
     if (!res.ok) throw new Error(await res.text());
 
@@ -280,9 +291,7 @@ class AuthManagerClass {
   // ------------------------------------
 
   async getEffectiveUserId() {
-
-    if (this.cachedEffectiveUserId)
-      return this.cachedEffectiveUserId;
+    if (this.cachedEffectiveUserId) return this.cachedEffectiveUserId;
 
     if (!SessionStore.accessToken) {
       const refreshed = await this.refreshSessionIfNeeded();
@@ -294,31 +303,25 @@ class AuthManagerClass {
 
     const authHeaders = {
       "Content-Type": "application/json",
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SessionStore.accessToken}`
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SessionStore.accessToken}`
     };
 
-    let res = await fetch(
-      `${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`,
-      {
-        method: "POST",
-        headers: authHeaders
-      }
-    );
+    let res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`, {
+      method: "POST",
+      headers: authHeaders
+    });
 
     if (res.status === 401) {
       const refreshed = await this.refreshSessionIfNeeded();
       if (refreshed) {
-        res = await fetch(
-          `${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`,
-          {
-            method: "POST",
-            headers: {
-              ...authHeaders,
-              "Authorization": `Bearer ${SessionStore.accessToken}`
-            }
+        res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`, {
+          method: "POST",
+          headers: {
+            ...authHeaders,
+            Authorization: `Bearer ${SessionStore.accessToken}`
           }
-        );
+        });
       }
     }
 

@@ -8,7 +8,9 @@ import { SavedLibrarySyncService } from "./savedLibrarySyncService.js";
 import { WatchedItemsSyncService } from "./watchedItemsSyncService.js";
 import { PluginSyncService } from "./pluginSyncService.js";
 import { ProfileSettingsSyncService } from "./profileSettingsSyncService.js";
+import { TraktCredentialSyncService } from "./traktCredentialSyncService.js";
 import { CollectionSyncService } from "./collectionSyncService.js";
+import { HomeCatalogSettingsSyncService } from "./homeCatalogSettingsSyncService.js";
 import { ThemeManager } from "../../ui/theme/themeManager.js";
 import { I18n } from "../../i18n/index.js";
 
@@ -30,12 +32,18 @@ function normalizeProfileId(value) {
 async function collectKnownProfileIds(profiles = []) {
   const ids = [
     normalizeProfileId(ProfileManager.getActiveProfileId()),
-    ...(Array.isArray(profiles) ? profiles : []).map((profile) => normalizeProfileId(profile?.id ?? profile?.profileIndex))
+    ...(Array.isArray(profiles) ? profiles : []).map((profile) =>
+      normalizeProfileId(profile?.id ?? profile?.profileIndex)
+    )
   ].filter(Boolean);
 
   if (ids.length <= 1) {
     const storedProfiles = await ProfileManager.getProfiles().catch(() => []);
-    ids.push(...storedProfiles.map((profile) => normalizeProfileId(profile?.id ?? profile?.profileIndex)).filter(Boolean));
+    ids.push(
+      ...storedProfiles
+        .map((profile) => normalizeProfileId(profile?.id ?? profile?.profileIndex))
+        .filter(Boolean)
+    );
   }
 
   return Array.from(new Set(ids));
@@ -45,20 +53,25 @@ export const StartupSyncService = {
   started: false,
   intervalId: null,
   inFlight: false,
+  profileScopedSyncEnabled: false,
   addonPushTimer: null,
   unsubscribeAddonChanges: null,
 
-  async start() {
+  async start({ profileScopedSyncEnabled = false } = {}) {
     if (this.started) {
+      if (profileScopedSyncEnabled) {
+        this.profileScopedSyncEnabled = true;
+      }
       return;
     }
     this.started = true;
+    this.profileScopedSyncEnabled = Boolean(profileScopedSyncEnabled);
 
     this.unsubscribeAddonChanges = addonRepository.onInstalledAddonsChanged(() => {
       this.scheduleAddonPush();
     });
 
-    await this.syncPull();
+    await this.syncPull({ includeProfileScoped: this.profileScopedSyncEnabled });
 
     this.intervalId = setInterval(() => {
       this.syncCycle();
@@ -67,6 +80,7 @@ export const StartupSyncService = {
 
   stop() {
     this.started = false;
+    this.profileScopedSyncEnabled = false;
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -81,7 +95,11 @@ export const StartupSyncService = {
     }
   },
 
-  async syncPull() {
+  enableProfileScopedSync() {
+    this.profileScopedSyncEnabled = true;
+  },
+
+  async syncPull({ includeProfileScoped = this.profileScopedSyncEnabled } = {}) {
     if (!AuthManager.isAuthenticated) {
       return false;
     }
@@ -91,14 +109,20 @@ export const StartupSyncService = {
         const profiles = await ProfileSyncService.pull();
         const profileIds = await collectKnownProfileIds(profiles);
         for (const profileId of profileIds) {
-          didApplyProfileSettings = (await ProfileSettingsSyncService.pull(profileId)) || didApplyProfileSettings;
+          didApplyProfileSettings =
+            (await ProfileSettingsSyncService.pull(profileId)) || didApplyProfileSettings;
         }
         if (didApplyProfileSettings) {
           await I18n.init();
           ThemeManager.apply();
           I18n.apply();
         }
+        await TraktCredentialSyncService.pullFromRemote(ProfileManager.getActiveProfileId());
+        if (!includeProfileScoped) {
+          return didApplyProfileSettings;
+        }
         await CollectionSyncService.pull();
+        await HomeCatalogSettingsSyncService.pull();
         await PluginSyncService.pull();
         await LibrarySyncService.pull();
         await SavedLibrarySyncService.pull();
@@ -122,7 +146,9 @@ export const StartupSyncService = {
     try {
       await ProfileSyncService.push();
       await ProfileSettingsSyncService.push();
+      await TraktCredentialSyncService.pushCurrentToRemote(ProfileManager.getActiveProfileId());
       await CollectionSyncService.push();
+      await HomeCatalogSettingsSyncService.push();
       await PluginSyncService.push();
       await LibrarySyncService.push();
       await SavedLibrarySyncService.push();
@@ -139,15 +165,18 @@ export const StartupSyncService = {
     }
     this.inFlight = true;
     try {
-      await this.syncPull();
-      await this.syncPush();
+      const includeProfileScoped = this.profileScopedSyncEnabled;
+      await this.syncPull({ includeProfileScoped });
+      if (includeProfileScoped) {
+        await this.syncPush();
+      }
     } finally {
       this.inFlight = false;
     }
   },
 
   scheduleAddonPush() {
-    if (!this.started) {
+    if (!this.started || !this.profileScopedSyncEnabled) {
       return;
     }
     if (this.addonPushTimer) {

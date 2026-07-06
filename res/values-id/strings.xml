@@ -315,6 +315,12 @@
     <string name="about_privacy_policy_subtitle">Lihat kebijakan privasi kami</string>
     <string name="about_supporters_contributors">Kontributor &amp; Donatur</string>
     <string name="about_supporters_contributors_subtitle">Apresiasi terbuka dan kredit proyek</string>
+    <string name="about_debug_console_title">Konsol debug</string>
+    <string name="about_debug_console_subtitle">Tampilkan error/peringatan terbaru</string>
+    <string name="debug_console_subtitle">Peringatan dan error terakhir yang ditangkap pada sesi aplikasi ini</string>
+    <string name="debug_console_empty_title">Tidak ada peringatan atau error</string>
+    <string name="debug_console_empty_subtitle">Event warning/error konsol akan muncul di sini sampai aplikasi ditutup.</string>
+    <string name="debug_console_event_count">%d event</string>
     <string name="about_licenses_attributions">Lisensi &amp; Atribusi</string>
     <string name="about_licenses_attributions_subtitle">Sumber data, pengakuan, dan lisensi Android</string>
     <string name="licenses_attributions_title">Lisensi &amp; Atribusi</string>
@@ -2240,4 +2246,13 @@
     <string name="trakt_related_error_request_failed">Permintaan terkait Trakt gagal</string>
     <string name="trakt_comments_error_request_failed">Permintaan komentar Trakt gagal</string>
     <string name="trakt_library_error_fetch_list_items">Gagal mengambil item daftar</string>
+    <string name="detail.resume">Lanjutkan</string>
+    <string name="detail.resumeEpisodeShort">Lanjutkan S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Putar dari Awal</string>
+    <string name="detail.resumeAvailable">Lanjutkan tersedia</string>
+    <string name="detail.currentEpisode">Episode {{episode}}</string>
+    <string name="detail.timeLeftDuration">Sisa {{time}}</string>
+    <string name="player.audio.unsupported">Tidak didukung</string>
+    <string name="player.audio.unsupportedCodec">Codec tidak didukung oleh perangkat ini</string>
+    <string name="player.audio.noSupportedTracks">Tidak ada trek audio yang didukung</string>
 </resources>

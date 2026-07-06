@@ -315,6 +315,12 @@
     <string name="about_privacy_policy_subtitle">Ler nossa política de privacidade</string>
     <string name="about_supporters_contributors">Apoiadores &amp; Colaboradores</string>
     <string name="about_supporters_contributors_subtitle">Reconhecimento e créditos do projeto</string>
+    <string name="about_debug_console_title">Console debug</string>
+    <string name="about_debug_console_subtitle">Mostrar últimos erros/avisos</string>
+    <string name="debug_console_subtitle">Últimos avisos e erros capturados nesta sessão do app</string>
+    <string name="debug_console_empty_title">Sem avisos ou erros</string>
+    <string name="debug_console_empty_subtitle">Eventos warning/error do console aparecerão aqui até o app ser fechado.</string>
+    <string name="debug_console_event_count">%d eventos</string>
     <string name="about_licenses_attributions">Licenças e Atribuições</string>
     <string name="about_licenses_attributions_subtitle">Fontes de dados, agradecimentos e licenças Android</string>
     <string name="licenses_attributions_title">Licenças e Atribuições</string>
@@ -2338,4 +2344,13 @@
     <string name="debrid_size_range_min_plus">%1$d GB+</string>
     <string name="debrid_size_range_min_max">%1$d-%2$d GB</string>
     <string name="subtitle_language_unknown">Desconhecido</string>
+    <string name="detail.resume">Retomar</string>
+    <string name="detail.resumeEpisodeShort">Retomar T{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Reproduzir desde o início</string>
+    <string name="detail.resumeAvailable">Retomada disponível</string>
+    <string name="detail.currentEpisode">Episódio {{episode}}</string>
+    <string name="detail.timeLeftDuration">{{time}} restantes</string>
+    <string name="player.audio.unsupported">Não compatível</string>
+    <string name="player.audio.unsupportedCodec">Codec não compatível com este dispositivo</string>
+    <string name="player.audio.noSupportedTracks">Nenhuma faixa de áudio compatível disponível</string>
 </resources>

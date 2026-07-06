@@ -1,12 +1,61 @@
-(function() {
+(function () {
   if (typeof globalThis === "object") return;
   Object.defineProperty(Object.prototype, "__magic__", {
-    get: function() { return this; },
+    get: function () {
+      return this;
+    },
     configurable: true
   });
   __magic__.globalThis = __magic__;
   delete Object.prototype.__magic__;
-}());
+})();
+
+// Number/Math ES2015 statics missing on older TV engines. Defined first because
+// other polyfills below (e.g. Array.prototype.flat) rely on Number.isFinite,
+// and the profile store touches Number.isFinite / Math.trunc during bootstrap.
+if (typeof Number.isNaN !== "function") {
+  Number.isNaN = function isNaN(value) {
+    return typeof value === "number" && value !== value;
+  };
+}
+
+if (typeof Number.isFinite !== "function") {
+  Number.isFinite = function isFinite(value) {
+    return typeof value === "number" && globalThis.isFinite(value);
+  };
+}
+
+if (typeof Number.isInteger !== "function") {
+  Number.isInteger = function isInteger(value) {
+    return typeof value === "number" && globalThis.isFinite(value) && Math.floor(value) === value;
+  };
+}
+
+if (typeof Number.parseInt !== "function") {
+  Number.parseInt = globalThis.parseInt;
+}
+
+if (typeof Number.parseFloat !== "function") {
+  Number.parseFloat = globalThis.parseFloat;
+}
+
+if (typeof Number.MAX_SAFE_INTEGER !== "number") {
+  Number.MAX_SAFE_INTEGER = 9007199254740991;
+}
+
+if (typeof Number.MIN_SAFE_INTEGER !== "number") {
+  Number.MIN_SAFE_INTEGER = -9007199254740991;
+}
+
+if (typeof Math.trunc !== "function") {
+  Math.trunc = function trunc(value) {
+    var number = Number(value);
+    if (Number.isNaN(number) || number === 0) {
+      return number;
+    }
+    return number < 0 ? Math.ceil(number) : Math.floor(number);
+  };
+}
 
 // ES2015-2017 builtins missing on older TV engines (webOS 3/4 ship Chromium
 // 38/53). The bundle is transpiled for syntax down to "chrome 38", but builtin
@@ -41,7 +90,8 @@ if (!Array.from) {
     }
     var result = [];
     var index = 0;
-    var iteratorMethod = typeof Symbol !== "undefined" && Symbol.iterator && source[Symbol.iterator];
+    var iteratorMethod =
+      typeof Symbol !== "undefined" && Symbol.iterator && source[Symbol.iterator];
     if (typeof iteratorMethod === "function") {
       var iterator = iteratorMethod.call(source);
       var step = iterator.next();
@@ -109,8 +159,13 @@ if (!Array.prototype.includes) {
       }
       for (var index = start; index < length; index += 1) {
         var value = list[index];
-        if (value === searchElement
-          || (typeof value === "number" && typeof searchElement === "number" && isNaN(value) && isNaN(searchElement))) {
+        if (
+          value === searchElement ||
+          (typeof value === "number" &&
+            typeof searchElement === "number" &&
+            isNaN(value) &&
+            isNaN(searchElement))
+        ) {
           return true;
         }
       }
@@ -277,8 +332,7 @@ if (!String.prototype.padEnd) {
 // polyfills for older browsers
 if (!Element.prototype.matches) {
   Element.prototype.matches =
-    Element.prototype.msMatchesSelector ||
-    Element.prototype.webkitMatchesSelector;
+    Element.prototype.msMatchesSelector || Element.prototype.webkitMatchesSelector;
 }
 
 if (!Element.prototype.closest) {
@@ -297,7 +351,7 @@ if (!Object.fromEntries) {
   Object.fromEntries = function fromEntries(entries) {
     var result = {};
     if (!entries) return result;
-    
+
     var arr = Array.isArray(entries) ? entries : Array.from(entries);
     for (var i = 0; i < arr.length; i++) {
       var entry = arr[i];
@@ -334,22 +388,24 @@ if (!Promise.prototype.finally) {
 
 if (!Promise.allSettled) {
   Promise.allSettled = function allSettled(iterable) {
-    return Promise.all(Array.from(iterable || [], function mapPromise(entry) {
-      return Promise.resolve(entry).then(
-        function onFulfilled(value) {
-          return {
-            status: "fulfilled",
-            value: value
-          };
-        },
-        function onRejected(reason) {
-          return {
-            status: "rejected",
-            reason: reason
-          };
-        }
-      );
-    }));
+    return Promise.all(
+      Array.from(iterable || [], function mapPromise(entry) {
+        return Promise.resolve(entry).then(
+          function onFulfilled(value) {
+            return {
+              status: "fulfilled",
+              value: value
+            };
+          },
+          function onRejected(reason) {
+            return {
+              status: "rejected",
+              reason: reason
+            };
+          }
+        );
+      })
+    );
   };
 }
 
@@ -408,7 +464,13 @@ if (!String.prototype.replaceAll) {
     value: function replaceAll(searchValue, replaceValue) {
       var source = String(this);
       if (searchValue instanceof RegExp) {
-        return source.replace(new RegExp(searchValue.source, searchValue.flags.includes("g") ? searchValue.flags : searchValue.flags + "g"), replaceValue);
+        return source.replace(
+          new RegExp(
+            searchValue.source,
+            searchValue.flags.includes("g") ? searchValue.flags : searchValue.flags + "g"
+          ),
+          replaceValue
+        );
       }
       return source.split(String(searchValue)).join(String(replaceValue));
     },
@@ -466,3 +528,41 @@ function installElementScrollToPolyfill(target) {
 
 installElementScrollToPolyfill(globalThis.Element && globalThis.Element.prototype);
 installElementScrollToPolyfill(globalThis.HTMLElement && globalThis.HTMLElement.prototype);
+
+if (globalThis.Element && !Element.prototype.remove) {
+  Object.defineProperty(Element.prototype, "remove", {
+    value: function removePolyfill() {
+      if (this.parentNode) {
+        this.parentNode.removeChild(this);
+      }
+    },
+    configurable: true,
+    writable: true
+  });
+}
+
+if (globalThis.Node && !("isConnected" in Node.prototype)) {
+  Object.defineProperty(Node.prototype, "isConnected", {
+    get: function isConnectedPolyfill() {
+      var root = globalThis.document && globalThis.document.documentElement;
+      return Boolean(root && root.contains(this));
+    },
+    configurable: true
+  });
+}
+
+if (globalThis.Element && Element.prototype.scrollIntoView) {
+  (function installScrollIntoViewOptionsFallback() {
+    var nativeScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoViewPolyfill(arg) {
+      try {
+        return nativeScrollIntoView.call(this, arg);
+      } catch (error) {
+        if (arg && typeof arg === "object") {
+          return nativeScrollIntoView.call(this, false);
+        }
+        throw error;
+      }
+    };
+  })();
+}

@@ -37,6 +37,7 @@ const SUPPORTED_LOCALES = [
 const KEY_ALIASES = {
   "common.add": "plugin_add_btn",
   "common.cancel": "action_cancel",
+  "common.clear": "action_clear",
   "common.normal": "player_speed_normal",
   "common.notSet": "mdblist_not_set",
   "common.off": "subtitle_off",
@@ -132,9 +133,12 @@ const KEY_ALIASES = {
   "settings.integration.debrid.sort.subtitle": "debrid_stream_sort_subtitle",
   "settings.integration.debrid.sort.title": "debrid_stream_sort_title",
   "settings.integration.debrid.subtitle": "debrid_subtitle",
-  "settings.integration.debrid.template.description.prompt": "debrid_stream_description_template_prompt",
-  "settings.integration.debrid.template.description.subtitle": "debrid_stream_description_template_subtitle",
-  "settings.integration.debrid.template.description.title": "debrid_stream_description_template_title",
+  "settings.integration.debrid.template.description.prompt":
+    "debrid_stream_description_template_prompt",
+  "settings.integration.debrid.template.description.subtitle":
+    "debrid_stream_description_template_subtitle",
+  "settings.integration.debrid.template.description.title":
+    "debrid_stream_description_template_title",
   "settings.integration.debrid.template.name.prompt": "debrid_stream_name_template_prompt",
   "settings.integration.debrid.template.name.subtitle": "debrid_stream_name_template_subtitle",
   "settings.integration.debrid.template.name.title": "debrid_stream_name_template_title",
@@ -142,8 +146,10 @@ const KEY_ALIASES = {
   "settings.integration.debrid.template.reset.title": "debrid_formatter_reset_title",
   "settings.integration.debrid.template.reset.value": "debrid_formatter_reset_value",
   "stream.debrid.failed": "debrid_resolution_failed",
+  "stream.debrid.serviceDegraded": "debrid_service_degraded",
   "stream.enginefs.failed": "enginefs_resolution_failed",
   "stream.p2p.failed": "p2p_resolution_failed",
+  "player_error_p2p_disabled": "player_error_p2p_disabled",
   "stream.debrid.notCached": "debrid_not_cached",
   "stream.p2p.resolving": "p2p_resolving_stream",
   "stream.debrid.resolving": "debrid_resolving_stream",
@@ -152,10 +158,28 @@ const KEY_ALIASES = {
   "settings.integration.mdblist.apiKey.prompt": "mdblist_api_key_title",
   "settings.integration.mdblist.apiKey.subtitle": "mdblist_api_key_subtitle",
   "settings.integration.mdblist.apiKey.title": "mdblist_api_key_title",
+  "settings.integration.mdblist.audience.subtitle": "mdblist_audience_subtitle",
+  "settings.integration.mdblist.audience.title": "mdblist_audience_title",
+  "settings.integration.mdblist.dialog.placeholder": "mdblist_dialog_placeholder",
+  "settings.integration.mdblist.dialog.subtitle": "mdblist_dialog_subtitle",
+  "settings.integration.mdblist.dialog.title": "mdblist_dialog_title",
   "settings.integration.mdblist.enable.subtitle": "mdblist_enable_subtitle",
   "settings.integration.mdblist.enable.title": "mdblist_enable_title",
+  "settings.integration.mdblist.imdb.subtitle": "mdblist_imdb_subtitle",
+  "settings.integration.mdblist.imdb.title": "mdblist_imdb_title",
+  "settings.integration.mdblist.invalidApiKey": "mdblist_invalid_api_key",
   "settings.integration.mdblist.label": "mdblist_title",
+  "settings.integration.mdblist.letterboxd.subtitle": "mdblist_letterboxd_subtitle",
+  "settings.integration.mdblist.letterboxd.title": "mdblist_letterboxd_title",
+  "settings.integration.mdblist.metacritic.subtitle": "mdblist_metacritic_subtitle",
+  "settings.integration.mdblist.metacritic.title": "mdblist_metacritic_title",
   "settings.integration.mdblist.subtitle": "settings_mdblist_subtitle",
+  "settings.integration.mdblist.tmdb.subtitle": "mdblist_tmdb_subtitle",
+  "settings.integration.mdblist.tmdb.title": "mdblist_tmdb_title",
+  "settings.integration.mdblist.tomatoes.subtitle": "mdblist_tomatoes_subtitle",
+  "settings.integration.mdblist.tomatoes.title": "mdblist_tomatoes_title",
+  "settings.integration.mdblist.trakt.subtitle": "mdblist_trakt_subtitle",
+  "settings.integration.mdblist.trakt.title": "mdblist_trakt_title",
   "settings.integration.tmdb.artwork.subtitle": "tmdb_artwork_subtitle",
   "settings.integration.tmdb.artwork.title": "tmdb_artwork_title",
   "settings.integration.tmdb.basicInfo.subtitle": "tmdb_basic_info_subtitle",
@@ -254,6 +278,10 @@ const KEY_ALIASES = {
   "settings.sections.account.subtitle": "settings_account_subtitle",
   "settings.sections.appearance.label": "appearance_title",
   "settings.sections.appearance.subtitle": "appearance_subtitle",
+  "settings.sections.contentDiscovery.label": "settings_content_discovery",
+  "settings.sections.contentDiscovery.subtitle": "settings_content_discovery_subtitle",
+  "settings.contentDiscovery.addonsSubtitle": "settings_content_discovery_addons_subtitle",
+  "settings.contentDiscovery.pluginsSubtitle": "settings_content_discovery_plugins_subtitle",
   "settings.sections.integration.label": "settings_integrations_section",
   "settings.sections.integration.subtitle": "settings_integrations_section_subtitle",
   "settings.sections.layout.label": "settings_layout",
@@ -316,7 +344,10 @@ let baseMessagesPromise = null;
 const localeMessagesCache = new Map();
 
 function normalizeLocale(value) {
-  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
   if (!raw) {
     return "";
   }
@@ -359,9 +390,8 @@ function detectSystemLocale() {
 }
 
 function resolvePreferredLocale(preferred = null) {
-  const requested = preferred === null
-    ? ThemeStore.get().language || detectSystemLocale()
-    : preferred;
+  const requested =
+    preferred === null ? ThemeStore.get().language || detectSystemLocale() : preferred;
   const normalized = normalizeLocale(requested);
   if (!normalized || normalized === "system") {
     return normalizeLocale(detectSystemLocale()) || DEFAULT_LOCALE;
@@ -380,11 +410,13 @@ function interpolate(template, params = {}) {
     .replace(/%(\d+)\$[a-z]/gi, (_, index) => String(values[Number(index) - 1] ?? ""))
     .replace(/%[a-z]/gi, () => String(values[sequentialIndex++] ?? ""))
     .replace(/\\'/g, "'")
-    .replace(/\\"/g, "\"");
+    .replace(/\\"/g, '"');
 }
 
 function decodeUnicodeEscapes(value) {
-  return String(value ?? "").replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
+  return String(value ?? "").replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+    String.fromCharCode(Number.parseInt(hex, 16))
+  );
 }
 
 function parseStringsXml(source) {
@@ -426,17 +458,11 @@ function loadXmlFileXhr(url) {
 }
 
 async function loadXmlFile(relativePath) {
-  const candidates = [
-    `res/${relativePath}`,
-    `dist/res/${relativePath}`
-  ];
+  const candidates = [`res/${relativePath}`, `dist/res/${relativePath}`];
 
   if (relativePath.endsWith("/strings.xml")) {
     const singularRelativePath = relativePath.replace(/\/strings\.xml$/, "/string.xml");
-    candidates.push(
-      `res/${singularRelativePath}`,
-      `dist/res/${singularRelativePath}`
-    );
+    candidates.push(`res/${singularRelativePath}`, `dist/res/${singularRelativePath}`);
   }
 
   for (const candidate of candidates) {
@@ -495,7 +521,6 @@ function warnMissingKey(locale, key) {
 }
 
 export const I18n = {
-
   async init(preferred = null) {
     const locale = resolvePreferredLocale(preferred);
     if (initialized && locale === currentLocale && Object.keys(activeMessages).length > 0) {
@@ -532,7 +557,9 @@ export const I18n = {
   },
 
   t(key, params = {}, options = {}) {
-    const locale = normalizeLocale(options?.locale ?? currentLocale) || resolvePreferredLocale(options?.locale ?? null);
+    const locale =
+      normalizeLocale(options?.locale ?? currentLocale) ||
+      resolvePreferredLocale(options?.locale ?? null);
 
     if (typeof activeMessages[key] === "string") {
       return interpolate(activeMessages[key], params);
@@ -554,5 +581,4 @@ export const I18n = {
     }
     return locale;
   }
-
 };

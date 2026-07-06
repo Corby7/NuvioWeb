@@ -2,7 +2,11 @@ import { normalizeKeyEvent, isBackEvent } from "../sharedKeys.js";
 
 function getAvplayApi() {
   const webapis = globalThis.webapis;
-  const avplay = webapis?.avplay || webapis?.avPlay || globalThis.avplay || null;
+  const avplay = webapis?.avplay
+    || webapis?.avPlay
+    || globalThis.avplay
+    || globalThis.document?.getElementById?.("avPlayerObject")
+    || null;
   if (!avplay || typeof avplay.open !== "function") {
     return null;
   }
@@ -48,8 +52,6 @@ export const tizenAdapter = {
     }
 
     const mediaKeys = [
-      "Back",
-      "Return",
       "MediaPlayPause",
       "MediaPlay",
       "MediaPause",

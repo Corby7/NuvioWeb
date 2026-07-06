@@ -315,6 +315,12 @@
     <string name="about_privacy_policy_subtitle">查看我们的隐私政策</string>
     <string name="about_supporters_contributors">支持者和贡献者</string>
     <string name="about_supporters_contributors_subtitle">公开致谢与项目鸣谢</string>
+    <string name="about_debug_console_title">调试控制台</string>
+    <string name="about_debug_console_subtitle">显示最新错误/警告事件</string>
+    <string name="debug_console_subtitle">本次应用会话捕获的最新警告和错误</string>
+    <string name="debug_console_empty_title">没有警告或错误</string>
+    <string name="debug_console_empty_subtitle">控制台 warning/error 事件会显示在这里，直到应用关闭。</string>
+    <string name="debug_console_event_count">%d 个事件</string>
     <string name="about_licenses_attributions">许可与致谢</string>
     <string name="about_licenses_attributions_subtitle">数据来源、致谢和 Android 许可</string>
     <string name="licenses_attributions_title">许可与致谢</string>
@@ -2157,4 +2163,13 @@
     <string name="trakt_related_error_request_failed">Trakt 相关请求失败</string>
     <string name="trakt_comments_error_request_failed">Trakt 评论请求失败</string>
     <string name="trakt_library_error_fetch_list_items">获取列表项目失败</string>
+    <string name="detail.resume">继续播放</string>
+    <string name="detail.resumeEpisodeShort">继续 S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">从头播放</string>
+    <string name="detail.resumeAvailable">可继续播放</string>
+    <string name="detail.currentEpisode">剧集 {{episode}}</string>
+    <string name="detail.timeLeftDuration">剩余 {{time}}</string>
+    <string name="player.audio.unsupported">不支持</string>
+    <string name="player.audio.unsupportedCodec">此设备不支持该编解码器</string>
+    <string name="player.audio.noSupportedTracks">没有可用的受支持音轨</string>
 </resources>

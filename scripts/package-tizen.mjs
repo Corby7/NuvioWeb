@@ -4,12 +4,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 import { readAppMetadata, syncVersionFiles } from "./appMetadata.mjs";
+import { writeRuntimeEnvScriptFile } from "./envProperties.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 const cacheDir = path.join(rootDir, ".cache");
 const stagingDir = path.join(cacheDir, "tizen-package");
+const requireConfiguredRuntimeEnv = /^(1|true|yes|on)$/i.test(
+  String(process.env.NUVIO_REQUIRE_LOCAL_PROPERTIES || "")
+);
 
 const appName = "Nuvio TV";
 const defaultTizenPackageId = "NuvioTV001";
@@ -17,6 +21,56 @@ const defaultTizenAppId = "NuvioTV001.NuvioTV";
 const defaultWidgetUri = "https://nuvio.tv";
 const tizenEngineFsServiceRelativePath = "services/tizen/enginefs-service.js";
 const tizenEngineFsRuntimeDirRelativePath = "services/tizen/runtime";
+const flexGapDetectionScript = `  <script>
+    (function detectLegacyFeatureSupport() {
+      var root = document.documentElement;
+      function removeClass(name) {
+        root.className = (" " + root.className + " ")
+          .replace(new RegExp(" " + name + " ", "g"), " ")
+          .replace(/^\\s+|\\s+$/g, "");
+      }
+      function supports(prop, value) {
+        var css = window.CSS;
+        return Boolean(css && typeof css.supports === "function" && css.supports(prop, value));
+      }
+      try {
+        var test = document.createElement("div");
+        var child = document.createElement("div");
+        test.style.position = "absolute";
+        test.style.left = "-9999px";
+        test.style.top = "-9999px";
+        test.style.display = "flex";
+        test.style.flexDirection = "column";
+        test.style.rowGap = "1px";
+        child.style.height = "1px";
+        test.appendChild(child.cloneNode());
+        test.appendChild(child.cloneNode());
+        root.appendChild(test);
+        if (test.scrollHeight === 3) {
+          removeClass("no-flex-gap");
+        }
+        root.removeChild(test);
+      } catch (error) {
+        removeClass("no-flex-gap");
+      }
+      if (supports("display", "grid")) {
+        removeClass("no-css-grid");
+      }
+      if (supports("--nuvio-probe", "0")) {
+        removeClass("no-css-vars");
+      }
+      if (supports("font-size", "clamp(1px, 2px, 3px)")) {
+        removeClass("no-css-math");
+      }
+      if (supports("aspect-ratio", "1 / 1")) {
+        removeClass("no-aspect-ratio");
+      }
+      if (supports("backdrop-filter", "blur(1px)") || supports("-webkit-backdrop-filter", "blur(1px)")) {
+        removeClass("no-backdrop-filter");
+      }
+    })();
+  </script>
+`;
 
 function normalizeVersion(version) {
   const parts = String(version || "0.0.0")
@@ -76,13 +130,13 @@ function buildConfigXml({ appId, packageId, version }) {
 
 function buildIndexHtml() {
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-flex-gap no-css-grid no-css-vars no-css-math no-backdrop-filter no-aspect-ratio">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=1920, height=1080, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <title>${appName}</title>
-  <link rel="stylesheet" href="css/base.css" />
+${flexGapDetectionScript}  <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/layout.css" />
   <link rel="stylesheet" href="css/components.css" />
   <link rel="stylesheet" href="css/themes.css" />
@@ -121,6 +175,7 @@ if (tvInput && typeof tvInput.registerKey === "function") {
 
 function loadScript(src) {
   var script = document.createElement("script");
+  script.async = false;
   script.src = src;
   script.defer = false;
   document.body.appendChild(script);
@@ -136,8 +191,15 @@ async function stageTizenEngineFsService() {
   const serviceDir = path.join(stagingDir, "services", "tizen");
   await mkdir(serviceDir, { recursive: true });
   await Promise.all([
-    cp(path.join(rootDir, "services", "tizen", "enginefs-service.js"), path.join(stagingDir, tizenEngineFsServiceRelativePath)),
-    cp(path.join(rootDir, "services", "tizen", "runtime"), path.join(stagingDir, tizenEngineFsRuntimeDirRelativePath), { recursive: true })
+    cp(
+      path.join(rootDir, "services", "tizen", "enginefs-service.js"),
+      path.join(stagingDir, tizenEngineFsServiceRelativePath)
+    ),
+    cp(
+      path.join(rootDir, "services", "tizen", "runtime"),
+      path.join(stagingDir, tizenEngineFsRuntimeDirRelativePath),
+      { recursive: true }
+    )
   ]);
 }
 
@@ -160,16 +222,27 @@ async function stagePackage({ appId, packageId, version, envSourcePath }) {
     cp(path.join(distDir, "app.bundle.js"), path.join(stagingDir, "app.bundle.js")),
     cp(path.join(distDir, "youtube-proxy.html"), path.join(stagingDir, "youtube-proxy.html")),
     cp(path.join(rootDir, "assets", "images", "tizenIcon.png"), path.join(stagingDir, "icon.png")),
-    writeFile(path.join(stagingDir, "config.xml"), buildConfigXml({ appId, packageId, version }), "utf8"),
+    writeFile(
+      path.join(stagingDir, "config.xml"),
+      buildConfigXml({ appId, packageId, version }),
+      "utf8"
+    ),
     writeFile(path.join(stagingDir, "index.html"), buildIndexHtml(), "utf8"),
     writeFile(path.join(stagingDir, "main.js"), buildMainJs({ packageId }), "utf8")
   ]);
   await stageTizenEngineFsService();
 
   if (envSourcePath) {
-    await cp(envSourcePath, path.join(stagingDir, "nuvio.env.js"));
+    await writeRuntimeEnvScriptFile(path.join(stagingDir, "nuvio.env.js"), {
+      rootDir,
+      sourcePath: envSourcePath
+    });
   } else {
     await cp(path.join(distDir, "nuvio.env.js"), path.join(stagingDir, "nuvio.env.js"));
+  }
+
+  if (await pathExists(path.join(distDir, "app.bundle.js.map"))) {
+    await cp(path.join(distDir, "app.bundle.js.map"), path.join(stagingDir, "app.bundle.js.map"));
   }
 }
 
@@ -225,6 +298,15 @@ function parseArgs(argv) {
 
 async function packageTizen() {
   const options = parseArgs(process.argv.slice(2));
+  if (requireConfiguredRuntimeEnv && !options.envSourcePath) {
+    options.envSourcePath = path.join(rootDir, "local.properties");
+  }
+  if (requireConfiguredRuntimeEnv && !(await pathExists(options.envSourcePath))) {
+    throw new Error(
+      "Configured runtime env is required for Tizen packaging. Provide local.properties or --env-source."
+    );
+  }
+
   await syncVersionFiles();
   await assertDistExists();
 
@@ -245,7 +327,9 @@ async function packageTizen() {
   console.log(`Tizen WGT created: ${outputPath}`);
   console.log(`Tizen application id: ${options.appId}`);
   console.log(`Tizen package id: ${options.packageId}`);
-  console.log(`Runtime env bundled from: ${options.envSourcePath || path.join(distDir, "nuvio.env.js")}`);
+  console.log(
+    `Runtime env bundled from: ${options.envSourcePath || path.join(distDir, "nuvio.env.js")}`
+  );
 }
 
 try {

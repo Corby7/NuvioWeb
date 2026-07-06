@@ -6,6 +6,7 @@ import {
 } from "../../config.js";
 import { TraktAuthStore } from "../local/traktAuthStore.js";
 import { detailWatchedEnrichmentService } from "./detailWatchedEnrichmentService.js";
+import { TraktCredentialSyncService } from "../../core/profile/traktCredentialSyncService.js";
 
 const API_VERSION = "2";
 const DEFAULT_API_URL = "https://api.trakt.tv";
@@ -38,7 +39,10 @@ async function readResponseBody(response) {
   }
 }
 
-export async function requestJson(path, { method = "GET", body = null, authorization = null, clientId = TRAKT_CLIENT_ID } = {}) {
+export async function requestJson(
+  path,
+  { method = "GET", body = null, authorization = null, clientId = TRAKT_CLIENT_ID } = {}
+) {
   const headers = {
     "Content-Type": "application/json",
     "trakt-api-version": API_VERSION,
@@ -64,7 +68,7 @@ function isTokenExpiredOrExpiring(state) {
     return true;
   }
   const expiresAt = createdAt + expiresIn;
-  return (Date.now() / 1000) >= (expiresAt - REFRESH_LEEWAY_SECONDS);
+  return Date.now() / 1000 >= expiresAt - REFRESH_LEEWAY_SECONDS;
 }
 
 async function fetchUserSettings() {
@@ -128,7 +132,9 @@ export const TraktAuthService = {
         const minutes = Math.ceil(retryAfter / 60);
         throw new Error(`Trakt is rate limiting requests. Try again in ~${minutes} min`);
       }
-      throw new Error(normalizeAuthErrorMessage(payload, `Failed to start Trakt auth (${response.status})`));
+      throw new Error(
+        normalizeAuthErrorMessage(payload, `Failed to start Trakt auth (${response.status})`)
+      );
     }
 
     return TraktAuthStore.saveDeviceFlow(payload);
@@ -159,6 +165,7 @@ export const TraktAuthService = {
     if (response.ok && payload) {
       TraktAuthStore.saveToken(payload);
       const username = await fetchUserSettings();
+      await TraktCredentialSyncService.pushCurrentToRemote();
       return { type: "approved", username };
     }
 
@@ -182,7 +189,10 @@ export const TraktAuthService = {
       TraktAuthStore.updatePollInterval(interval);
       return { type: "slow_down", pollIntervalSeconds: interval };
     }
-    return { type: "failed", message: normalizeAuthErrorMessage(payload, `Token polling failed (${response.status})`) };
+    return {
+      type: "failed",
+      message: normalizeAuthErrorMessage(payload, `Token polling failed (${response.status})`)
+    };
   },
 
   async refreshTokenIfNeeded(force = false) {
@@ -210,12 +220,17 @@ export const TraktAuthService = {
 
     if (!response.ok || !payload) {
       if (response.status === 401 || response.status === 403) {
+        const recovered = await TraktCredentialSyncService.pullFromRemote();
+        if (recovered && TraktAuthStore.get().refreshToken !== state.refreshToken) {
+          return this.refreshTokenIfNeeded(true);
+        }
         TraktAuthStore.clearAuth();
       }
       return false;
     }
     TraktAuthStore.saveToken(payload);
     await fetchUserSettings();
+    await TraktCredentialSyncService.pushCurrentToRemote();
     return true;
   },
 
@@ -250,6 +265,7 @@ export const TraktAuthService = {
         console.warn("Trakt revoke failed", error);
       }
     }
+    await TraktCredentialSyncService.deleteRemote();
     detailWatchedEnrichmentService.invalidateAllCache();
     TraktAuthStore.clearAuth();
   },
@@ -283,7 +299,9 @@ export const TraktAuthService = {
       moviesWatched: Number(payload.movies?.watched || 0),
       showsWatched: Number(payload.shows?.watched || 0),
       episodesWatched: Number(payload.episodes?.watched || 0),
-      totalWatchedHours: Math.round(Number(payload.movies?.minutes || 0) / 60 + Number(payload.episodes?.minutes || 0) / 60)
+      totalWatchedHours: Math.round(
+        Number(payload.movies?.minutes || 0) / 60 + Number(payload.episodes?.minutes || 0) / 60
+      )
     };
     localStorage.setItem(cacheKey, JSON.stringify({ cachedAt: Date.now(), stats }));
     return stats;
@@ -339,10 +357,9 @@ export const TraktAuthService = {
     const token = await this.getValidAccessToken();
     if (!token) return [];
 
-    const { response, payload } = await requestJson(
-      `/sync/playback?limit=${limit}`,
-      { authorization: `Bearer ${token}` }
-    );
+    const { response, payload } = await requestJson(`/sync/playback?limit=${limit}`, {
+      authorization: `Bearer ${token}`
+    });
     if (!response.ok || !Array.isArray(payload)) return [];
 
     return payload.map(normalizePlaybackItem).filter(Boolean).slice(0, limit);
@@ -352,13 +369,9 @@ export const TraktAuthService = {
     const token = await this.getValidAccessToken();
     if (!token) return [];
 
-    const state = TraktAuthStore.get();
-    const userId = state.userSlug || state.username || "me";
-
-    const { response, payload } = await requestJson(
-      `/users/${encodeURIComponent(userId)}/watched/shows?extended=noseasons`,
-      { authorization: `Bearer ${token}` }
-    );
+    const { response, payload } = await requestJson("/sync/watched/shows", {
+      authorization: `Bearer ${token}`
+    });
     if (!response.ok || !Array.isArray(payload)) return [];
 
     return payload.map(normalizeWatchedShowItem).filter(Boolean);
@@ -483,13 +496,24 @@ function normalizePlaybackItem(entry) {
 function normalizeWatchedShowItem(entry) {
   if (!entry || !entry.show?.ids) return null;
   const show = entry.show;
-  const progress = entry.progress?.watched || {};
-  const nextEpisode = entry.next_episode || null;
 
   const tmdbId = show.ids?.tmdb;
   const traktId = show.ids?.trakt;
   const contentId = tmdbId ? `tmdb:${tmdbId}` : traktId ? `trakt:${traktId}` : null;
   if (!contentId) return null;
+
+  const seasons = Array.isArray(entry.seasons)
+    ? entry.seasons.map((season) => ({
+        number: Number(season?.number || 0),
+        episodes: Array.isArray(season?.episodes)
+          ? season.episodes.map((episode) => ({
+              number: Number(episode?.number || 0),
+              plays: Number(episode?.plays || 0),
+              lastWatchedAt: episode?.last_watched_at || null
+            })).filter((episode) => episode.number > 0 && episode.plays > 0)
+          : []
+      })).filter((season) => season.number > 0 && season.episodes.length)
+    : [];
 
   return {
     type: "series",
@@ -499,33 +523,27 @@ function normalizeWatchedShowItem(entry) {
     imdbId: show.ids?.imdb,
     tmdbId,
     traktId,
-    watchedProgress: {
-      progress: Number(progress.progress || 0),
-      aired: Number(progress.aired || 0),
-      completed: Number(progress.completed || 0)
-    },
-    nextEpisode: nextEpisode ? {
-      season: nextEpisode.season,
-      number: nextEpisode.number,
-      title: nextEpisode.title || ""
-    } : null
+    plays: Number(entry.plays || 0),
+    lastWatchedAt: entry.last_watched_at || null,
+    lastUpdatedAt: entry.last_updated_at || null,
+    seasons
   };
 }
 
 function normalizeWatchedProgress(payload) {
   const map = new Map();
-  
+
   if (!payload?.seasons || !Array.isArray(payload.seasons)) {
     return map;
   }
-  
+
   for (const season of payload.seasons) {
     const seasonNumber = season.number;
     if (!season.episodes || !Array.isArray(season.episodes)) continue;
-    
+
     for (const episode of season.episodes) {
       if (!episode.completed) continue;
-      
+
       const key = `${seasonNumber}:${episode.number}`;
       map.set(key, {
         isWatched: true,
@@ -534,7 +552,7 @@ function normalizeWatchedProgress(payload) {
       });
     }
   }
-  
+
   return map;
 }
 

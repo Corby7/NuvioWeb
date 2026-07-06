@@ -102,6 +102,12 @@
     <string name="about_privacy_policy_subtitle">Wyświetl politykę prywatności</string>
     <string name="about_supporters_contributors">Wspierający i współtwórcy</string>
     <string name="about_supporters_contributors_subtitle">Podziękowania i autorzy projektu</string>
+    <string name="about_debug_console_title">Konsola debug</string>
+    <string name="about_debug_console_subtitle">Pokaż najnowsze błędy/ostrzeżenia</string>
+    <string name="debug_console_subtitle">Ostatnie ostrzeżenia i błędy przechwycone w tej sesji aplikacji</string>
+    <string name="debug_console_empty_title">Brak ostrzeżeń lub błędów</string>
+    <string name="debug_console_empty_subtitle">Zdarzenia warning/error konsoli będą widoczne tutaj do zamknięcia aplikacji.</string>
+    <string name="debug_console_event_count">%d zdarzeń</string>
     <string name="settings_account">Konto</string>
     <string name="settings_account_subtitle">Status konta i synchronizacji</string>
     <string name="settings_profiles">Profile</string>
@@ -2432,7 +2438,7 @@
     <string name="player.track.surround">Surround</string>
     <string name="sidebar.profileFallback">Profile</string>
     <string name="sidebar.switchProfile">Switch profile</string>
-    <string name="settings.about.portedBy">Ported by edoedac0 and WhiteGiso.</string>
+    <string name="settings.about.portedBy">Ported by WhiteGiso and edoedac0.</string>
     <string name="settings.account.signOutSubtitle">Disconnect this TV from your account.</string>
     <string name="settings.appearance.themes.amber">Amber</string>
     <string name="settings.appearance.themes.crimson">Crimson</string>
@@ -2481,4 +2487,13 @@
     <string name="auth.syncCode.prompt">Insert sync code</string>
     <string name="auth.syncCode.setCode">Set Code</string>
     <string name="common_all">Wszystkie</string>
+    <string name="detail.resume">Wznów</string>
+    <string name="detail.resumeEpisodeShort">Wznów S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Odtwórz od początku</string>
+    <string name="detail.resumeAvailable">Wznawianie dostępne</string>
+    <string name="detail.currentEpisode">Odcinek {{episode}}</string>
+    <string name="detail.timeLeftDuration">Zostało {{time}}</string>
+    <string name="player.audio.unsupported">Nieobsługiwane</string>
+    <string name="player.audio.unsupportedCodec">Kodek nie jest obsługiwany przez to urządzenie</string>
+    <string name="player.audio.noSupportedTracks">Brak dostępnych obsługiwanych ścieżek audio</string>
 </resources>

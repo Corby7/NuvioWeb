@@ -1,8 +1,11 @@
 import { AuthManager } from "../core/auth/authManager.js";
 import { addonRepository } from "../data/repository/addonRepository.js";
 import { HomeCatalogStore } from "../data/local/homeCatalogStore.js";
-import { buildOrderedCatalogItems, toDisplayTypeLabel } from "../core/addons/homeCatalogs.js";
+import { CollectionsStore } from "../data/local/collectionsStore.js";
+import { buildOrderedHomeCatalogItems, toDisplayTypeLabel } from "../core/addons/homeCatalogs.js";
 import { LibrarySyncService } from "../core/profile/librarySyncService.js";
+import { ProfileSettingsSyncService } from "../core/profile/profileSettingsSyncService.js";
+import { HomeCatalogSettingsSyncService } from "../core/profile/homeCatalogSettingsSyncService.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -33,7 +36,11 @@ function normalizeAddonUrl(input) {
 function clonePrefs(prefs = {}) {
   return {
     order: Array.isArray(prefs.order) ? [...prefs.order] : [],
-    disabled: Array.isArray(prefs.disabled) ? [...prefs.disabled] : []
+    disabled: Array.isArray(prefs.disabled) ? [...prefs.disabled] : [],
+    customTitles:
+      prefs.customTitles && typeof prefs.customTitles === "object" && !Array.isArray(prefs.customTitles)
+        ? { ...prefs.customTitles }
+        : {}
   };
 }
 
@@ -234,6 +241,7 @@ const AddonRemotePage = {
     this.catalogPrefs = clonePrefs(HomeCatalogStore.get());
     this.savedState = { urls: [], order: [], disabled: [] };
     this.draftAddons = [];
+    this.collections = [];
     this.catalogItems = [];
     this.render();
 
@@ -260,15 +268,18 @@ const AddonRemotePage = {
   },
 
   rebuildCatalogItems() {
-    const nextItems = buildOrderedCatalogItems(
+    const nextItems = buildOrderedHomeCatalogItems(
       this.draftAddons,
+      this.collections,
       this.catalogPrefs.order,
-      this.catalogPrefs.disabled
+      this.catalogPrefs.disabled,
+      this.catalogPrefs.customTitles
     );
     this.catalogItems = nextItems;
     this.catalogPrefs = {
       order: nextItems.map((item) => item.key),
-      disabled: nextItems.filter((item) => item.isDisabled).map((item) => item.disableKey)
+      disabled: nextItems.filter((item) => item.isDisabled).map((item) => item.disableKey),
+      customTitles: this.catalogPrefs.customTitles || {}
     };
   },
 
@@ -277,6 +288,7 @@ const AddonRemotePage = {
     this.render();
 
     this.draftAddons = await addonRepository.getInstalledAddons();
+    this.collections = CollectionsStore.get();
     this.catalogPrefs = clonePrefs(HomeCatalogStore.get());
     this.rebuildCatalogItems();
     this.savedState = this.buildCurrentState();
@@ -377,11 +389,13 @@ const AddonRemotePage = {
 
       if (AuthManager.isAuthenticated) {
         await LibrarySyncService.push();
+        await ProfileSettingsSyncService.push();
+        await HomeCatalogSettingsSyncService.push();
       }
 
       this.savedState = this.buildCurrentState();
       this.statusMessage = AuthManager.isAuthenticated
-        ? "Addon changes saved and pushed to your synced profile. Home catalog changes were saved locally."
+        ? "Addon and home catalog changes saved and pushed to your synced profile."
         : "Changes saved in this browser.";
     } catch (error) {
       console.warn("Addon remote save failed", error);
@@ -459,13 +473,15 @@ const AddonRemotePage = {
     }
 
     const infoBanner = this.authReady
-      ? (AuthManager.isAuthenticated
-        ? "Signed in. Addon changes can be pushed through the web sync backend. Home catalog changes stay local to this web install."
-        : "Signed out. Changes save only in this browser unless you sign in on this phone.")
+      ? AuthManager.isAuthenticated
+        ? "Signed in. Addon and home catalog changes can be pushed through the web sync backend."
+        : "Signed out. Changes save only in this browser unless you sign in on this phone."
       : "Checking account state...";
 
     const addonCards = this.draftAddons.length
-      ? this.draftAddons.map((addon, index) => `
+      ? this.draftAddons
+          .map(
+            (addon, index) => `
           <article class="addon-remote-card">
             <div class="addon-remote-order">
               <button class="addon-remote-btn" data-addon-up="${index}" ${index === 0 ? "disabled" : ""}>Up</button>
@@ -480,11 +496,15 @@ const AddonRemotePage = {
               <button class="addon-remote-btn addon-remote-btn-danger" data-addon-remove="${index}">Remove</button>
             </div>
           </article>
-        `).join("")
+        `
+          )
+          .join("")
       : '<div class="addon-remote-empty">No addons in this draft yet.</div>';
 
     const catalogCards = this.catalogItems.length
-      ? this.catalogItems.map((item, index) => `
+      ? this.catalogItems
+          .map(
+            (item, index) => `
           <article class="addon-remote-card">
             <div class="addon-remote-order">
               <button class="addon-remote-btn" data-catalog-up="${index}" ${index === 0 ? "disabled" : ""}>Up</button>
@@ -501,7 +521,9 @@ const AddonRemotePage = {
               </button>
             </div>
           </article>
-        `).join("")
+        `
+          )
+          .join("")
       : '<div class="addon-remote-empty">No Home catalogs available from the current addons.</div>';
 
     this.root.innerHTML = `

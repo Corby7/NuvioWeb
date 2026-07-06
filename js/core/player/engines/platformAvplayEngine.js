@@ -1,6 +1,10 @@
 function getAvplayApi() {
   const webapis = globalThis.webapis;
-  const avplay = webapis?.avplay || webapis?.avPlay || globalThis.avplay || null;
+  const avplay = webapis?.avplay
+    || webapis?.avPlay
+    || globalThis.avplay
+    || globalThis.document?.getElementById?.("avPlayerObject")
+    || null;
   if (!avplay || typeof avplay.open !== "function") {
     return null;
   }

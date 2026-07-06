@@ -97,6 +97,12 @@
     <string name="about_check_updates_subtitle">Tải phiên bản mới nhất</string>
     <string name="about_privacy_policy">Chính sách quyền riêng tư</string>
     <string name="about_privacy_policy_subtitle">Xem chính sách quyền riêng tư của chúng tôi</string>
+    <string name="about_debug_console_title">Bảng điều khiển debug</string>
+    <string name="about_debug_console_subtitle">Hiển thị lỗi/cảnh báo mới nhất</string>
+    <string name="debug_console_subtitle">Các cảnh báo và lỗi mới nhất được ghi trong phiên ứng dụng này</string>
+    <string name="debug_console_empty_title">Không có cảnh báo hoặc lỗi</string>
+    <string name="debug_console_empty_subtitle">Sự kiện warning/error của console sẽ xuất hiện ở đây cho đến khi đóng ứng dụng.</string>
+    <string name="debug_console_event_count">%d sự kiện</string>
     <string name="settings_account">Tài khoản</string>
     <string name="settings_account_subtitle">Tài khoản và trạng thái đồng bộ</string>
     <string name="settings_profiles">Hồ sơ</string>
@@ -868,7 +874,7 @@
     <string name="player.track.surround">Surround</string>
     <string name="sidebar.profileFallback">Profile</string>
     <string name="sidebar.switchProfile">Switch profile</string>
-    <string name="settings.about.portedBy">Ported by edoedac0 and WhiteGiso.</string>
+    <string name="settings.about.portedBy">Ported by WhiteGiso and edoedac0.</string>
     <string name="settings.account.signOutSubtitle">Disconnect this TV from your account.</string>
     <string name="settings.appearance.themes.amber">Amber</string>
     <string name="settings.appearance.themes.crimson">Crimson</string>
@@ -917,4 +923,13 @@
     <string name="auth.syncCode.prompt">Insert sync code</string>
     <string name="auth.syncCode.setCode">Set Code</string>
     <string name="common_all">Tất cả</string>
+    <string name="detail.resume">Tiếp tục</string>
+    <string name="detail.resumeEpisodeShort">Tiếp tục S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Phát từ đầu</string>
+    <string name="detail.resumeAvailable">Có thể tiếp tục</string>
+    <string name="detail.currentEpisode">Tập {{episode}}</string>
+    <string name="detail.timeLeftDuration">Còn {{time}}</string>
+    <string name="player.audio.unsupported">Không được hỗ trợ</string>
+    <string name="player.audio.unsupportedCodec">Thiết bị này không hỗ trợ codec</string>
+    <string name="player.audio.noSupportedTracks">Không có bản âm thanh được hỗ trợ</string>
 </resources>

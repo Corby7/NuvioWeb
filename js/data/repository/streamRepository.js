@@ -8,7 +8,6 @@ import { LocalDebridAvailabilityService } from "../../core/debrid/localDebridAva
 import { DebridStreamPresentation } from "../../core/debrid/directDebridStreamPresentation.js";
 
 class StreamRepository {
-
   async getStreamsFromAddon(baseUrl, type, videoId) {
     const url = this.buildStreamUrl(baseUrl, type, videoId);
     const result = await safeApiCall(() => StreamApi.getStreams(url));
@@ -21,11 +20,14 @@ class StreamRepository {
   }
 
   async getStreamsFromAllAddons(type, videoId, options = {}) {
-    const installedAddons = (await addonRepository.getInstalledAddons())
-      .map((addon, index) => ({ ...addon, orderIndex: index }));
+    const installedAddons = (await addonRepository.getInstalledAddons()).map((addon, index) => ({
+      ...addon,
+      orderIndex: index
+    }));
     const onAddon = typeof options?.onAddon === "function" ? options.onAddon : null;
 
     const onChunk = typeof options?.onChunk === "function" ? options.onChunk : null;
+
     const notifyChunk = (group) => {
       if (!onChunk || !group?.streams?.length) {
         return;
@@ -40,15 +42,48 @@ class StreamRepository {
       }
     };
 
-    const supportsStreamType = (addon) => (addon?.resources || []).some((resource) => {
-      if (resource.name !== "stream") {
-        return false;
-      }
-      if (!resource.types || resource.types.length === 0) {
-        return true;
-      }
-      return resource.types.some((resourceType) => resourceType === type);
-    });
+    const supportsResourceType = (resource, type) => {
+      const targetType = String(type || "")
+        .trim()
+        .toLowerCase();
+      const types = Array.isArray(resource?.types)
+        ? resource.types
+            .map((resourceType) =>
+              String(resourceType || "")
+                .trim()
+                .toLowerCase()
+            )
+            .filter(Boolean)
+        : [];
+      return !types.length || types.includes(targetType);
+    };
+
+    const supportsResourceId = (addon, resource, id) => {
+      const prefixes = (Array.isArray(resource?.idPrefixes) && resource.idPrefixes.length
+        ? resource.idPrefixes
+        : Array.isArray(addon?.idPrefixes) && addon.idPrefixes.length
+          ? addon.idPrefixes
+          : [])
+        .map((prefix) => String(prefix || ""))
+        .filter(Boolean);
+      return !prefixes.length || prefixes.some((prefix) => String(id || "").startsWith(prefix));
+    };
+
+    const supportsStreamType = (addon) =>
+      (addon?.resources || []).some((resource) => {
+        if (resource.name !== "stream") {
+          return false;
+        }
+        return supportsResourceType(resource, type) && supportsResourceId(addon, resource, videoId);
+      });
+
+    const supportsMetaType = (addon) =>
+      (addon?.resources || []).some((resource) => {
+        if (resource.name !== "meta") {
+          return false;
+        }
+        return supportsResourceType(resource, type) && supportsResourceId(addon, resource, videoId);
+      });
 
     const notifyAddon = (addon, orderIndex) => {
       if (!onAddon || !addon) {
@@ -62,10 +97,12 @@ class StreamRepository {
     };
 
     const prepareDebridGroup = async (group) => {
-      const checkingGroup = DebridStreamPresentation.apply(
-        LocalDebridAvailabilityService.markChecking([group])
-      )[0] || group;
-      const checkedGroup = (await LocalDebridAvailabilityService.annotateCachedAvailability([checkingGroup]))[0] || checkingGroup;
+      const checkingGroup =
+        DebridStreamPresentation.apply(LocalDebridAvailabilityService.markChecking([group]))[0] ||
+        group;
+      const checkedGroup =
+        (await LocalDebridAvailabilityService.annotateCachedAvailability([checkingGroup]))[0] ||
+        checkingGroup;
       const presentedGroup = DebridStreamPresentation.apply([checkedGroup])[0] || checkedGroup;
       notifyChunk(presentedGroup);
       return presentedGroup;
@@ -73,31 +110,58 @@ class StreamRepository {
 
     const addonTasks = installedAddons.map(async (addon) => {
       try {
-        if (!supportsStreamType(addon)) {
+        const canStream = supportsStreamType(addon);
+        const canMeta = supportsMetaType(addon);
+        if (!canStream && !canMeta) {
           return null;
         }
         const orderIndex = Number(addon.orderIndex ?? Number.MAX_SAFE_INTEGER);
         notifyAddon(addon, orderIndex);
-        const streamsResult = await this.getStreamsFromAddon(addon.baseUrl, type, videoId);
-        if (streamsResult.status !== "success") {
-          return null;
+        let addonStreams = [];
+        if (canStream) {
+          const streamsResult = await this.getStreamsFromAddon(addon.baseUrl, type, videoId);
+          if (streamsResult.status === "success" && streamsResult.data.length) {
+            addonStreams = streamsResult.data;
+          }
         }
-        const addonStreams = streamsResult.data.length
-          ? streamsResult.data
-          : await this.fetchInlineStreamsFromMeta(addon, type, videoId);
+        // Some addons (e.g. debrid cloud catalogs) deliver the playable stream
+        // inline in the meta's videos[].streams[] and only expose a meta resource
+        // for the content type, not a stream resource. Fall back to that here.
+        if (addonStreams.length === 0 && canMeta) {
+          addonStreams = await this.fetchInlineStreamsFromMeta(addon, type, videoId);
+        }
         if (addonStreams.length === 0) {
           return null;
         }
 
         const group = {
+          addonId: addon.id,
+          addonBaseUrl: addon.baseUrl,
           addonName: addon.displayName,
           addonLogo: addon.logo,
           addonOrderIndex: orderIndex,
+          streamOrigin: {
+            kind: "addon",
+            addonId: addon.id,
+            addonBaseUrl: addon.baseUrl,
+            addonName: addon.displayName,
+            addonOrderIndex: orderIndex
+          },
           streams: addonStreams.map((stream) => ({
             ...stream,
+            addonId: addon.id,
+            addonBaseUrl: addon.baseUrl,
             addonName: addon.displayName,
             addonLogo: addon.logo,
-            addonOrderIndex: orderIndex
+            addonOrderIndex: orderIndex,
+            streamOrigin: {
+              ...(stream.streamOrigin || {}),
+              kind: "addon",
+              addonId: addon.id,
+              addonBaseUrl: addon.baseUrl,
+              addonName: addon.displayName,
+              addonOrderIndex: orderIndex
+            }
           }))
         };
         return prepareDebridGroup(group);
@@ -123,7 +187,9 @@ class StreamRepository {
     const results = await Promise.all(addonTasks);
     const addonsWithStreams = results
       .filter(Boolean)
-      .sort((left, right) => Number(left.addonOrderIndex || 0) - Number(right.addonOrderIndex || 0));
+      .sort(
+        (left, right) => Number(left.addonOrderIndex || 0) - Number(right.addonOrderIndex || 0)
+      );
     const pluginStreams = await pluginTask;
     return { status: "success", data: [...addonsWithStreams, ...pluginStreams] };
   }
@@ -144,12 +210,25 @@ class StreamRepository {
     });
 
     return pluginResults.map((result) => ({
+      sourceProviderId: result.sourceId || result.sourceName || null,
       addonName: result.sourceName,
       addonLogo: null,
+      streamOrigin: {
+        kind: "plugin",
+        sourceProviderId: result.sourceId || result.sourceName || null,
+        addonName: result.sourceName || null
+      },
       streams: (result.streams || []).map((stream) => ({
         ...stream,
+        sourceProviderId: result.sourceId || result.sourceName || null,
         addonName: result.sourceName,
-        addonLogo: null
+        addonLogo: null,
+        streamOrigin: {
+          ...(stream.streamOrigin || {}),
+          kind: "plugin",
+          sourceProviderId: result.sourceId || result.sourceName || null,
+          addonName: result.sourceName || null
+        }
       }))
     }));
   }
@@ -157,7 +236,8 @@ class StreamRepository {
   buildStreamUrl(baseUrl, type, videoId) {
     const cleanBaseUrl = addonRepository.canonicalizeUrl(baseUrl);
     const queryStart = cleanBaseUrl.indexOf("?");
-    const basePath = queryStart >= 0 ? cleanBaseUrl.slice(0, queryStart).replace(/\/+$/, "") : cleanBaseUrl;
+    const basePath =
+      queryStart >= 0 ? cleanBaseUrl.slice(0, queryStart).replace(/\/+$/, "") : cleanBaseUrl;
     const baseQuery = queryStart >= 0 ? cleanBaseUrl.slice(queryStart) : "";
     return `${basePath}/stream/${this.encode(type)}/${this.encode(videoId)}.json${baseQuery}`;
   }
@@ -165,7 +245,8 @@ class StreamRepository {
   buildMetaUrl(baseUrl, type, id) {
     const cleanBaseUrl = addonRepository.canonicalizeUrl(baseUrl);
     const queryStart = cleanBaseUrl.indexOf("?");
-    const basePath = queryStart >= 0 ? cleanBaseUrl.slice(0, queryStart).replace(/\/+$/, "") : cleanBaseUrl;
+    const basePath =
+      queryStart >= 0 ? cleanBaseUrl.slice(0, queryStart).replace(/\/+$/, "") : cleanBaseUrl;
     const baseQuery = queryStart >= 0 ? cleanBaseUrl.slice(queryStart) : "";
     return `${basePath}/meta/${this.encode(type)}/${this.encode(id)}.json${baseQuery}`;
   }
@@ -177,12 +258,12 @@ class StreamRepository {
   mapStream(stream = {}) {
     const sidecarSubtitles = Array.isArray(stream.subtitles)
       ? stream.subtitles
-        .filter((entry) => entry && entry.url)
-        .map((entry) => ({
-          id: entry.id || null,
-          url: entry.url,
-          lang: entry.lang || "unknown"
-        }))
+          .filter((entry) => entry && entry.url)
+          .map((entry) => ({
+            id: entry.id || null,
+            url: entry.url,
+            lang: entry.lang || "unknown"
+          }))
       : [];
 
     return {
@@ -210,18 +291,56 @@ class StreamRepository {
       return [];
     }
 
-    const metaId = this.buildContentLevelMetaId(rawVideoId);
-    const url = this.buildMetaUrl(addon.baseUrl, type, metaId);
-    const result = await safeApiCall(() => MetaApi.getMeta(url));
-    if (result.status !== "success") {
-      return [];
+    // Try the content-level id (handles series episode ids like tt123:1:2)
+    // and the raw id (handles content whose clicked id is the meta id itself,
+    // e.g. debrid cloud "other" items keyed dmm:<torrentId>).
+    const contentLevelId = this.buildContentLevelMetaId(rawVideoId);
+    const candidateMetaIds = [];
+    if (contentLevelId) {
+      candidateMetaIds.push(contentLevelId);
+    }
+    if (rawVideoId && rawVideoId !== contentLevelId) {
+      candidateMetaIds.push(rawVideoId);
     }
 
-    const meta = result.data?.meta || null;
-    const videos = Array.isArray(meta?.videos) ? meta.videos : [];
-    const matchingVideo = videos.find((video) => String(video?.id || "") === rawVideoId);
-    const streams = Array.isArray(matchingVideo?.streams) ? matchingVideo.streams : [];
-    return streams.map((stream) => this.mapStream(stream)).filter((stream) => stream.url || stream.externalUrl || stream.ytId || stream.clientResolve || stream.infoHash);
+    for (const metaId of candidateMetaIds) {
+      const url = this.buildMetaUrl(addon.baseUrl, type, metaId);
+      const result = await safeApiCall(() => MetaApi.getMeta(url));
+
+      if (result.status !== "success") {
+        continue;
+      }
+
+      const meta = result.data?.meta || null;
+      const videos = Array.isArray(meta?.videos) ? meta.videos : [];
+
+      if (!videos.length) {
+        continue;
+      }
+
+      const matchingVideo =
+        videos.find((video) => String(video?.id || "") === rawVideoId) ||
+        (type !== "series" && videos.length === 1 ? videos[0] : null);
+
+      const streams = Array.isArray(matchingVideo?.streams) ? matchingVideo.streams : [];
+
+      const mapped = streams
+        .map((stream) => this.mapStream(stream))
+        .filter(
+          (stream) =>
+            stream.url ||
+            stream.externalUrl ||
+            stream.ytId ||
+            stream.clientResolve ||
+            stream.infoHash
+        );
+
+      if (mapped.length) {
+        return mapped;
+      }
+    }
+
+    return [];
   }
 
   buildContentLevelMetaId(videoId) {
@@ -236,7 +355,6 @@ class StreamRepository {
     }
     return contentParts.length ? contentParts.join(":") : raw;
   }
-
 }
 
 export const streamRepository = new StreamRepository();

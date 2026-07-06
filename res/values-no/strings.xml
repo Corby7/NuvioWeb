@@ -175,6 +175,12 @@
     <string name="about_privacy_policy_subtitle">Se vår personvernerklæring</string>
     <string name="about_supporters_contributors">Støttespillere &amp; bidragsytere</string>
     <string name="about_supporters_contributors_subtitle">Åpen anerkjennelse og prosjektkreditter</string>
+    <string name="about_debug_console_title">Debug-konsoll</string>
+    <string name="about_debug_console_subtitle">Vis siste feil/advarsler</string>
+    <string name="debug_console_subtitle">Siste advarsler og feil fanget i denne appøkten</string>
+    <string name="debug_console_empty_title">Ingen advarsler eller feil</string>
+    <string name="debug_console_empty_subtitle">Console warning/error-hendelser vises her til appen lukkes.</string>
+    <string name="debug_console_event_count">%d hendelser</string>
     <string name="settings_account">Konto</string>
     <string name="settings_account_subtitle">Kontostatus og synkroniseringsstatus</string>
     <string name="settings_profiles">Profiler</string>
@@ -1018,4 +1024,13 @@
     <string name="watchlist_removed">Fjernet fra ønskelisten</string>
     <string name="playback_player_auto">Automatisk (Best for innhold)</string>
     <string name="playback_player_auto_desc">ExoPlayer for filmer og serier · MPV for anime</string>
+    <string name="detail.resume">Fortsett</string>
+    <string name="detail.resumeEpisodeShort">Fortsett S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Spill fra begynnelsen</string>
+    <string name="detail.resumeAvailable">Fortsettelse tilgjengelig</string>
+    <string name="detail.currentEpisode">Episode {{episode}}</string>
+    <string name="detail.timeLeftDuration">{{time}} igjen</string>
+    <string name="player.audio.unsupported">Ikke støttet</string>
+    <string name="player.audio.unsupportedCodec">Kodeken støttes ikke av denne enheten</string>
+    <string name="player.audio.noSupportedTracks">Ingen støttede lydspor er tilgjengelige</string>
 </resources>

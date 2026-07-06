@@ -4,7 +4,6 @@ import { ScreenUtils } from "../../navigation/screen.js";
 import { I18n } from "../../../i18n/index.js";
 
 export const AccountScreen = {
-
   async mount() {
     this.container = document.getElementById("account");
     this.container.style.display = "block";
@@ -37,6 +36,19 @@ export const AccountScreen = {
   async signOut() {
     await AuthManager.signOut();
     Router.navigate("authQrSignIn");
+  },
+
+  onPointerActivate(target) {
+    const action = String(target?.dataset?.action || "");
+    if (action === "signin") {
+      Router.navigate("authQrSignIn");
+      return true;
+    }
+    if (action === "logout") {
+      this.signOut();
+      return true;
+    }
+    return false;
   },
 
   render() {
@@ -85,19 +97,6 @@ export const AccountScreen = {
     focusables[0]?.classList.add("focused");
   },
 
-  onPointerActivate(target) {
-    const action = String(target?.dataset?.action || "");
-    if (action === "signin") {
-      Router.navigate("authQrSignIn");
-      return true;
-    }
-    if (action === "logout") {
-      this.signOut();
-      return true;
-    }
-    return false;
-  },
-
   onKeyDown(event) {
     if (ScreenUtils.handleDpadNavigation(event, this.container)) {
       return;
@@ -115,5 +114,4 @@ export const AccountScreen = {
       }
     }
   }
-
 };

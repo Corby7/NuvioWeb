@@ -151,6 +151,12 @@
     <string name="about_privacy_policy_subtitle">Visa vår integritetspolicy</string>
     <string name="about_supporters_contributors">Supportrar &amp; bidragsgivare</string>
     <string name="about_supporters_contributors_subtitle">Öppen erkänsla och projektcredits</string>
+    <string name="about_debug_console_title">Debug-konsol</string>
+    <string name="about_debug_console_subtitle">Visa senaste fel/varningar</string>
+    <string name="debug_console_subtitle">Senaste varningar och fel som fångats i denna appsession</string>
+    <string name="debug_console_empty_title">Inga varningar eller fel</string>
+    <string name="debug_console_empty_subtitle">Konsolens warning/error-händelser visas här tills appen stängs.</string>
+    <string name="debug_console_event_count">%d händelser</string>
     <string name="settings_account">Konto</string>
     <string name="settings_account_subtitle">Konto och synkroniseringsstatus</string>
     <string name="settings_profiles">Profiler</string>
@@ -1403,4 +1409,13 @@
     <string name="collections_card_subtitle">Gruppera kataloger i mappar på din hemskärm</string>
     <string name="collections_tab_all">Alla</string>
     <string name="collections_tab_combined">Kombinerat</string>
+    <string name="detail.resume">Fortsätt</string>
+    <string name="detail.resumeEpisodeShort">Fortsätt S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Spela från början</string>
+    <string name="detail.resumeAvailable">Fortsättning tillgänglig</string>
+    <string name="detail.currentEpisode">Avsnitt {{episode}}</string>
+    <string name="detail.timeLeftDuration">{{time}} kvar</string>
+    <string name="player.audio.unsupported">Stöds inte</string>
+    <string name="player.audio.unsupportedCodec">Kodeken stöds inte av den här enheten</string>
+    <string name="player.audio.noSupportedTracks">Inga ljudspår som stöds är tillgängliga</string>
 </resources>

@@ -44,7 +44,17 @@
  */
 
 export class NuvioDialog {
-  constructor({ title, subtitle = null, error = null, widthVw = 54.2, buttons = [], onDismiss = null, panelClassName = "", actionsClassName = "", suppressEnterUntilKeyUp = false }) {
+  constructor({
+    title,
+    subtitle = null,
+    error = null,
+    widthVw = 54.2,
+    buttons = [],
+    onDismiss = null,
+    panelClassName = "",
+    actionsClassName = "",
+    suppressEnterUntilKeyUp = false
+  }) {
     this.title = title;
     this.subtitle = subtitle;
     this.error = error;
@@ -65,6 +75,14 @@ export class NuvioDialog {
     this._keyUpHandler = this._onKeyUp.bind(this);
   }
 
+  _scheduleFrame(callback) {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(callback);
+      return;
+    }
+    setTimeout(callback, 0);
+  }
+
   _eventKey(e) {
     const key = String(e?.key || "");
     const keyName = String(e?.keyName || e?.detail?.keyName || "");
@@ -72,8 +90,12 @@ export class NuvioDialog {
     const keyCode = Number(e?.keyCode || e?.which || 0);
     const normalized = (key || keyName || code).toLowerCase();
     return {
-      isBack: keyCode === 10009
-        || ["escape", "esc", "backspace", "goback", "back", "return"].includes(normalized),
+      isBack:
+        keyCode === 8 ||
+        keyCode === 27 ||
+        keyCode === 461 ||
+        keyCode === 10009 ||
+        ["escape", "esc", "backspace", "goback", "back", "return"].includes(normalized),
       isDown: keyCode === 40 || normalized === "arrowdown" || normalized === "down",
       isRight: keyCode === 39 || normalized === "arrowright" || normalized === "right",
       isUp: keyCode === 38 || normalized === "arrowup" || normalized === "up",
@@ -123,10 +145,11 @@ export class NuvioDialog {
 
       this.buttons.forEach((btn, i) => {
         const el = document.createElement("button");
-        el.className = "nuvio-dialog-button"
-          + (btn.danger ? " nuvio-dialog-button-danger" : "")
-          + (btn.selected ? " selected" : "")
-          + (btn.className ? ` ${btn.className}` : "");
+        el.className =
+          "nuvio-dialog-button" +
+          (btn.danger ? " nuvio-dialog-button-danger" : "") +
+          (btn.selected ? " selected" : "") +
+          (btn.className ? ` ${btn.className}` : "");
         this._setButtonSelected(el, Boolean(btn.selected));
         if (btn.icon) {
           const iconEl = document.createElement("span");
@@ -151,6 +174,7 @@ export class NuvioDialog {
 
     backdrop.appendChild(panel);
     container.appendChild(backdrop);
+    document.body?.classList?.add("nuvio-modal-open");
 
     this._backdrop = backdrop;
     this._panel = panel;
@@ -165,10 +189,10 @@ export class NuvioDialog {
     window.addEventListener("keyup", this._keyUpHandler, { capture: true });
 
     // Focus first button after 2 frames (matches ATV LaunchedEffect repeat(2) { withFrameNanos })
-    requestAnimationFrame(() => requestAnimationFrame(() => this._focusIndex(0)));
+    this._scheduleFrame(() => this._scheduleFrame(() => this._focusIndex(0)));
 
     // Trigger enter animation
-    requestAnimationFrame(() => {
+    this._scheduleFrame(() => {
       backdrop.classList.add("nuvio-dialog-backdrop-enter");
       panel.classList.add("nuvio-dialog-panel-enter");
     });
@@ -188,17 +212,32 @@ export class NuvioDialog {
     const check = document.createElement("span");
     check.className = "nuvio-dialog-button-check";
     check.setAttribute("aria-hidden", "true");
-    check.innerHTML = '<svg viewBox="0 0 24 24" focusable="false"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17Z" fill="currentColor"></path></svg>';
+    check.innerHTML =
+      '<svg viewBox="0 0 24 24" focusable="false"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17Z" fill="currentColor"></path></svg>';
     return check;
   }
 
   _setButtonSelected(el, selected) {
     el.classList.toggle("selected", selected);
-    const existing = el.querySelector(":scope > .nuvio-dialog-button-check");
+    let existing = null;
+    for (let index = 0; index < el.children.length; index += 1) {
+      const child = el.children[index];
+      if (child && child.classList && child.classList.contains("nuvio-dialog-button-check")) {
+        existing = child;
+        break;
+      }
+    }
     if (selected && !existing) {
-      el.prepend(this._createCheckElement());
+      const check = this._createCheckElement();
+      if (el.firstChild) {
+        el.insertBefore(check, el.firstChild);
+      } else {
+        el.appendChild(check);
+      }
     } else if (!selected && existing) {
-      existing.remove();
+      if (existing.parentNode) {
+        existing.parentNode.removeChild(existing);
+      }
     }
   }
 
@@ -285,5 +324,10 @@ export class NuvioDialog {
 
     // Remove after animation completes (150ms exit)
     setTimeout(() => backdrop.remove(), 200);
+    setTimeout(() => {
+      if (!document.querySelector(".nuvio-dialog-backdrop")) {
+        document.body?.classList?.remove("nuvio-modal-open");
+      }
+    }, 220);
   }
 }

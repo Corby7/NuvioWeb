@@ -232,6 +232,12 @@
     <string name="about_privacy_policy_subtitle">Посмотреть политику конфиденциальности</string>
     <string name="about_supporters_contributors">Спонсоры и участники</string>
     <string name="about_supporters_contributors_subtitle">Признание и титры проекта</string>
+    <string name="about_debug_console_title">Консоль отладки</string>
+    <string name="about_debug_console_subtitle">Показать последние ошибки/предупреждения</string>
+    <string name="debug_console_subtitle">Последние предупреждения и ошибки, пойманные в этой сессии приложения</string>
+    <string name="debug_console_empty_title">Нет предупреждений или ошибок</string>
+    <string name="debug_console_empty_subtitle">События warning/error из консоли будут отображаться здесь до закрытия приложения.</string>
+    <string name="debug_console_event_count">%d событий</string>
     <string name="settings_account">Аккаунт</string>
     <string name="settings_account_subtitle">Статус аккаунта и синхронизации</string>
     <string name="settings_profiles">Профили</string>
@@ -2338,4 +2344,13 @@
     <string name="debrid_picker_excluded_release_groups_title">Исключённые релиз-группы</string>
     <string name="debrid_picker_excluded_release_groups_subtitle">Скрывать выбранные релиз-группы.</string>
     <string name="subtitle_language_unknown">Неизвестный</string>
+    <string name="detail.resume">Продолжить</string>
+    <string name="detail.resumeEpisodeShort">Продолжить S{{season}}E{{episode}}</string>
+    <string name="detail.playFromBeginning">Смотреть с начала</string>
+    <string name="detail.resumeAvailable">Доступно продолжение</string>
+    <string name="detail.currentEpisode">Эпизод {{episode}}</string>
+    <string name="detail.timeLeftDuration">Осталось {{time}}</string>
+    <string name="player.audio.unsupported">Не поддерживается</string>
+    <string name="player.audio.unsupportedCodec">Кодек не поддерживается этим устройством</string>
+    <string name="player.audio.noSupportedTracks">Нет доступных поддерживаемых аудиодорожек</string>
 </resources>

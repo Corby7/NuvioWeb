@@ -97,6 +97,12 @@
     <string name="about_check_updates_subtitle">Download de nieuwste versie</string>
     <string name="about_privacy_policy">Privacybeleid</string>
     <string name="about_privacy_policy_subtitle">Bekijk ons privacybeleid</string>
+    <string name="about_debug_console_title">Debugconsole</string>
+    <string name="about_debug_console_subtitle">Laat nieuwste fouten/waarschuwingen zien</string>
+    <string name="debug_console_subtitle">Laatste waarschuwingen en fouten uit deze app-sessie</string>
+    <string name="debug_console_empty_title">Geen waarschuwingen of fouten</string>
+    <string name="debug_console_empty_subtitle">Console warning/error-gebeurtenissen verschijnen hier totdat de app wordt gesloten.</string>
+    <string name="debug_console_event_count">%d gebeurtenissen</string>
     <string name="settings_account">Account</string>
     <string name="settings_account_subtitle">Account- en synchronisatiestatus</string>
     <string name="settings_profiles">Profielen</string>
@@ -848,7 +854,7 @@
     <string name="player.track.surround">Surround</string>
     <string name="sidebar.profileFallback">Profile</string>
     <string name="sidebar.switchProfile">Switch profile</string>
-    <string name="settings.about.portedBy">Ported by edoedac0 and WhiteGiso.</string>
+    <string name="settings.about.portedBy">Ported by WhiteGiso and edoedac0.</string>
     <string name="settings.account.signOutSubtitle">Disconnect this TV from your account.</string>
     <string name="settings.appearance.themes.amber">Amber</string>
     <string name="settings.appearance.themes.crimson">Crimson</string>
@@ -897,4 +903,13 @@
     <string name="auth.syncCode.prompt">Insert sync code</string>
     <string name="auth.syncCode.setCode">Set Code</string>
     <string name="common_all">Alles</string>
+    <string name="detail.resume">Hervatten</string>
+    <string name="detail.resumeEpisodeShort">S{{season}}E{{episode}} hervatten</string>
+    <string name="detail.playFromBeginning">Vanaf het begin afspelen</string>
+    <string name="detail.resumeAvailable">Hervatten beschikbaar</string>
+    <string name="detail.currentEpisode">Aflevering {{episode}}</string>
+    <string name="detail.timeLeftDuration">{{time}} resterend</string>
+    <string name="player.audio.unsupported">Niet ondersteund</string>
+    <string name="player.audio.unsupportedCodec">Codec wordt niet ondersteund door dit apparaat</string>
+    <string name="player.audio.noSupportedTracks">Geen ondersteunde audiotracks beschikbaar</string>
 </resources>

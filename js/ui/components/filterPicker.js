@@ -26,7 +26,6 @@ export function renderFilterPicker({
   picker,
   title,
   value,
-  valueHtml = null,
   options = [],
   open = false,
   closing = false,
@@ -43,11 +42,14 @@ export function renderFilterPicker({
   anchorAction = "togglePicker",
   optionAction = "selectPickerOption",
   optionFocusable = true,
-  optionFormatter = null,
-  selectedIndex = -1
+  selectedIndex = -1,
+  valueHtml = null,
+  optionFormatter = null
 } = {}) {
   const normalizedFocusIndex = Number.isFinite(Number(focusIndex)) ? Number(focusIndex) : 0;
-  const normalizedSelectedIndex = Number.isFinite(Number(selectedIndex)) ? Number(selectedIndex) : -1;
+  const normalizedSelectedIndex = Number.isFinite(Number(selectedIndex))
+    ? Number(selectedIndex)
+    : -1;
   const wrapperClassName = joinClasses(
     classPrefix,
     open ? "open" : "",
@@ -82,19 +84,22 @@ export function renderFilterPicker({
         </span>
         <span class="${classPrefix}-icon">${chevronSvg(open, chevronClassName)}</span>
       </div>
-      ${shouldRenderMenu ? `
+      ${
+        shouldRenderMenu
+          ? `
         <div class="${menuClassName}" role="listbox" aria-label="${escapeHtml(title)}" aria-hidden="${open ? "false" : "true"}">
-          ${options.map((option, index) => {
-            const isActiveOption = shouldHighlightClosingOption && index === normalizedFocusIndex;
-            const optionClassName = joinClasses(
-              `${classPrefix}-option`,
-              canFocusOptions ? "focusable" : "",
-              optionExtraClass,
-              isActiveOption ? focusedOptionClass : "",
-              isActiveOption ? targetOptionClass : "",
-              index === normalizedSelectedIndex ? selectedOptionClass : ""
-            );
-            return `
+          ${options
+            .map((option, index) => {
+              const isActiveOption = shouldHighlightClosingOption && index === normalizedFocusIndex;
+              const optionClassName = joinClasses(
+                `${classPrefix}-option`,
+                canFocusOptions ? "focusable" : "",
+                optionExtraClass,
+                isActiveOption ? focusedOptionClass : "",
+                isActiveOption ? targetOptionClass : "",
+                index === normalizedSelectedIndex ? selectedOptionClass : ""
+              );
+              return `
               <div class="${optionClassName}"
                    data-action="${escapeHtml(optionAction)}"
                    data-picker="${escapeHtml(picker)}"
@@ -105,9 +110,12 @@ export function renderFilterPicker({
                 ${optionFormatter ? optionFormatter(option?.label ?? option?.value ?? "") : escapeHtml(option?.label ?? option?.value ?? "")}
               </div>
             `;
-          }).join("")}
+            })
+            .join("")}
         </div>
-      ` : ""}
+      `
+          : ""
+      }
     </div>
   `;
 }

@@ -19,8 +19,72 @@ function toImageUrl(path, size = "w1280") {
   return `https://image.tmdb.org/t/p/${size}${path}`;
 }
 
+function normalizeTmdbArtworkLanguage(language = "") {
+  const normalized = String(language || "en")
+    .trim()
+    .replace(/_/g, "-");
+  const [rawLanguage = "en", rawRegion = ""] = normalized.split("-", 2);
+  const languageCode = rawLanguage.toLowerCase() || "en";
+  const regionCode =
+    rawRegion.length === 2
+      ? rawRegion.toUpperCase()
+      : languageCode === "pt"
+        ? "PT"
+        : languageCode === "es"
+          ? "ES"
+          : "";
+  return {
+    locale: regionCode ? `${languageCode}-${regionCode}` : languageCode,
+    languageCode,
+    regionCode
+  };
+}
+
+function buildTmdbImageLanguageFilter(language = "") {
+  const { locale, languageCode } = normalizeTmdbArtworkLanguage(language);
+  return [...new Set([languageCode, locale, "en", "null"])].join(",");
+}
+
+function selectBestLocalizedLogoPath(logos = [], language = "") {
+  const { languageCode, regionCode } = normalizeTmdbArtworkLanguage(language);
+  const ranked = (Array.isArray(logos) ? logos : [])
+    .map((logo, index) => {
+      const logoLanguage = String(logo?.iso_639_1 || "").toLowerCase();
+      const logoRegion = String(logo?.iso_3166_1 || "").toUpperCase();
+      let priority = -1;
+      if (logoLanguage === languageCode && regionCode && logoRegion === regionCode) {
+        priority = 5;
+      } else if (logoLanguage === languageCode && !logoRegion) {
+        priority = 4;
+      } else if (logoLanguage === languageCode) {
+        priority = 3;
+      } else if (logoLanguage === "en") {
+        priority = 2;
+      } else if (!logoLanguage) {
+        priority = 1;
+      }
+      return {
+        logo,
+        index,
+        priority,
+        voteAverage: Number(logo?.vote_average || 0)
+      };
+    })
+    // Never select artwork explicitly tagged with an unrelated language.
+    .filter((entry) => entry.priority >= 0 && entry.logo?.file_path)
+    .sort(
+      (left, right) =>
+        right.priority - left.priority ||
+        right.voteAverage - left.voteAverage ||
+        left.index - right.index
+    );
+  return ranked[0]?.logo?.file_path || null;
+}
+
 function normalizeTmdbTrailerLanguage(language = "") {
-  const normalized = String(language || "").trim().replace(/_/g, "-");
+  const normalized = String(language || "")
+    .trim()
+    .replace(/_/g, "-");
   if (!normalized) {
     return TMDB_TRAILER_FALLBACK_LANGUAGE;
   }
@@ -35,7 +99,9 @@ function normalizeTmdbTrailerLanguage(language = "") {
 }
 
 function videoTypePriority(type = "") {
-  const normalized = String(type || "").trim().toLowerCase();
+  const normalized = String(type || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "trailer") return 0;
   if (normalized === "teaser") return 1;
   return 2;
@@ -51,7 +117,9 @@ function rankTmdbVideoCandidates(results = []) {
     .filter((entry) => String(entry?.site || "").toLowerCase() === "youtube")
     .filter((entry) => Boolean(String(entry?.key || "").trim()))
     .filter((entry) => {
-      const normalizedType = String(entry?.type || "").trim().toLowerCase();
+      const normalizedType = String(entry?.type || "")
+        .trim()
+        .toLowerCase();
       return normalizedType === "trailer" || normalizedType === "teaser";
     })
     .sort((left, right) => {
@@ -91,19 +159,21 @@ async function resolveTrailerCandidates({ type, tmdbId, apiKey, language, initia
 }
 
 function mapTrailerCandidates(items = []) {
-  return (Array.isArray(items) ? items : []).map((entry) => {
-    const key = String(entry?.key || "").trim();
-    return {
-      ytId: key,
-      youtubeId: key,
-      source: key ? `https://www.youtube.com/watch?v=${key}` : "",
-      type: entry?.type || "Trailer",
-      name: entry?.name || "Trailer",
-      official: Boolean(entry?.official),
-      publishedAt: entry?.published_at || "",
-      size: Number(entry?.size || 0) || 0
-    };
-  }).filter((entry) => entry.ytId);
+  return (Array.isArray(items) ? items : [])
+    .map((entry) => {
+      const key = String(entry?.key || "").trim();
+      return {
+        ytId: key,
+        youtubeId: key,
+        source: key ? `https://www.youtube.com/watch?v=${key}` : "",
+        type: entry?.type || "Trailer",
+        name: entry?.name || "Trailer",
+        official: Boolean(entry?.official),
+        publishedAt: entry?.published_at || "",
+        size: Number(entry?.size || 0) || 0
+      };
+    })
+    .filter((entry) => entry.ytId);
 }
 
 function mapCompanies(items = []) {
@@ -115,18 +185,38 @@ function mapCompanies(items = []) {
     .filter((company) => company.name || company.logo);
 }
 
-export const TmdbMetadataService = {
+function selectAgeRating(data = {}, type = "movie") {
+  if (type === "tv") {
+    const ratings = Array.isArray(data?.content_ratings?.results)
+      ? data.content_ratings.results
+      : [];
+    const preferred =
+      ratings.find((item) => String(item?.iso_3166_1 || "").toUpperCase() === "US") ||
+      ratings.find((item) => String(item?.rating || "").trim());
+    return String(preferred?.rating || "").trim() || null;
+  }
+  const releases = Array.isArray(data?.release_dates?.results) ? data.release_dates.results : [];
+  const preferred =
+    releases.find((item) => String(item?.iso_3166_1 || "").toUpperCase() === "US") ||
+    releases.find((item) => Array.isArray(item?.release_dates) && item.release_dates.length);
+  const certification = (Array.isArray(preferred?.release_dates) ? preferred.release_dates : [])
+    .map((entry) => String(entry?.certification || "").trim())
+    .find(Boolean);
+  return certification || null;
+}
 
+export const TmdbMetadataService = {
   async fetchEnrichment({ tmdbId, contentType, language = null } = {}) {
     const settings = TmdbSettingsStore.get();
-    const apiKey = String(settings.apiKey || TMDB_API_KEY || "").trim();
+    const apiKey = String(TMDB_API_KEY || "").trim();
     if (!settings.enabled || !apiKey || !tmdbId) {
       return null;
     }
 
     const type = resolveType(contentType);
-    const lang = language || settings.language || "en-US";
-    const params = `api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(lang)}&append_to_response=images,credits,release_dates,content_ratings,videos,external_ids&include_image_language=${encodeURIComponent(lang)},null`;
+    const lang = language || settings.language || "en";
+    const imageLanguages = buildTmdbImageLanguageFilter(lang);
+    const params = `api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(lang)}&append_to_response=images,credits,release_dates,content_ratings,videos,external_ids&include_image_language=${encodeURIComponent(imageLanguages)}`;
     const url = `${TMDB_BASE_URL}/${type}/${encodeURIComponent(String(tmdbId))}?${params}`;
 
     const response = await fetch(url);
@@ -135,19 +225,27 @@ export const TmdbMetadataService = {
     }
 
     const data = await response.json();
-    const logoPath = Array.isArray(data?.images?.logos) ? data.images.logos[0]?.file_path : null;
-    const releaseYear = type === "tv"
-      ? String(data.first_air_date || "").slice(0, 4)
-      : String(data.release_date || "").slice(0, 4);
+    const logoPath = selectBestLocalizedLogoPath(data?.images?.logos, lang);
+    const releaseYear =
+      type === "tv"
+        ? String(data.first_air_date || "").slice(0, 4)
+        : String(data.release_date || "").slice(0, 4);
     const companies = mapCompanies(data?.production_companies);
     const networks = mapCompanies(data?.networks);
     const spokenLanguage = Array.isArray(data?.spoken_languages) ? data.spoken_languages[0] : null;
-    const countryValue = Array.isArray(data?.origin_country) && data.origin_country.length
-      ? data.origin_country.join(", ")
-      : (Array.isArray(data?.production_countries) ? data.production_countries.map((item) => item?.iso_3166_1 || item?.name || "").filter(Boolean).join(", ") : "");
-    const runtimeValue = type === "tv"
-      ? Number((Array.isArray(data?.episode_run_time) ? data.episode_run_time[0] : 0) || 0)
-      : Number(data?.runtime || 0);
+    const countryValue =
+      Array.isArray(data?.origin_country) && data.origin_country.length
+        ? data.origin_country.join(", ")
+        : Array.isArray(data?.production_countries)
+          ? data.production_countries
+              .map((item) => item?.iso_3166_1 || item?.name || "")
+              .filter(Boolean)
+              .join(", ")
+          : "";
+    const runtimeValue =
+      type === "tv"
+        ? Number((Array.isArray(data?.episode_run_time) ? data.episode_run_time[0] : 0) || 0)
+        : Number(data?.runtime || 0);
     const trailerCandidates = await resolveTrailerCandidates({
       type,
       tmdbId,
@@ -156,9 +254,18 @@ export const TmdbMetadataService = {
       initialResults: Array.isArray(data?.videos?.results) ? data.videos.results : []
     });
     const trailers = mapTrailerCandidates(trailerCandidates);
-    const director = type === "tv"
-      ? (Array.isArray(data.created_by) ? data.created_by.map((c) => String(c?.name || "")).filter(Boolean) : [])
-      : (Array.isArray(data.credits?.crew) ? data.credits.crew.filter((c) => c?.job === "Director").map((c) => String(c?.name || "")).filter(Boolean).slice(0, 3) : []);
+    const director =
+      type === "tv"
+        ? Array.isArray(data.created_by)
+          ? data.created_by.map((c) => String(c?.name || "")).filter(Boolean)
+          : []
+        : Array.isArray(data.credits?.crew)
+          ? data.credits.crew
+              .filter((c) => c?.job === "Director")
+              .map((c) => String(c?.name || ""))
+              .filter(Boolean)
+              .slice(0, 3)
+          : [];
 
     return {
       localizedTitle: data.title || data.name || null,
@@ -166,13 +273,18 @@ export const TmdbMetadataService = {
       backdrop: toImageUrl(data.backdrop_path, "w1280"),
       poster: toImageUrl(data.poster_path, "w500"),
       logo: toImageUrl(logoPath, "w500"),
-      genres: Array.isArray(data.genres) ? data.genres.map((genre) => genre.name).filter(Boolean) : [],
+      genres: Array.isArray(data.genres)
+        ? data.genres.map((genre) => genre.name).filter(Boolean)
+        : [],
       rating: typeof data.vote_average === "number" ? data.vote_average : null,
       releaseInfo: releaseYear || null,
-      released: type === "tv" ? (data.first_air_date || null) : (data.release_date || null),
+      released: type === "tv" ? data.first_air_date || null : data.release_date || null,
       runtime: Number.isFinite(runtimeValue) && runtimeValue > 0 ? `${runtimeValue} min` : null,
+      status: data?.status || null,
+      ageRating: selectAgeRating(data, type),
       country: countryValue || null,
       language: spokenLanguage?.iso_639_1 || spokenLanguage?.english_name || null,
+      originalLanguage: data?.original_language || null,
       imdbId: data?.external_ids?.imdb_id || null,
       director: director.length ? director : null,
       credits: data.credits || null,
@@ -188,12 +300,12 @@ export const TmdbMetadataService = {
 
   async fetchSeasonRatings({ tmdbId, seasonNumber, language = null } = {}) {
     const settings = TmdbSettingsStore.get();
-    const apiKey = String(settings.apiKey || TMDB_API_KEY || "").trim();
+    const apiKey = String(TMDB_API_KEY || "").trim();
     if (!settings.enabled || !apiKey || !tmdbId || !Number.isFinite(Number(seasonNumber))) {
       return [];
     }
 
-    const lang = language || settings.language || "en-US";
+    const lang = language || settings.language || "en";
     const url = `${TMDB_BASE_URL}/tv/${encodeURIComponent(String(tmdbId))}/season/${encodeURIComponent(String(seasonNumber))}?api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(lang)}`;
     const response = await fetch(url);
     if (!response.ok) {
@@ -201,35 +313,115 @@ export const TmdbMetadataService = {
     }
     const data = await response.json();
     const episodes = Array.isArray(data?.episodes) ? data.episodes : [];
-    return episodes.map((episode) => ({
-      episode: Number(episode?.episode_number || 0),
-      rating: typeof episode?.vote_average === "number" ? Number(episode.vote_average.toFixed(1)) : null
-    })).filter((item) => item.episode > 0);
+    return episodes
+      .map((episode) => ({
+        episode: Number(episode?.episode_number || 0),
+        rating:
+          typeof episode?.vote_average === "number" ? Number(episode.vote_average.toFixed(1)) : null
+      }))
+      .filter((item) => item.episode > 0);
+  },
+
+  async fetchEpisodeEnrichment({ tmdbId, seasonNumbers = [], language = null } = {}) {
+    const settings = TmdbSettingsStore.get();
+    const apiKey = String(TMDB_API_KEY || "").trim();
+    if (!settings.enabled || !settings.useEpisodes || !apiKey || !tmdbId) {
+      return new Map();
+    }
+
+    const lang = language || settings.language || "en";
+    const seasons = [...new Set((Array.isArray(seasonNumbers) ? seasonNumbers : [])
+      .map((season) => Number(season || 0))
+      .filter((season) => Number.isFinite(season) && season > 0))];
+    if (!seasons.length) {
+      return new Map();
+    }
+
+    const entries = await Promise.all(
+      seasons.map(async (seasonNumber) => {
+        const url = `${TMDB_BASE_URL}/tv/${encodeURIComponent(String(tmdbId))}/season/${encodeURIComponent(String(seasonNumber))}?api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(lang)}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          return [];
+        }
+        const data = await response.json();
+        return (Array.isArray(data?.episodes) ? data.episodes : [])
+          .map((episode) => ({
+            key: `${seasonNumber}:${Number(episode?.episode_number || 0)}`,
+            title: episode?.name || "",
+            overview: episode?.overview || "",
+            airDate: episode?.air_date || "",
+            thumbnail: toImageUrl(episode?.still_path || null),
+            runtime: Number(episode?.runtime || 0) || null
+          }))
+          .filter((episode) => !episode.key.endsWith(":0"));
+      })
+    );
+
+    const map = new Map();
+    entries.flat().forEach((episode) => {
+      map.set(episode.key, episode);
+    });
+    return map;
   },
 
   async fetchMovieCollection({ collectionId, language = null } = {}) {
     const settings = TmdbSettingsStore.get();
-    const apiKey = String(settings.apiKey || TMDB_API_KEY || "").trim();
+    const apiKey = String(TMDB_API_KEY || "").trim();
     if (!settings.enabled || !apiKey || !collectionId) {
       return [];
     }
 
-    const lang = language || settings.language || "en-US";
+    const lang = language || settings.language || "en";
     const url = `${TMDB_BASE_URL}/collection/${encodeURIComponent(String(collectionId))}?api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(lang)}`;
     const response = await fetch(url);
     if (!response.ok) {
       return [];
     }
     const data = await response.json();
-    return (Array.isArray(data?.parts) ? data.parts : []).map((item) => ({
-      id: item?.id ? String(item.id) : "",
-      type: "movie",
-      name: item?.title || item?.name || "Untitled",
-      poster: toImageUrl(item?.poster_path || null, "w500"),
-      background: toImageUrl(item?.backdrop_path || null, "w1280"),
-      landscapePoster: toImageUrl(item?.backdrop_path || null, "w1280"),
-      releaseInfo: String(item?.release_date || "").slice(0, 4) || ""
-    })).filter((item) => item.id);
-  }
+    return (Array.isArray(data?.parts) ? data.parts : [])
+      .map((item) => ({
+        id: item?.id ? `tmdb:${String(item.id)}` : "",
+        type: "movie",
+        name: item?.title || item?.name || "Untitled",
+        poster: toImageUrl(item?.poster_path || null, "w500"),
+        background: toImageUrl(item?.backdrop_path || null, "w1280"),
+        landscapePoster: toImageUrl(item?.backdrop_path || null, "w1280"),
+        releaseInfo: String(item?.release_date || "").slice(0, 4) || ""
+      }))
+      .filter((item) => item.id);
+  },
 
+  async fetchRecommendations({ tmdbId, contentType, language = null } = {}) {
+    const settings = TmdbSettingsStore.get();
+    const apiKey = String(TMDB_API_KEY || "").trim();
+    if (!settings.enabled || !settings.useMoreLikeThis || !apiKey || !tmdbId) {
+      return [];
+    }
+
+    const type = resolveType(contentType);
+    const lang = language || settings.language || "en";
+    const url = `${TMDB_BASE_URL}/${type}/${encodeURIComponent(String(tmdbId))}/recommendations?api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(lang)}&page=1`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      return [];
+    }
+    const data = await response.json();
+    return (Array.isArray(data?.results) ? data.results : [])
+      .map((item) => ({
+        id: item?.id ? `tmdb:${String(item.id)}` : "",
+        type: type === "tv" ? "series" : "movie",
+        name: item?.title || item?.name || "Untitled",
+        poster: toImageUrl(item?.poster_path || null, "w500"),
+        background: toImageUrl(item?.backdrop_path || null, "w1280"),
+        backdrop: toImageUrl(item?.backdrop_path || null, "w1280"),
+        landscapePoster: toImageUrl(item?.backdrop_path || null, "w1280"),
+        description: item?.overview || "",
+        releaseInfo:
+          String(type === "tv" ? item?.first_air_date || "" : item?.release_date || "").slice(0, 4) ||
+          "",
+        tmdbRating: typeof item?.vote_average === "number" ? Number(item.vote_average.toFixed(1)) : null
+      }))
+      .filter((item) => item.id);
+  }
 };

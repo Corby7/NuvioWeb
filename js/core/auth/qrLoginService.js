@@ -39,7 +39,7 @@ function isJwtExpired(token, leewaySeconds = 30) {
     return false;
   }
   const nowSeconds = Math.floor(Date.now() / 1000);
-  return exp <= (nowSeconds + leewaySeconds);
+  return exp <= nowSeconds + leewaySeconds;
 }
 
 function getBearerToken() {
@@ -121,14 +121,26 @@ function toEpochMillis(session) {
       return parsed;
     }
   }
-  return Date.now() + (5 * 60 * 1000);
+  return Date.now() + 5 * 60 * 1000;
 }
 
 function isLegacyStartSignatureError(text) {
   const message = String(text || "").toLowerCase();
-  return message.includes("start_tv_login_session")
-    && message.includes("could not find the function")
-    && message.includes("p_device_name");
+  return (
+    message.includes("start_tv_login_session") &&
+    message.includes("could not find the function") &&
+    message.includes("p_device_name")
+  );
+}
+
+function isCallerSessionRejected(text) {
+  const message = String(text || "").toLowerCase();
+  return (
+    message.includes("http 401") ||
+    message.includes("invalid caller session") ||
+    message.includes("jwt expired") ||
+    message.includes("invalid jwt")
+  );
 }
 
 async function parseErrorText(response) {
@@ -181,15 +193,33 @@ function extractSessionTokens(payload) {
   if (!payload || typeof payload !== "object") {
     return null;
   }
-  const accessToken = payload.access_token || payload.accessToken || payload?.session?.access_token || null;
-  const refreshToken = payload.refresh_token || payload.refreshToken || payload?.session?.refresh_token || null;
+  const accessToken =
+    payload.access_token || payload.accessToken || payload?.session?.access_token || null;
+  const refreshToken =
+    payload.refresh_token || payload.refreshToken || payload?.session?.refresh_token || null;
   if (!accessToken || !refreshToken) {
     return null;
   }
   return { accessToken, refreshToken };
 }
 
-async function ensureQrSessionAuthenticated() {
+async function ensureQrSessionAuthenticated({ forceNewAnonymous = false } = {}) {
+  if (forceNewAnonymous) {
+    const wasAnonymous = SessionStore.isAnonymousSession;
+    if (!wasAnonymous && SessionStore.refreshToken) {
+      const refreshed = await AuthManager.refreshSessionIfNeeded({ force: true });
+      if (refreshed && SessionStore.accessToken && !isJwtExpired(SessionStore.accessToken, 0)) {
+        return true;
+      }
+      if (AuthManager.wasLastSessionRefreshTransientFailure?.()) {
+        return true;
+      }
+    }
+    SessionStore.accessToken = null;
+    SessionStore.refreshToken = null;
+    SessionStore.isAnonymousSession = false;
+  }
+
   if (SessionStore.accessToken && !isJwtLike(SessionStore.accessToken)) {
     SessionStore.accessToken = null;
     SessionStore.refreshToken = null;
@@ -200,6 +230,9 @@ async function ensureQrSessionAuthenticated() {
     }
     const refreshed = await AuthManager.refreshSessionIfNeeded();
     if (refreshed && SessionStore.accessToken && !isJwtExpired(SessionStore.accessToken)) {
+      return true;
+    }
+    if (AuthManager.wasLastSessionRefreshTransientFailure?.()) {
       return true;
     }
     SessionStore.clear();
@@ -252,7 +285,9 @@ async function ensureQrSessionAuthenticated() {
     payload = await tryAnonymousSignup();
   } catch (firstError) {
     payload = await tryAnonymousToken().catch((secondError) => {
-      throw new Error(`${firstError?.message || "anonymous signup failed"} | ${secondError?.message || "anonymous token failed"}`);
+      throw new Error(
+        `${firstError?.message || "anonymous signup failed"} | ${secondError?.message || "anonymous token failed"}`
+      );
     });
   }
 
@@ -267,6 +302,22 @@ async function ensureQrSessionAuthenticated() {
   return true;
 }
 
+async function fetchWithCallerSessionRecovery(requestFactory) {
+  await ensureQrSessionAuthenticated();
+  let response = await requestFactory();
+  if (response.ok || response.status !== 401) {
+    return response;
+  }
+
+  const firstErrorText = await parseErrorText(response);
+  if (!isCallerSessionRejected(firstErrorText)) {
+    throw new Error(firstErrorText || `HTTP ${response.status}`);
+  }
+
+  await ensureQrSessionAuthenticated({ forceNewAnonymous: true });
+  return requestFactory();
+}
+
 async function startRpc(deviceNonce, redirectBaseUrl, includeDeviceName = true) {
   const payload = {
     p_device_nonce: deviceNonce,
@@ -276,15 +327,17 @@ async function startRpc(deviceNonce, redirectBaseUrl, includeDeviceName = true) 
     payload.p_device_name = Environment.getDeviceLabel();
   }
 
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/start_tv_login_session`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${getBearerToken()}`
-    },
-    body: JSON.stringify(payload)
-  });
+  const response = await fetchWithCallerSessionRecovery(() =>
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/start_tv_login_session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${getBearerToken()}`
+      },
+      body: JSON.stringify(payload)
+    })
+  );
 
   if (!response.ok) {
     const errorText = await parseErrorText(response);
@@ -296,7 +349,6 @@ async function startRpc(deviceNonce, redirectBaseUrl, includeDeviceName = true) 
 }
 
 export const QrLoginService = {
-
   getLastError() {
     return lastError;
   },
@@ -343,7 +395,9 @@ export const QrLoginService = {
 
       if (!session) {
         if (lastStartError) {
-          throw new Error(`${lastStartError.message} | tried redirect_base_url: ${redirectCandidates.join(" , ")}`);
+          throw new Error(
+            `${lastStartError.message} | tried redirect_base_url: ${redirectCandidates.join(" , ")}`
+          );
         }
         throw new Error("Empty response from start_tv_login_session");
       }
@@ -351,7 +405,9 @@ export const QrLoginService = {
       return {
         code: session.code,
         loginUrl: session.qr_content || session.web_url || null,
-        qrImageUrl: session.qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(session.qr_content || session.web_url || "")}`,
+        qrImageUrl:
+          session.qr_image_url ||
+          `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(session.qr_content || session.web_url || "")}`,
         expiresAt: toEpochMillis(session),
         pollIntervalSeconds: Number(session.poll_interval_seconds || 3),
         deviceNonce
@@ -370,19 +426,20 @@ export const QrLoginService = {
         lastError = "QR auth is not configured";
         return null;
       }
-      await ensureQrSessionAuthenticated();
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/poll_tv_login_session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${getBearerToken()}`
-        },
-        body: JSON.stringify({
-          p_code: code,
-          p_device_nonce: deviceNonce
+      const response = await fetchWithCallerSessionRecovery(() =>
+        fetch(`${SUPABASE_URL}/rest/v1/rpc/poll_tv_login_session`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${getBearerToken()}`
+          },
+          body: JSON.stringify({
+            p_code: code,
+            p_device_nonce: deviceNonce
+          })
         })
-      });
+      );
 
       if (!response.ok) {
         lastError = await parseErrorText(response);
@@ -405,20 +462,20 @@ export const QrLoginService = {
         lastError = "QR auth is not configured";
         return false;
       }
-      await ensureQrSessionAuthenticated();
-      const token = getBearerToken();
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/tv-logins-exchange`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          code,
-          device_nonce: deviceNonce
+      const response = await fetchWithCallerSessionRecovery(() =>
+        fetch(`${SUPABASE_URL}/functions/v1/tv-logins-exchange`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${getBearerToken()}`
+          },
+          body: JSON.stringify({
+            code,
+            device_nonce: deviceNonce
+          })
         })
-      });
+      );
 
       if (!response.ok) {
         lastError = await parseErrorText(response);
@@ -450,5 +507,4 @@ export const QrLoginService = {
   cleanup() {
     // no-op: timers are owned by screen
   }
-
 };

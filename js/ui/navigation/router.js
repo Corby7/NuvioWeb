@@ -5,6 +5,7 @@ import { SyncCodeScreen } from "../screens/account/syncCodeScreen.js";
 import { ProfileSelectionScreen } from "../../core/profile/profileSelectionScreen.js";
 import { Platform } from "../../platform/index.js";
 import { RouteStateStore } from "./routeStateStore.js";
+import { LocalStore } from "../../core/storage/localStore.js";
 
 // Lazy screen factories — resolved on first navigation and cached back into routes.
 // In an ESM+splitting build these become real async chunks; in a single-bundle IIFE
@@ -22,6 +23,8 @@ const _lazyFactories = {
   discover: () => import("../screens/search/discoverScreen.js").then((m) => m.DiscoverScreen),
   trakt: () => import("../screens/trakt/traktScreen.js").then((m) => m.TraktScreen),
   plugin: () => import("../screens/plugin/pluginScreen.js").then((m) => m.PluginScreen),
+  plugins: () => import("../screens/plugin/pluginsScreen.js").then((m) => m.PluginsScreen),
+  debugConsole: () => import("../screens/debug/consoleDebugScreen.js").then((m) => m.ConsoleDebugScreen),
   catalogOrder: () => import("../screens/plugin/catalogOrderScreen.js").then((m) => m.CatalogOrderScreen),
   catalogSeeAll: () => import("../screens/catalog/catalogSeeAllScreen.js").then((m) => m.CatalogSeeAllScreen),
   folderDetail: () => import("../screens/collection/folderDetailScreen.js").then((m) => m.FolderDetailScreen),
@@ -44,6 +47,10 @@ const NON_BACKSTACK_ROUTES = new Set([
   "authSignIn",
   "syncCode"
 ]);
+
+const WEBOS_RESUME_ROUTE_KEY = "webos_last_resume_route";
+const WEBOS_RESUME_ROUTE_TTL_MS = 20 * 60 * 1000;
+const WEBOS_NON_RESTORABLE_ROUTES = new Set([...NON_BACKSTACK_ROUTES, "player", "stream"]);
 
 export const Router = {
 
@@ -213,6 +220,56 @@ export const Router = {
 
   ignoreSinglePopstate() {
     this.ignoreNextPopstate = true;
+  },
+
+  // webOS keeps the app resident when backgrounded; on relaunch we restore the
+  // last route (within a TTL) instead of always landing on home.
+  persistWebOsResumeRoute(routeName = this.current, params = this.currentParams) {
+    if (!Platform.isWebOS()) {
+      return;
+    }
+    const route = String(routeName || "").trim();
+    const isKnownRoute = Boolean(this.routes[route] || _lazyFactories[route]);
+    if (!route || !isKnownRoute || WEBOS_NON_RESTORABLE_ROUTES.has(route)) {
+      LocalStore.remove(WEBOS_RESUME_ROUTE_KEY);
+      return;
+    }
+    try {
+      LocalStore.set(WEBOS_RESUME_ROUTE_KEY, {
+        route,
+        params: params || {},
+        savedAt: Date.now()
+      });
+    } catch (error) {
+      console.warn("Failed to persist webOS resume route", error);
+    }
+  },
+
+  consumeWebOsResumeRoute() {
+    if (!Platform.isWebOS()) {
+      return null;
+    }
+    const snapshot = LocalStore.get(WEBOS_RESUME_ROUTE_KEY, null);
+    if (!snapshot || typeof snapshot !== "object") {
+      return null;
+    }
+    const route = String(snapshot.route || "").trim();
+    const savedAt = Number(snapshot.savedAt || 0);
+    const isKnownRoute = Boolean(this.routes[route] || _lazyFactories[route]);
+    if (
+      !route ||
+      !isKnownRoute ||
+      WEBOS_NON_RESTORABLE_ROUTES.has(route) ||
+      !Number.isFinite(savedAt) ||
+      Date.now() - savedAt > WEBOS_RESUME_ROUTE_TTL_MS
+    ) {
+      LocalStore.remove(WEBOS_RESUME_ROUTE_KEY);
+      return null;
+    }
+    return {
+      route,
+      params: snapshot.params && typeof snapshot.params === "object" ? snapshot.params : {}
+    };
   },
 
   async navigate(routeName, params = {}, options = {}) {

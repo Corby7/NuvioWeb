@@ -4,6 +4,7 @@ const PROFILES_KEY = "profiles";
 const ACTIVE_PROFILE_ID_KEY = "activeProfileId";
 const REMEMBER_LAST_PROFILE_KEY = "rememberLastProfile";
 const HAS_EVER_SELECTED_PROFILE_KEY = "hasEverSelectedProfile";
+export const MAX_PROFILES = 6;
 
 const DEFAULT_PROFILES = [
   { id: "1", profileIndex: 1, name: "Profile 1", avatarColorHex: "#1E88E5", isPrimary: true }
@@ -11,8 +12,11 @@ const DEFAULT_PROFILES = [
 
 function normalizeProfile(profile, index = 0) {
   const fallbackIndex = index + 1;
-  const profileIndex = Number(profile?.profileIndex || profile?.profile_index || profile?.id || fallbackIndex);
-  const normalizedIndex = Number.isFinite(profileIndex) && profileIndex > 0 ? Math.trunc(profileIndex) : fallbackIndex;
+  const profileIndex = Number(
+    profile?.profileIndex || profile?.profile_index || profile?.id || fallbackIndex
+  );
+  const normalizedIndex =
+    Number.isFinite(profileIndex) && profileIndex > 0 ? Math.trunc(profileIndex) : fallbackIndex;
   return {
     ...profile,
     id: String(normalizedIndex),
@@ -26,7 +30,23 @@ function normalizeProfile(profile, index = 0) {
   };
 }
 
+function getFirstAvailableProfileIndex(profiles = []) {
+  const usedIndexes = new Set(
+    (Array.isArray(profiles) ? profiles : [])
+      .map((profile) => Number(profile?.profileIndex || profile?.id || 0))
+      .filter((profileIndex) => Number.isFinite(profileIndex) && profileIndex > 0)
+      .map((profileIndex) => Math.trunc(profileIndex))
+  );
+  for (let profileIndex = 2; profileIndex <= MAX_PROFILES; profileIndex += 1) {
+    if (!usedIndexes.has(profileIndex)) {
+      return profileIndex;
+    }
+  }
+  return null;
+}
+
 export const ProfileManager = {
+  MAX_PROFILES,
 
   async getProfiles() {
     const stored = LocalStore.get(PROFILES_KEY, null);
@@ -40,9 +60,14 @@ export const ProfileManager = {
   },
 
   async replaceProfiles(profiles) {
-    const normalized = (Array.isArray(profiles) ? profiles : [])
-      .map((profile, index) => normalizeProfile(profile, index));
+    const normalized = (Array.isArray(profiles) ? profiles : []).map((profile, index) =>
+      normalizeProfile(profile, index)
+    );
     LocalStore.set(PROFILES_KEY, normalized);
+  },
+
+  getNextProfileIndex(profiles = []) {
+    return getFirstAvailableProfileIndex(profiles);
   },
 
   async setActiveProfile(id) {
@@ -59,7 +84,10 @@ export const ProfileManager = {
   },
 
   hasEverSelectedProfile() {
-    return Boolean(LocalStore.get(HAS_EVER_SELECTED_PROFILE_KEY, false));
+    return Boolean(
+      LocalStore.get(HAS_EVER_SELECTED_PROFILE_KEY, false) ||
+        LocalStore.get(ACTIVE_PROFILE_ID_KEY, null) != null
+    );
   },
 
   clearActiveProfile() {
@@ -80,24 +108,30 @@ export const ProfileManager = {
     }
 
     const profiles = await this.getProfiles();
-    if (profiles.length >= 4) {
+    if (profiles.length >= MAX_PROFILES) {
       return false;
     }
 
-    const nextIndex = profiles.reduce((max, profile) => Math.max(max, Number(profile.profileIndex || profile.id || 0)), 0) + 1;
+    const nextIndex = getFirstAvailableProfileIndex(profiles);
+    if (nextIndex == null) {
+      return false;
+    }
     const nextProfiles = [
       ...profiles,
-      normalizeProfile({
-        id: nextIndex,
-        profileIndex: nextIndex,
-        name: trimmedName,
-        avatarColorHex,
-        avatarId,
-        avatarUrl,
-        isPrimary: false,
-        usesPrimaryAddons,
-        usesPrimaryPlugins
-      }, profiles.length)
+      normalizeProfile(
+        {
+          id: nextIndex,
+          profileIndex: nextIndex,
+          name: trimmedName,
+          avatarColorHex,
+          avatarId,
+          avatarUrl,
+          isPrimary: false,
+          usesPrimaryAddons,
+          usesPrimaryPlugins
+        },
+        profiles.length
+      )
     ];
     LocalStore.set(PROFILES_KEY, nextProfiles);
     return true;
@@ -109,10 +143,13 @@ export const ProfileManager = {
       if (String(entry.id) !== String(profile?.id)) {
         return entry;
       }
-      return normalizeProfile({
-        ...entry,
-        ...profile
-      }, index);
+      return normalizeProfile(
+        {
+          ...entry,
+          ...profile
+        },
+        index
+      );
     });
     LocalStore.set(PROFILES_KEY, nextProfiles);
     return true;
@@ -143,5 +180,4 @@ export const ProfileManager = {
     }
     return String(raw);
   }
-
 };

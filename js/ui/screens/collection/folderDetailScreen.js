@@ -3,6 +3,7 @@ import { ScreenUtils } from "../../navigation/screen.js";
 import { Environment } from "../../../platform/environment.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
+import { watchedItemsRepository } from "../../../data/repository/watchedItemsRepository.js";
 import { CollectionsStore } from "../../../data/local/collectionsStore.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { TmdbService } from "../../../core/tmdb/tmdbService.js";
@@ -22,6 +23,11 @@ import {
   renderContinueWatchingSection
 } from "../home/homeScreen.js";
 import { renderModernHomeLayout } from "../home/modernHomeLayout.js";
+import {
+  buildWatchedTitleIdSet,
+  isTitleItemWatched,
+  renderTitleWatchedBadge
+} from "../../components/watchedTitleBadge.js";
 
 const TMDB_API_URL = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE_URL_BACKDROP = "https://image.tmdb.org/t/p/w1280";
@@ -53,7 +59,7 @@ function escapeFolderHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 
@@ -162,9 +168,9 @@ function buildFolderSourceRows(tabs = []) {
         folderTabIndex: sourceTabIndex >= 0 ? sourceTabIndex : index,
         addonId: tab.source?.addonId || tab.source?.provider || "collection",
         addonBaseUrl: tab.source?.addonBaseUrl || "",
-        addonName: tab.source?.provider || "Collection",
+        addonName: tab.source?.addonName || tab.source?.provider || "Collection",
         catalogId: tab.source?.catalogId || tab.source?.tmdbId || tab.source?.traktListId || tab.key || `source_${index}`,
-        catalogName: tab.label || "Collection",
+        catalogName: tab.label || tab.source?.catalogName || tab.source?.title || "Collection",
         type,
         result: {
           status: tab.loading ? "loading" : (tab.error ? "error" : "success"),
@@ -246,10 +252,25 @@ function roundRobinMerge(lists = []) {
 }
 
 function buildAddonTabLabel(source = {}, addons = []) {
-  const addon = addons.find((entry) => String(entry?.id || "") === String(source.addonId || "")) || null;
+  const addon = findAddonForSource(source, addons);
   const catalog = addon?.catalogs?.find((entry) => String(entry?.id || "") === String(source.catalogId || "") && String(entry?.apiType || "") === String(source.type || "")) || null;
-  const baseName = firstNonEmpty(catalog?.name, source.title, source.catalogId || source.type || "Catalog");
+  const baseName = firstNonEmpty(catalog?.name, source.catalogName, source.title, source.catalogId || source.type || "Catalog");
   return source.genre ? `${baseName} · ${source.genre}` : baseName;
+}
+
+function sameAddonUrl(left = "", right = "") {
+  const leftUrl = String(left || "").trim();
+  const rightUrl = String(right || "").trim();
+  if (!leftUrl || !rightUrl) {
+    return false;
+  }
+  return addonRepository.canonicalizeUrl(leftUrl) === addonRepository.canonicalizeUrl(rightUrl);
+}
+
+function findAddonForSource(source = {}, addons = []) {
+  return addons.find((entry) => String(entry?.id || "") === String(source.addonId || ""))
+    || addons.find((entry) => sameAddonUrl(entry?.baseUrl, source.addonBaseUrl))
+    || null;
 }
 
 function buildTmdbTabLabel(source = {}) {
@@ -305,15 +326,16 @@ async function fetchJson(url, options = {}) {
 
 async function fetchAddonSourceItems(source = {}, page = 1) {
   const addons = await addonRepository.getInstalledAddons();
-  const addon = addons.find((entry) => String(entry?.id || "") === String(source.addonId || "")) || null;
-  if (!addon?.baseUrl) {
+  const addon = findAddonForSource(source, addons);
+  const addonBaseUrl = firstNonEmpty(addon?.baseUrl, source.addonBaseUrl);
+  if (!addonBaseUrl) {
     throw new Error("Addon not found");
   }
   const extraArgs = source.genre ? { genre: source.genre } : {};
   const result = await catalogRepository.getCatalog({
-    addonBaseUrl: addon.baseUrl,
-    addonId: addon.id,
-    addonName: addon.displayName,
+    addonBaseUrl,
+    addonId: firstNonEmpty(addon?.id, source.addonId, addonBaseUrl),
+    addonName: firstNonEmpty(addon?.displayName, addon?.name, source.addonName, "Addon"),
     catalogId: source.catalogId,
     catalogName: buildAddonTabLabel(source, addons),
     type: source.type,
@@ -333,7 +355,7 @@ async function fetchAddonSourceItems(source = {}, page = 1) {
 
 function getTmdbApiKey() {
   const settings = TmdbSettingsStore.get();
-  return settings.enabled ? String(settings.apiKey || TMDB_API_KEY || "").trim() : "";
+  return settings.enabled ? String(TMDB_API_KEY || "").trim() : "";
 }
 
 function getTmdbLanguage() {
@@ -414,7 +436,7 @@ function buildEnrichedTmdbItem(baseItem = {}, enriched = {}, settings = {}) {
     backdrop: useArtwork ? firstNonEmpty(enriched.backdrop, baseItem.backdrop) : baseItem.backdrop,
     landscapePoster: useArtwork ? firstNonEmpty(enriched.backdrop, baseItem.landscapePoster) : baseItem.landscapePoster,
     poster: useArtwork ? firstNonEmpty(enriched.poster, baseItem.poster) : baseItem.poster,
-    logo: useArtwork ? firstNonEmpty(enriched.logo, baseItem.logo) : baseItem.logo,
+    logo: useArtwork ? enriched.logo : baseItem.logo,
     genres: useBasicInfo && Array.isArray(enriched.genres) && enriched.genres.length ? enriched.genres : baseItem.genres,
     releaseInfo: useBasicInfo ? firstNonEmpty(enriched.releaseInfo, baseItem.releaseInfo) : baseItem.releaseInfo,
     released: useBasicInfo ? firstNonEmpty(enriched.released, baseItem.released) : baseItem.released,
@@ -563,7 +585,111 @@ async function fetchSourceItems(source = {}, page = 1) {
 }
 
 export const FolderDetailScreen = {
-  async mount(params = {}) {
+  getRouteStateKey(params = {}) {
+    const collectionId = String(params?.collectionId || "").trim();
+    const folderId = String(params?.folderId || "").trim();
+    if (!collectionId || !folderId) {
+      return null;
+    }
+    return `folderDetail:${collectionId}:${folderId}`;
+  },
+
+  captureRouteState() {
+    const shell = this.container?.querySelector(".seeall-shell");
+    const active =
+      document.activeElement instanceof HTMLElement &&
+      this.container?.contains(document.activeElement)
+        ? document.activeElement
+        : null;
+    const focused =
+      (active?.classList?.contains("focusable") ? active : null) ||
+      this.container?.querySelector(".focusable.focused") ||
+      active;
+    const focusedSection = focused?.closest?.("[data-row-key]") || null;
+    const trackScrollStates = Object.fromEntries(
+      Array.from(this.container?.querySelectorAll(".folder-row-track[data-row-key]") || [])
+        .map((track) => [String(track.dataset.rowKey || ""), Number(track.scrollLeft || 0)])
+        .filter(([key]) => key)
+    );
+    return {
+      params: this.params ? { ...this.params } : {},
+      selectedTabIndex: Number(this.selectedTabIndex || 0),
+      lastFocusedKey: String(this.lastFocusedKey || ""),
+      focusedItemId: String(focused?.dataset?.itemId || ""),
+      focusedItemType: String(focused?.dataset?.itemType || ""),
+      focusedRowKey: String(
+        focusedSection?.dataset?.rowKey ||
+          focused?.closest?.("[data-track-row-key]")?.dataset?.trackRowKey ||
+          ""
+      ),
+      savedScrollTop: Number(shell?.scrollTop ?? this.savedScrollTop ?? 0),
+      trackScrollStates,
+      tabs: Array.isArray(this.tabs)
+        ? this.tabs.map((tab) => ({
+            ...tab,
+            restoreNeedsReload: Boolean(tab.loading),
+            loading: false
+          }))
+        : [],
+      heroItem: this.heroItem ? { ...this.heroItem } : null,
+      followLayoutFocusState: this.useHomeFollowLayout
+        ? HomeScreen.captureCurrentContentFocusState.call(this)
+        : null
+    };
+  },
+
+  hydrateFromRouteState(restoredState = null, params = {}) {
+    const snapshot = restoredState && typeof restoredState === "object" ? restoredState : null;
+    if (
+      !snapshot?.params ||
+      this.getRouteStateKey(snapshot.params) !== this.getRouteStateKey(params)
+    ) {
+      return false;
+    }
+    this.selectedTabIndex = Math.max(0, Number(snapshot.selectedTabIndex || 0));
+    this.lastFocusedKey = String(snapshot.lastFocusedKey || "tab:0");
+    this.restoredFocusedItem = snapshot.focusedItemId
+      ? {
+          itemId: String(snapshot.focusedItemId),
+          itemType: String(snapshot.focusedItemType || ""),
+          rowKey: String(snapshot.focusedRowKey || "")
+        }
+      : null;
+    this.savedScrollTop = Math.max(0, Number(snapshot.savedScrollTop || 0));
+    this.restoredTrackScrollStates = snapshot.trackScrollStates || {};
+    this.restoredFollowLayoutFocusState = snapshot.followLayoutFocusState || null;
+    if (snapshot.heroItem?.id) {
+      this.heroItem = { ...snapshot.heroItem };
+    }
+
+    const restoredTabs = new Map(
+      (Array.isArray(snapshot.tabs) ? snapshot.tabs : [])
+        .filter((tab) => tab?.key)
+        .map((tab) => [String(tab.key), tab])
+    );
+    this.tabs = this.tabs.map((tab) => {
+      const restored = restoredTabs.get(String(tab.key || ""));
+      return restored
+        ? {
+            ...tab,
+            items: Array.isArray(restored.items) ? [...restored.items] : [],
+            hasMore: Boolean(restored.hasMore),
+            page: Math.max(1, Number(restored.page || 1)),
+            loading: false,
+            error: String(restored.error || ""),
+            restoreNeedsReload: Boolean(restored.restoreNeedsReload)
+          }
+        : tab;
+    });
+    this.sourceTabs = this.tabs.filter((tab) => !tab.isAllTab);
+    this.selectedTabIndex = Math.min(
+      this.selectedTabIndex,
+      Math.max(0, this.tabs.length - 1)
+    );
+    return true;
+  },
+
+  async mount(params = {}, navigationContext = {}) {
     this.container = document.getElementById("folderDetail");
     ScreenUtils.show(this.container);
     this.params = params || {};
@@ -573,10 +699,14 @@ export const FolderDetailScreen = {
     this.selectedTabIndex = 0;
     this.lastFocusedKey = "tab:0";
     this.savedScrollTop = 0;
+    this.restoredTrackScrollStates = {};
+    this.restoredFollowLayoutFocusState = null;
+    this.restoredFocusedItem = null;
     this.navModel = { rows: [] };
     this.tabs = [];
+    const preferredHomeLayout = String(this.layoutPrefs?.homeLayout || "classic").toLowerCase();
     this.viewMode = String(this.collection?.viewMode || "TABBED_GRID").toUpperCase();
-    this.useHomeFollowLayout = this.viewMode === "FOLLOW_LAYOUT";
+    this.useHomeFollowLayout = this.viewMode === "FOLLOW_LAYOUT" || preferredHomeLayout === "modern";
     this.folderRouteEnterPending = true;
     this.heroItem = null;
 
@@ -605,7 +735,11 @@ export const FolderDetailScreen = {
       HomeScreen.ensureDelegatedEventsBound.call(this);
     }
 
-    const addons = await addonRepository.getInstalledAddons().catch(() => []);
+    const [addons, watchedItems] = await Promise.all([
+      addonRepository.getInstalledAddons().catch(() => []),
+      watchedItemsRepository.getAll(5000).catch(() => [])
+    ]);
+    this.watchedTitleIds = buildWatchedTitleIdSet(watchedItems);
     const folderSources = Array.isArray(this.folder.sources) && this.folder.sources.length
       ? this.folder.sources
       : buildFallbackStreamingSources(this.folder);
@@ -626,8 +760,21 @@ export const FolderDetailScreen = {
       ? [{ key: "all", label: "All", isAllTab: true, items: [], hasMore: false, page: 1, loading: true, error: "" }, ...sourceTabs]
       : sourceTabs;
 
+    const restored = this.hydrateFromRouteState(
+      navigationContext?.restoredState,
+      this.params
+    );
     this.render();
-    await Promise.all(sourceTabs.map((_, index) => this.loadTab(this.tabs[0]?.isAllTab ? index + 1 : index, { append: false })));
+    const sourceOffset = this.tabs[0]?.isAllTab ? 1 : 0;
+    const tabsToLoad = restored
+      ? this.tabs
+          .map((tab, index) => ({ tab, index }))
+          .filter(({ tab }) => !tab.isAllTab && tab.restoreNeedsReload)
+          .map(({ index }) => index)
+      : sourceTabs.map((_, index) => index + sourceOffset);
+    await Promise.all(
+      tabsToLoad.map((index) => this.loadTab(index, { append: false }))
+    );
   },
 
   rebuildAllTab() {
@@ -827,6 +974,25 @@ export const FolderDetailScreen = {
       if (current) {
         return;
       }
+      const identityTarget = this.findRestoredFocusedItem();
+      if (identityTarget) {
+        HomeScreen.setFocusedNode.call(this, identityTarget);
+        this.lastMainFocus = identityTarget;
+        HomeScreen.rememberMainRowFocus.call(this, identityTarget);
+        HomeScreen.ensureTrackHorizontalVisibility.call(this, identityTarget);
+        HomeScreen.scheduleModernHeroUpdate.call(this, identityTarget);
+        HomeScreen.scheduleFocusedPosterFlow.call(this, identityTarget);
+        this.restoredFocusedItem = null;
+        this.restoredFollowLayoutFocusState = null;
+        return;
+      }
+      if (
+        this.restoredFollowLayoutFocusState &&
+        HomeScreen.restoreFocusState.call(this, this.restoredFollowLayoutFocusState)
+      ) {
+        this.restoredFollowLayoutFocusState = null;
+        return;
+      }
       ScreenUtils.setInitialFocus(this.container, HomeScreen.getInitialFocusSelector.call(this));
       const target = this.container?.querySelector(".home-main .focusable.focused") || null;
       if (target) {
@@ -836,7 +1002,8 @@ export const FolderDetailScreen = {
       }
       return;
     }
-    const target = (this.lastFocusedKey
+    const target = this.findRestoredFocusedItem()
+      || (this.lastFocusedKey
       ? this.container?.querySelector(`.focusable[data-focus-key="${this.lastFocusedKey}"]`)
       : null)
       || this.container?.querySelector(".folder-detail-tab.focusable")
@@ -849,7 +1016,48 @@ export const FolderDetailScreen = {
     if (shell) {
       shell.scrollTop = Number(this.savedScrollTop || 0);
     }
+    Object.entries(this.restoredTrackScrollStates || {}).forEach(([rowKey, scrollLeft]) => {
+      const track = Array.from(
+        this.container?.querySelectorAll(".folder-row-track[data-row-key]") || []
+      ).find((node) => String(node.dataset.rowKey || "") === String(rowKey));
+      if (track) {
+        track.scrollLeft = Number(scrollLeft || 0);
+      }
+    });
     this.focusNode(target);
+    this.restoredFocusedItem = null;
+    if (shell) {
+      shell.scrollTop = Number(this.savedScrollTop || 0);
+    }
+  },
+
+  findRestoredFocusedItem() {
+    const descriptor = this.restoredFocusedItem;
+    if (!descriptor?.itemId || !this.container) {
+      return null;
+    }
+    const candidates = Array.from(
+      this.container.querySelectorAll(".focusable[data-item-id]")
+    ).filter(
+      (node) =>
+        String(node.dataset.itemId || "") === descriptor.itemId &&
+        (!descriptor.itemType ||
+          String(node.dataset.itemType || "") === descriptor.itemType)
+    );
+    if (!candidates.length) {
+      return null;
+    }
+    if (descriptor.rowKey) {
+      const sameRow = candidates.find(
+        (node) =>
+          String(node.closest("[data-row-key]")?.dataset?.rowKey || "") ===
+          descriptor.rowKey
+      );
+      if (sameRow) {
+        return sameRow;
+      }
+    }
+    return candidates[0];
   },
 
   render() {
@@ -878,6 +1086,7 @@ export const FolderDetailScreen = {
               ${item.poster
                 ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
                 : `<div class="seeall-card-poster placeholder"></div>`}
+              ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge() : ""}
             </div>
             ${this.layoutPrefs?.posterLabelsEnabled !== false ? `
               <div class="seeall-card-title">${escapeHtml(item.name || "Untitled")}</div>
@@ -888,7 +1097,8 @@ export const FolderDetailScreen = {
       : `<div class="seeall-empty">${escapeFolderHtml(selectedTab?.error || "No items available.")}</div>`;
 
     const rowsMarkup = sourceRows.map((tab, index) => {
-      const mediaTypeLabel = String(tab.source?.mediaType || "MOVIE").toUpperCase() === "TV" ? "Series" : "Movie";
+      const mediaTypeLabel =
+        sourceType(tab.source || {}) === "series" ? "Series" : "Movie";
       const rowTitle = tab.label !== mediaTypeLabel ? `${tab.label} - ${mediaTypeLabel}` : tab.label;
       const rowCards = (tab.items || []).map((item, itemIndex) => `
         <article class="seeall-card focusable"
@@ -906,6 +1116,7 @@ export const FolderDetailScreen = {
             ${item.poster
               ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
               : `<div class="seeall-card-poster placeholder"></div>`}
+            ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge() : ""}
           </div>
           ${this.layoutPrefs?.posterLabelsEnabled !== false ? `
             <div class="seeall-card-title">${escapeHtml(item.name || "Untitled")}</div>
@@ -1012,6 +1223,7 @@ export const FolderDetailScreen = {
       createPosterCardMarkup,
       createSeeAllCardMarkup,
       formatCatalogRowTitle,
+      watchedTitleIds: this.watchedTitleIds,
       escapeHtml,
       escapeAttribute
     });
@@ -1131,7 +1343,9 @@ export const FolderDetailScreen = {
           false,
           "modern",
           false,
-          modernLandscapePostersEnabled
+          modernLandscapePostersEnabled,
+          false,
+          this.watchedTitleIds
         )).join("");
         const fragment = document.createRange().createContextualFragment(newMarkup);
         (HomeScreen.getTrackInner(track) || track).appendChild(fragment);
@@ -1297,6 +1511,9 @@ export const FolderDetailScreen = {
         return;
       }
       if (action === "openDetail") {
+        this.lastFocusedKey = String(
+          current.dataset.focusKey || this.lastFocusedKey || ""
+        );
         Router.navigate("detail", {
           itemId: current.dataset.itemId || "",
           itemType: current.dataset.itemType || "movie",

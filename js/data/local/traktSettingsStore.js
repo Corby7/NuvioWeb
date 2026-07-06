@@ -23,7 +23,7 @@ function normalizeWatchProgressSource(value) {
 }
 
 function normalizeLibrarySourceMode(value) {
-  const normalized = String(value || TraktLibrarySourceMode.LOCAL).toLowerCase();
+  const normalized = String(value || TraktLibrarySourceMode.TRAKT).toLowerCase();
   return normalized === TraktLibrarySourceMode.LOCAL
     ? TraktLibrarySourceMode.LOCAL
     : TraktLibrarySourceMode.TRAKT;
@@ -42,7 +42,9 @@ export function normalizeTraktContinueWatchingDaysCap(days) {
 
 function normalize(settings = {}) {
   return {
-    continueWatchingDaysCap: normalizeTraktContinueWatchingDaysCap(settings.continueWatchingDaysCap),
+    continueWatchingDaysCap: normalizeTraktContinueWatchingDaysCap(
+      settings.continueWatchingDaysCap
+    ),
     showMetaComments: settings.showMetaComments !== false,
     watchProgressSource: normalizeWatchProgressSource(settings.watchProgressSource),
     librarySourceMode: normalizeLibrarySourceMode(settings.librarySourceMode),
