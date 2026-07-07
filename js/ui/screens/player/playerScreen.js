@@ -2886,6 +2886,18 @@ export const PlayerScreen = {
     return Environment.isWebOS();
   },
 
+  // Same story as canApplyEmbeddedSubtitleTrackSelection above: discovering
+  // embedded audio tracks works everywhere (local media probe), but actually
+  // switching one only has a real implementation via webOS Luna or Tizen
+  // AVPlay. On plain browser this was previously a silent no-op with zero
+  // user feedback.
+  canApplyEmbeddedAudioTrackSelection() {
+    if (Environment.isTizen()) {
+      return typeof PlayerController.isUsingAvPlay === "function" && PlayerController.isUsingAvPlay();
+    }
+    return Environment.isWebOS();
+  },
+
   normalizeEmbeddedSubtitleTracks(rawTracks = []) {
     return rawTracks
       .filter((track) => {
@@ -9752,13 +9764,17 @@ export const PlayerScreen = {
         return;
       }
 
+      const canApply = this.canApplyEmbeddedAudioTrackSelection();
       const display = formatAudioTrackDisplay(track, index);
       entries.push({
         id: `audio-embedded-${normalizedEmbeddedIndex}`,
         label: display.label,
-        secondary: display.secondary,
-        selected: normalizedEmbeddedIndex === this.selectedEmbeddedAudioTrackIndex,
+        secondary: canApply
+          ? display.secondary
+          : [display.secondary, t("audio_track_switch_unsupported", {}, "Not supported on this device")].filter(Boolean).join(" · "),
+        selected: canApply && normalizedEmbeddedIndex === this.selectedEmbeddedAudioTrackIndex,
         embeddedAudioTrackIndex: normalizedEmbeddedIndex,
+        unavailable: !canApply,
         track
       });
     });
@@ -9935,6 +9951,17 @@ export const PlayerScreen = {
   },
 
   applyAudioTrack(index) {
+    // A real user pick (as opposed to applyStartupAudioPreference calling back
+    // into this same method) must permanently win: refreshTrackDialogs() below
+    // re-runs the startup preference check, which would otherwise silently
+    // revert this selection back to the preferred-language track on every
+    // subsequent dialog refresh whenever its own match-verification doesn't
+    // converge (e.g. the user picked a track that doesn't match that
+    // preference by design).
+    if (!this.startupAudioPreferenceApplying) {
+      this.startupAudioPreferenceApplied = true;
+    }
+
     const entries = this.getAudioEntries();
     const selectedEntry = entries[index] || null;
     if (!selectedEntry) {
@@ -9995,6 +10022,9 @@ export const PlayerScreen = {
     }
 
 	    if (Number.isFinite(selectedEntry.embeddedAudioTrackIndex)) {
+	      if (selectedEntry.unavailable) {
+	        return;
+	      }
 	      const embeddedTrack = this.getEmbeddedAudioTrackByEmbeddedIndex(selectedEntry.embeddedAudioTrackIndex);
 	      let applied = false;
 	      if (Environment.isTizen() && typeof PlayerController.isUsingAvPlay === "function" && PlayerController.isUsingAvPlay()) {
@@ -10124,7 +10154,7 @@ export const PlayerScreen = {
             const selected = entry.selected;
             const focused = this.audioFocusedColumn === "tracks" && index === this.audioDialogIndex;
             return `
-              <div class="player-dialog-item focusable${selected ? " selected" : ""}${focused ? " focused" : ""}" data-audio-column="tracks" data-audio-index="${index}">
+              <div class="player-dialog-item focusable${selected ? " selected" : ""}${focused ? " focused" : ""}${entry.unavailable ? " disabled" : ""}" data-audio-column="tracks" data-audio-index="${index}">
                 <div class="player-dialog-item-main">${escapeHtml(entry.label || "")}</div>
                 <div class="player-dialog-item-sub">${escapeHtml(entry.secondary || "")}</div>
                 <div class="player-dialog-item-check">${selected ? "&#10003;" : ""}</div>
