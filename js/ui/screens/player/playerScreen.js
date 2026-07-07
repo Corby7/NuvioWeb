@@ -975,6 +975,19 @@ function qualityLabelFromText(value) {
   return "Auto";
 }
 
+function resolutionLabelFromHeight(height) {
+  const value = Number(height || 0);
+  if (!(value > 0)) {
+    return "";
+  }
+  if (value >= 2000) return "4K";
+  if (value >= 1400) return "1440p";
+  if (value >= 1000) return "1080p";
+  if (value >= 700) return "720p";
+  if (value >= 480) return "480p";
+  return `${value}p`;
+}
+
 function formatBytes(value) {
   const bytes = Number(value || 0);
   if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -4202,7 +4215,7 @@ export const PlayerScreen = {
 
     const rows = [
       [t("stats_engine", {}, "Engine"), stats.engine],
-      [t("stats_resolution", {}, "Resolution"), stats.width && stats.height ? `${stats.width}x${stats.height}` : "--"],
+      [t("stats_resolution", {}, "Resolution"), stats.width && stats.height ? `${stats.width}x${stats.height} (${resolutionLabelFromHeight(stats.height)})` : "--"],
       [t("stats_buffer", {}, "Buffer"), `${stats.bufferedAheadSeconds.toFixed(1)}s`],
       [t("stats_dropped_frames", {}, "Dropped frames"), stats.totalFrames ? `${stats.droppedFrames} / ${stats.totalFrames}` : "--"]
     ];

@@ -252,16 +252,6 @@ function mergeStreamItems(existing = [], incoming = []) {
   return order.map((key) => byKey.get(key));
 }
 
-function iconSvg(kind) {
-  if (kind === "peers") {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12Zm0 2c-4.42 0-8 2.46-8 5.5V23h16v-3.5c0-3.04-3.58-5.5-8-5.5Z" fill="currentColor"/></svg>';
-  }
-  if (kind === "size") {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h13l3 3v15H4V3Zm13 1.5V7h2.5L17 4.5ZM8 10h8v2H8v-2Zm0 4h8v2H8v-2Z" fill="currentColor"/></svg>';
-  }
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.18 7.18 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.37 2.54c-.58.23-1.13.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.82 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.37 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" fill="currentColor"/></svg>';
-}
-
 function renderMetaItem(kind, value) {
   const text = String(value || "").trim();
   if (!text) {
@@ -269,11 +259,14 @@ function renderMetaItem(kind, value) {
   }
   return `
     <span class="stream-route-meta-item ${kind}">
-      <span class="stream-route-meta-icon">${iconSvg(kind)}</span>
       <span>${escapeHtml(text)}</span>
     </span>
   `;
 }
+
+// Matches a bitrate estimate some addons append to the description
+// (e.g. "2.82 Mbps", including the small-caps unicode form "2.82 ᴹᵇᵖˢ").
+const BITRATE_LINE_PATTERN = /\d+(?:[.,]\d+)?\s*(?:mbps|mb\/s|ᴹᵇᵖˢ)/i;
 
 function extractPeerCount(stream = {}) {
   const text = String([
@@ -295,33 +288,6 @@ function extractPeerCount(stream = {}) {
     }
   }
   return "";
-}
-
-function extractIndexerName(stream = {}) {
-  const sources = Array.isArray(stream.sources) ? stream.sources : [];
-  for (const source of sources) {
-    const value = String(source || "").trim();
-    if (value) {
-      return value;
-    }
-  }
-  const searchText = String([
-    stream.name || "",
-    stream.title || "",
-    stream.description || "",
-    stream.behaviorHints?.filename || ""
-  ].join(" "));
-  const known = [
-    "ThePirateBay",
-    "1337x",
-    "RARBG",
-    "YTS",
-    "EZTV",
-    "TorBox",
-    "Torrentio",
-    "Orion"
-  ];
-  return known.find((entry) => new RegExp(entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(searchText)) || "";
 }
 
 function getAddonBadgeLabel(name = "") {
@@ -603,6 +569,31 @@ function getStreamHeadline(stream = {}) {
   }
   const firstLine = String(primary).split(/\r?\n/)[0].trim();
   return firstLine || (stream.addonName || "Unknown source");
+}
+
+const NOT_CACHED_TEXT_PATTERN = /\bnot\s*cached\b\s*/i;
+const CACHED_TEXT_PATTERN = /\bcached\b\s*/i;
+const CACHED_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 256 256"><path d="M160,40A88.09,88.09,0,0,0,81.29,88.67,64,64,0,1,0,72,216h88a88,88,0,0,0,0-176Zm0,160H72a48,48,0,0,1,0-96c1.1,0,2.2,0,3.29.11A88,88,0,0,0,72,128a8,8,0,0,0,16,0,72,72,0,1,1,72,72Zm37.66-93.66a8,8,0,0,1,0,11.32l-48,48a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L144,148.69l42.34-42.35A8,8,0,0,1,197.66,106.34Z"></path></svg>';
+const NOT_CACHED_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 256 256"><path d="M53.92,34.62A8,8,0,1,0,42.08,45.38L81.32,88.55l-.06.12A65,65,0,0,0,72,88a64,64,0,0,0,0,128h88a87.34,87.34,0,0,0,31.8-5.93l10.28,11.31a8,8,0,1,0,11.84-10.76ZM160,200H72a48,48,0,0,1,0-96c1.1,0,2.2,0,3.3.12A88.4,88.4,0,0,0,72,128a8,8,0,0,0,16,0,72.25,72.25,0,0,1,5.06-26.54l87,95.7A71.66,71.66,0,0,1,160,200Zm88-72a87.89,87.89,0,0,1-22.35,58.61A8,8,0,0,1,213.71,176,72,72,0,0,0,117.37,70a8,8,0,0,1-9.48-12.89A88,88,0,0,1,248,128Z"></path></svg>';
+const SIZE_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 256 256"><path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31ZM160,72a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h56A8,8,0,0,1,160,72Z"></path></svg>';
+
+// Builds "<icon>formatted size" as safe HTML, or "" when there's no size.
+function renderSizeWithIcon(sizeText) {
+  if (!sizeText) {
+    return "";
+  }
+  return `<span class="stream-route-size-icon">${SIZE_ICON_SVG}</span>${escapeHtml(sizeText)}`;
+}
+
+function renderStreamHeadline(headline) {
+  const escaped = escapeHtml(headline);
+  if (NOT_CACHED_TEXT_PATTERN.test(escaped)) {
+    return escaped.replace(NOT_CACHED_TEXT_PATTERN, `<span class="stream-route-cache-icon not-cached">${NOT_CACHED_ICON_SVG}</span>`);
+  }
+  if (CACHED_TEXT_PATTERN.test(escaped)) {
+    return escaped.replace(CACHED_TEXT_PATTERN, `<span class="stream-route-cache-icon cached">${CACHED_ICON_SVG}</span>`);
+  }
+  return escaped;
 }
 
 function getStreamQuality(stream = {}) {
@@ -1621,6 +1612,14 @@ export const StreamScreen = {
     const topBadges = badgePlacement === "TOP" ? badges : "";
     const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
     const descriptionLines = getStreamDescriptionLines(stream);
+    const sizeText = formatBytes(stream.behaviorHints?.videoSize);
+    const bitrateLineIndex = descriptionLines.findIndex((line) => BITRATE_LINE_PATTERN.test(line));
+    const sizeMergedIntoBitrateLine = Boolean(sizeText) && bitrateLineIndex !== -1;
+    const renderedDescriptionLines = descriptionLines.map((line, lineIndex) => (
+      sizeMergedIntoBitrateLine && lineIndex === bitrateLineIndex
+        ? `${renderSizeWithIcon(sizeText)} • ${escapeHtml(line)}`
+        : escapeHtml(line)
+    ));
     const addonLogoUrl = normalizeAddonLogoUrl(stream.addonLogo) || resolveAddonLogo(stream.addonName, this.addonLogoLookup);
     const cachedAddonLogoUrl = getCachedAddonLogoDisplayUrl(addonLogoUrl);
     let displayAddonLogoUrl = cachedAddonLogoUrl || "";
@@ -1633,8 +1632,9 @@ export const StreamScreen = {
     const addonBadgeLabel = escapeHtml(getAddonBadgeLabel(stream.addonName || ""));
     const meta = [
       renderMetaItem("peers", extractPeerCount(stream)),
-      renderMetaItem("size", formatBytes(stream.behaviorHints?.videoSize)),
-      renderMetaItem("source", extractIndexerName(stream))
+      sizeMergedIntoBitrateLine || !sizeText
+        ? ""
+        : `<span class="stream-route-meta-item size"><span>${renderSizeWithIcon(sizeText)}</span></span>`
     ].filter(Boolean).join("");
     const isResolving = this.resolvingStreamId === stream.id;
     const resolvingLabel = this.resolvingStreamMode === "p2p"
@@ -1651,9 +1651,9 @@ export const StreamScreen = {
                data-stream-id="${escapeHtml(stream.id)}">
         <div class="stream-route-card-copy">
           ${topBadges || ""}
-          <div class="stream-route-card-heading">${escapeHtml(headline)}</div>
+          <div class="stream-route-card-heading">${renderStreamHeadline(headline)}</div>
           ${!badges ? `<div class="stream-route-card-quality">${escapeHtml(quality)}</div>` : ""}
-          ${descriptionLines.map((line, lineIndex) => `<div class="stream-route-card-line${lineIndex < descriptionLines.length - 1 ? " secondary" : ""}">${escapeHtml(line)}</div>`).join("")}
+          ${renderedDescriptionLines.map((line, lineIndex) => `<div class="stream-route-card-line${lineIndex < renderedDescriptionLines.length - 1 ? " secondary" : ""}">${line}</div>`).join("")}
           ${meta ? `<div class="stream-route-card-meta">${meta}</div>` : ""}
           ${bottomBadges || ""}
         </div>

@@ -10728,7 +10728,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .player-control-label {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
 }
 
@@ -11358,7 +11358,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   gap: 4px;
   padding: clamp(14px, 1.1vw, 20px) clamp(18px, 1.4vw, 26px);
   border-radius: 12px;
-  background: rgba(9, 13, 20, 0.82);
+  background: rgba(9, 13, 20, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.14);
   font-family: monospace;
   font-size: clamp(18px, 1.1vw, 22px);
@@ -14612,7 +14612,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   right: 0;
   bottom: 0;
   left: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.18) 22%, rgb(0 0 0 / 0%) 52%, rgb(0 0 0 / 77%) 82%, rgba(0, 0, 0, 0.95) 100%);
+  background: linear-gradient(180deg, transparent 52%, rgb(0 0 0 / 77%) 72%, rgb(0 0 0 / 95%));
 }
 
 .series-episode-copy {
@@ -16437,10 +16437,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .stream-route-card.focused {
-  transform: scale(1.05);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-  transform-origin: top !important;
-}
+    transform-origin: left;
+  }
 
 .stream-route-card.skeleton {
   display: block;
@@ -16465,6 +16463,30 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.stream-route-cache-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 16px;
+  vertical-align: -6px;
+}
+
+.stream-route-cache-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stream-route-cache-icon.cached {
+  color: #4caf50;
+}
+
+.stream-route-cache-icon.not-cached {
+  color: #fff;
 }
 
 .stream-route-card-quality {
@@ -16608,19 +16630,17 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   color: var(--text-secondary);
 }
 
-.stream-route-meta-item.source {
-  color: var(--text-secondary);
-}
-
-.stream-route-meta-icon {
-  width: 24px;
-  height: 24px;
+.stream-route-size-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  vertical-align: -4px;
 }
 
-.stream-route-meta-icon svg {
+.stream-route-size-icon svg {
   width: 100%;
   height: 100%;
   display: block;
