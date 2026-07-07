@@ -11,6 +11,7 @@ import { loadStreamingLibs } from "../../runtime/loadStreamingLibs.js";
 
 const MIN_PROGRESS_SYNC_DURATION_MS = 60000;
 const WEBOS_AUDIO_TRACK_SELECTION_TIMEOUT_MS = 4000;
+const WEBOS_SUBTITLE_TRACK_SELECTION_TIMEOUT_MS = 4000;
 
 function logEngineFsDebug(...args) {
   if (globalThis.__NUVIO_DEBUG_ENGINEFS__) {
@@ -2578,6 +2579,34 @@ export const PlayerController = {
     return true;
   },
 
+  // Luna selectTrack for subtitle tracks was previously fire-and-forget with a
+  // swallowed .catch() (same failure class the audio path above already guards
+  // against). This bounds the call with a timeout/error check so a stuck or
+  // rejected Luna request doesn't look identical to a successful one.
+  async requestConfirmedWebOsSelectTrack({ type, mediaId, index, timeoutMs = WEBOS_SUBTITLE_TRACK_SELECTION_TIMEOUT_MS }) {
+    let timeoutId = 0;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`webOS ${type} track selection timed out`));
+      }, timeoutMs);
+    });
+    let result;
+    try {
+      result = await Promise.race([
+        this.requestWebOsMediaCommand("selectTrack", { type, mediaId, index }),
+        timeoutPromise
+      ]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+    if (result?.returnValue === false || result?.errorCode) {
+      throw new Error(result?.errorText || `webOS ${type} track selection failed`);
+    }
+    return result;
+  },
+
   setNativeAudioTrack(index) {
     if (!this.video) {
       return false;
@@ -2712,11 +2741,7 @@ export const PlayerController = {
           if (mediaId !== this.nativeMediaId) {
             return;
           }
-          this.requestWebOsMediaCommand("selectTrack", {
-            type: "text",
-            mediaId,
-            index: targetIndex
-          }).catch(() => {
+          this.requestConfirmedWebOsSelectTrack({ type: "text", mediaId, index: targetIndex }).catch(() => {
             // Ignore Luna subtitle track selection failures and keep native toggles.
           });
         }, 350);
@@ -2773,11 +2798,7 @@ export const PlayerController = {
         if (this.nativeMediaId && mediaId !== this.nativeMediaId) {
           return;
         }
-        this.requestWebOsMediaCommand("selectTrack", {
-          type: "text",
-          mediaId,
-          index: targetIndex
-        }).catch(() => {
+        this.requestConfirmedWebOsSelectTrack({ type: "text", mediaId, index: targetIndex }).catch(() => {
           // Ignore Luna subtitle track selection failures.
         });
       }, 350);

@@ -2862,6 +2862,17 @@ export const PlayerScreen = {
     return Environment.isWebOS() || this.getTextTracks().length <= 0;
   },
 
+  // Embedded/built-in track discovery (this local media probe) works on
+  // browser too, but actually switching an embedded container track only has
+  // a real implementation via webOS Luna or Tizen AVPlay - there is no way to
+  // apply the selection on plain browser playback or Tizen without AVPlay.
+  canApplyEmbeddedSubtitleTrackSelection() {
+    if (Environment.isTizen()) {
+      return typeof PlayerController.isUsingAvPlay === "function" && PlayerController.isUsingAvPlay();
+    }
+    return Environment.isWebOS();
+  },
+
   normalizeEmbeddedSubtitleTracks(rawTracks = []) {
     return rawTracks
       .filter((track) => {
@@ -5574,10 +5585,10 @@ export const PlayerScreen = {
 
     return [
       ...base.slice(0, Math.max(0, base.length - 1)),
-      { action: "speed", label: `${Number(PlayerController.video?.playbackRate || 1).toFixed(Number(PlayerController.video?.playbackRate || 1) % 1 ? 2 : 0)}x`, title: t("player_playback_speed", {}, "Playback speed") },
-      { action: "aspect", icon: "assets/icons/ic_player_aspect_ratio.svg", title: t("player_more_aspect_ratio", {}, "Aspect Ratio") },
       { action: "source", icon: "assets/icons/ic_player_source.svg", title: t("sources_title", {}, "Sources") },
+      { action: "aspect", icon: "assets/icons/ic_player_aspect_ratio.svg", title: t("player_more_aspect_ratio", {}, "Aspect Ratio") },
       { action: "stats", icon: "assets/icons/ic_player_stats.svg", title: t("stats_toggle_title", {}, "Stream stats") },
+      { action: "speed", label: `${Number(PlayerController.video?.playbackRate || 1).toFixed(Number(PlayerController.video?.playbackRate || 1) % 1 ? 2 : 0)}x`, title: t("player_playback_speed", {}, "Playback speed") },
       { action: "backFromMore", icon: "assets/icons/ic_player_collapse_left.svg", title: t("player_collapse", {}, "Collapse") }
     ];
   },
@@ -8186,17 +8197,21 @@ export const PlayerScreen = {
           },
           ...embeddedSubtitleTracks.map((track, index) => {
             const display = formatSubtitleTrackDisplay(track, index);
+            const canApply = this.canApplyEmbeddedSubtitleTrackSelection();
             return {
               id: `subtitle-embedded-${track.embeddedTrackIndex}`,
               label: display.label,
               language: display.language,
-              secondary: display.secondary,
+              secondary: canApply
+                ? display.secondary
+                : [display.secondary, t("subtitle_track_switch_unsupported", {}, "Not supported on this device")].filter(Boolean).join(" · "),
               languageKey: display.languageKey,
               languageLabel: display.languageLabel,
               isForced: isForcedSubtitleTrack(track),
-              selected: track.embeddedTrackIndex === this.selectedEmbeddedSubtitleTrackIndex,
+              selected: canApply && track.embeddedTrackIndex === this.selectedEmbeddedSubtitleTrackIndex,
               trackIndex: null,
-              embeddedSubtitleTrackIndex: track.embeddedTrackIndex
+              embeddedSubtitleTrackIndex: track.embeddedTrackIndex,
+              unavailable: !canApply
             };
           }),
           ...builtInTracks.map((track, index) => {
@@ -8382,6 +8397,7 @@ export const PlayerScreen = {
         selected: Boolean(entry.selected),
         sourceType: "internal",
         isForced,
+        unavailable: Boolean(entry.unavailable),
         entry
       });
     });
@@ -8504,7 +8520,7 @@ export const PlayerScreen = {
   },
 
   selectSubtitleOption(option, { focusOptions = true } = {}) {
-    if (!option?.entry || !option.languageKey || option.languageKey === SUBTITLE_LANGUAGE_OFF_KEY) {
+    if (!option?.entry || !option.languageKey || option.languageKey === SUBTITLE_LANGUAGE_OFF_KEY || option.entry.unavailable) {
       return false;
     }
     const languages = this.getSubtitleLanguageRailItems();
@@ -8532,10 +8548,11 @@ export const PlayerScreen = {
       return false;
     }
     const options = this.getSubtitleOptionsForLanguage(languageKey);
-    if (!options.length) {
+    const selectableOption = options.find((option) => !option.entry?.unavailable);
+    if (!selectableOption) {
       return false;
     }
-    return this.selectSubtitleOption(options[0], { focusOptions });
+    return this.selectSubtitleOption(selectableOption, { focusOptions });
   },
 
   scrollSubtitleRailNodeIntoView(node, { center = false } = {}) {
@@ -9147,7 +9164,7 @@ export const PlayerScreen = {
   },
 
   applySubtitleEntry(entry) {
-    if (!entry || entry.disabled) {
+    if (!entry || entry.disabled || entry.unavailable) {
       return;
     }
 
@@ -9533,7 +9550,7 @@ export const PlayerScreen = {
         </div>
         <div class="player-subtitle-rail player-subtitle-options-rail${showOptionsRail ? "" : " hidden"}">
           ${options.length ? options.map((item, index) => `
-            <div class="player-dialog-item focusable${item.selected ? " selected" : ""}${this.subtitleFocusedRail === "options" && index === this.subtitleOptionRailIndex ? " focused" : ""}" data-subtitle-rail="options" data-subtitle-index="${index}">
+            <div class="player-dialog-item focusable${item.selected ? " selected" : ""}${item.unavailable ? " disabled" : ""}${this.subtitleFocusedRail === "options" && index === this.subtitleOptionRailIndex ? " focused" : ""}" data-subtitle-rail="options" data-subtitle-index="${index}">
               <div class="player-dialog-item-main">${escapeHtml(item.title || "")}</div>
               <div class="player-dialog-item-sub">${escapeHtml(item.secondary || "")}</div>
               <div class="player-dialog-item-check">${item.selected ? "&#10003;" : ""}</div>
@@ -11231,7 +11248,7 @@ export const PlayerScreen = {
       this.stickyProgressFocus = false;
       this.moreActionsVisible = true;
       this.controlFocusZone = "buttons";
-      this.controlFocusIndex = Math.max(0, this.getControlDefinitions().findIndex((entry) => entry.action === "speed"));
+      this.controlFocusIndex = Math.max(0, this.getControlDefinitions().findIndex((entry) => entry.action === "source"));
       this.renderControlButtons();
       return;
     }
