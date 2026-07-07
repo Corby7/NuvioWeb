@@ -5195,9 +5195,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .home-screen-shell .home-continue-card.focused,
 .home-screen-shell .home-continue-card.home-content-card.focused {
   border-color: transparent !important;
-  box-shadow: none !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5) !important;
   background: transparent !important;
-  transform: none !important;
+  transform: scale(1.05) !important;
+  transform-origin: top !important;
 }
 
 .home-screen-shell .home-continue-card.focused .home-continue-media {
@@ -6313,9 +6314,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 /* content-visibility's paint containment would clip the focused card's scale /
-   expanded poster at the row bounds; DOM focus is always on the card, so
-   :focus-within reliably exempts the active row. */
-.home-screen-shell.home-layout-modern .home-modern-row:focus-within {
+   expanded poster at the row bounds. :focus-within exempts the DOM-focused
+   row; .row-in-view (toggled by an IntersectionObserver in homeScreen.js)
+   exempts every row actually on screen, so popped-out cards never get
+   clipped just because focus moved elsewhere (e.g. clicking the sidebar). */
+.home-screen-shell.home-layout-modern .home-modern-row:focus-within,
+.home-screen-shell.home-layout-modern .home-modern-row.row-in-view {
   content-visibility: visible;
 }
 
@@ -16294,10 +16298,15 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .performance-constrained .home-content-card.focused,
-.performance-constrained .home-continue-card.focused,
 .performance-constrained .home-poster-card.focused .home-poster-frame,
-.performance-constrained .series-episode-card.focused,
 .performance-constrained .series-season-btn.focused {
+  box-shadow: none !important;
+}
+
+.legacy-webos .home-continue-card.focused,
+.legacy-webos .series-episode-card.focused,
+.legacy-tizen .home-continue-card.focused,
+.legacy-tizen .series-episode-card.focused {
   box-shadow: none !important;
 }
 

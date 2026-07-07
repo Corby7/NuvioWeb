@@ -6240,6 +6240,34 @@ export const HomeScreen = {
   destroyVirtualRowObserver() {
     this._virtualRowObserver?.disconnect();
     this._virtualRowObserver = null;
+    this._rowVisibilityObserver?.disconnect();
+    this._rowVisibilityObserver = null;
+  },
+
+  // Keeps every on-screen row exempt from content-visibility's paint
+  // containment (see .row-in-view in components.css) so a popped-out focused
+  // card's scale/shadow isn't clipped once focus moves elsewhere (e.g. to the
+  // sidebar). Separate from the one-shot mount observer above: this one stays
+  // alive for the life of the screen and keeps toggling as rows scroll by.
+  initRowVisibilityObserver() {
+    const viewport = this.container?.querySelector(".home-modern-rows-viewport");
+    const rows = Array.from(this.container?.querySelectorAll(".home-modern-row") || []);
+    if (!rows.length || !viewport || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          entry.target.classList.toggle("row-in-view", entry.isIntersecting);
+        });
+      },
+      {
+        root: viewport,
+        rootMargin: "200px 0px 200px 0px"
+      }
+    );
+    rows.forEach((section) => observer.observe(section));
+    this._rowVisibilityObserver = observer;
   },
 
   mountPendingRow(section) {
@@ -7466,6 +7494,7 @@ export const HomeScreen = {
     if (this.layoutMode === "modern") {
       this.setupModernTrackScrollPagination();
       this.initVirtualRows();
+      this.initRowVisibilityObserver();
       this.schedulePendingRowFallbackMount();
       this.container.querySelectorAll(".home-modern-row .home-track").forEach((track) => {
         scheduleTrackVirtualWindowUpdate(track);
