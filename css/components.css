@@ -16438,6 +16438,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 
 .stream-route-card.focused {
     transform-origin: left;
+    background: rgb(var(--card-bg-rgb) / 0.98);
+    box-shadow: inset 0 0 0 3px hsla(0, 0%, 100%, .96) !important;
   }
 
 .stream-route-card.skeleton {
