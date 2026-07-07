@@ -5158,6 +5158,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   min-width: var(--home-continue-width);
   max-width: var(--home-continue-width);
   border-radius: 24px;
+  /* Override the inherited .home-content-card transition to drop box-shadow —
+     the focus pop-shadow should snap instantly (zero repaint cost) rather
+     than animate, matching every other card type. */
+  transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), border-color 160ms ease;
 }
 
 .home-screen-shell .home-continue-media {
