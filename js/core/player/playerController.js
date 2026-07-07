@@ -1182,6 +1182,71 @@ export const PlayerController = {
     return width > 0 && height > 0 ? { width, height } : null;
   },
 
+  getPlaybackStats() {
+    const avplayDimensions = this.isUsingAvPlay() ? this.getAvPlayVideoDimensions() : null;
+    const width = Number(this.video?.videoWidth || avplayDimensions?.width || 0);
+    const height = Number(this.video?.videoHeight || avplayDimensions?.height || 0);
+
+    let bitrateKbps = null;
+    if (this.playbackEngine === "hls.js" && this.hlsInstance) {
+      try {
+        const level = this.hlsInstance.levels?.[this.hlsInstance.currentLevel];
+        if (level && Number.isFinite(Number(level.bitrate))) {
+          bitrateKbps = Math.round(Number(level.bitrate) / 1000);
+        }
+      } catch (_) {
+        // hls.js internals can throw between level switches; leave bitrate unknown.
+      }
+    } else if (this.playbackEngine === "dash.js" && this.dashInstance) {
+      try {
+        const qualityIndex = this.dashInstance.getQualityFor?.("video");
+        const bitrateList = this.dashInstance.getBitrateInfoListFor?.("video") || [];
+        const info = bitrateList[qualityIndex];
+        if (info && Number.isFinite(Number(info.bitrate))) {
+          bitrateKbps = Math.round(Number(info.bitrate) / 1000);
+        }
+      } catch (_) {
+        // dash.js internals can throw between quality switches; leave bitrate unknown.
+      }
+    }
+
+    let droppedFrames = null;
+    let totalFrames = null;
+    try {
+      const quality = this.video?.getVideoPlaybackQuality?.();
+      if (quality) {
+        droppedFrames = Number(quality.droppedVideoFrames || 0);
+        totalFrames = Number(quality.totalVideoFrames || 0);
+      }
+    } catch (_) {
+      // getVideoPlaybackQuality is unsupported on some webOS builds.
+    }
+
+    let bufferedAheadSeconds = 0;
+    try {
+      const buffered = this.video?.buffered;
+      const currentTime = Number(this.video?.currentTime || 0);
+      for (let i = 0; buffered && i < buffered.length; i += 1) {
+        if (buffered.start(i) <= currentTime && currentTime <= buffered.end(i)) {
+          bufferedAheadSeconds = Math.max(0, buffered.end(i) - currentTime);
+          break;
+        }
+      }
+    } catch (_) {
+      // buffered ranges can throw before metadata is loaded.
+    }
+
+    return {
+      engine: String(this.playbackEngine || "none"),
+      width,
+      height,
+      bitrateKbps,
+      droppedFrames,
+      totalFrames,
+      bufferedAheadSeconds
+    };
+  },
+
   mapAvPlayErrorToMediaCode(errorValue) {
     const errorText = String(errorValue || "").toLowerCase();
     if (!errorText) {

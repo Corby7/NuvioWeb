@@ -1620,6 +1620,7 @@ export const PlayerScreen = {
     this.pauseOverlayDelayMs = PAUSE_OVERLAY_DELAY_MS;
     this.pauseOverlayMetaRequestToken = Number(this.pauseOverlayMetaRequestToken || 0);
     this.pauseOverlayMeta = null;
+    this.statsOverlayVisible = false;
     this.nextEpisodeLaunching = false;
     this.nextEpisodeCardDismissed = false;
     this.nextEpisodeBackExitArmed = false;
@@ -3636,6 +3637,8 @@ export const PlayerScreen = {
 
         <div id="playerPauseOverlay" class="player-pause-overlay hidden"></div>
 
+        <div id="playerStatsOverlay" class="player-stats-overlay hidden"></div>
+
         <div id="playerNextEpisodeCard" class="player-next-episode-card hidden"></div>
 
         <div id="playerModalBackdrop" class="player-modal-backdrop hidden"></div>
@@ -3691,6 +3694,7 @@ export const PlayerScreen = {
       this.renderSkipIntroButton();
       this.renderSeekOverlay();
       this.renderPauseOverlay();
+      this.renderStatsOverlay();
       this.renderNextEpisodeCard();
     }
   },
@@ -3713,6 +3717,7 @@ export const PlayerScreen = {
       seekPreview: uiRoot.querySelector("#playerSeekPreview"),
       seekFill: uiRoot.querySelector("#playerSeekFill"),
       pauseOverlay: uiRoot.querySelector("#playerPauseOverlay"),
+      statsOverlay: uiRoot.querySelector("#playerStatsOverlay"),
       nextEpisodeCard: uiRoot.querySelector("#playerNextEpisodeCard"),
       modalBackdrop: uiRoot.querySelector("#playerModalBackdrop"),
       subtitleDialog: uiRoot.querySelector("#playerSubtitleDialog"),
@@ -4128,6 +4133,83 @@ export const PlayerScreen = {
           ` : ""}
         </div>
       </div>
+    `;
+  },
+
+  toggleStatsOverlay() {
+    this.statsOverlayVisible = !this.statsOverlayVisible;
+    this.renderStatsOverlay();
+  },
+
+  estimatePlaybackFileBitrateKbps() {
+    const sizeBytes = Number(this.getCurrentStreamCandidate()?.behaviorHints?.videoSize || 0);
+    const durationSeconds = this.getPlaybackDurationSeconds();
+    if (!(sizeBytes > 0) || !(durationSeconds > 0)) {
+      return null;
+    }
+    return Math.round((sizeBytes * 8) / durationSeconds / 1000);
+  },
+
+  getBitrateQualityRating(bitrateKbps, height) {
+    if (!Number.isFinite(bitrateKbps) || !(height > 0)) {
+      return null;
+    }
+    const goodThresholdMbps = height <= 480 ? 1.5
+      : height <= 720 ? 3
+      : height <= 1080 ? 5
+      : height <= 1440 ? 9
+      : 15;
+    const bitrateMbps = bitrateKbps / 1000;
+    if (bitrateMbps >= goodThresholdMbps * 2) {
+      return { label: t("stats_quality_excellent", {}, "Excellent"), className: "excellent" };
+    }
+    if (bitrateMbps >= goodThresholdMbps) {
+      return { label: t("stats_quality_good", {}, "Good"), className: "good" };
+    }
+    return { label: t("stats_quality_low", {}, "Low"), className: "low" };
+  },
+
+  renderStatsOverlay() {
+    const overlay = this.uiRefs?.statsOverlay;
+    if (!overlay) {
+      return;
+    }
+    if (!this.statsOverlayVisible) {
+      overlay.classList.add("hidden");
+      return;
+    }
+    overlay.classList.remove("hidden");
+
+    const stats = PlayerController.getPlaybackStats();
+    const estimatedBitrateKbps = this.estimatePlaybackFileBitrateKbps();
+    const bitrateKbps = Number.isFinite(stats.bitrateKbps) ? stats.bitrateKbps : estimatedBitrateKbps;
+    const isEstimatedBitrate = Number.isFinite(bitrateKbps) && !Number.isFinite(stats.bitrateKbps);
+    const bitrateText = Number.isFinite(bitrateKbps)
+      ? `${(bitrateKbps / 1000).toFixed(1)} Mbps${isEstimatedBitrate ? " (avg)" : ""}`
+      : "--";
+    const bitrateQuality = this.getBitrateQualityRating(bitrateKbps, stats.height);
+
+    const rows = [
+      [t("stats_engine", {}, "Engine"), stats.engine],
+      [t("stats_resolution", {}, "Resolution"), stats.width && stats.height ? `${stats.width}x${stats.height}` : "--"],
+      [t("stats_buffer", {}, "Buffer"), `${stats.bufferedAheadSeconds.toFixed(1)}s`],
+      [t("stats_dropped_frames", {}, "Dropped frames"), stats.totalFrames ? `${stats.droppedFrames} / ${stats.totalFrames}` : "--"]
+    ];
+
+    overlay.innerHTML = `
+      <div class="player-stats-row">
+        <span class="player-stats-label">${escapeHtml(t("stats_bitrate", {}, "Bitrate"))}</span>
+        <span class="player-stats-value">
+          ${escapeHtml(bitrateText)}
+          ${bitrateQuality ? `<span class="player-stats-quality player-stats-quality-${bitrateQuality.className}">${escapeHtml(bitrateQuality.label)}</span>` : ""}
+        </span>
+      </div>
+      ${rows.map(([label, value]) => `
+        <div class="player-stats-row">
+          <span class="player-stats-label">${escapeHtml(label)}</span>
+          <span class="player-stats-value">${escapeHtml(String(value))}</span>
+        </div>
+      `).join("")}
     `;
   },
 
@@ -5495,6 +5577,7 @@ export const PlayerScreen = {
       { action: "speed", label: `${Number(PlayerController.video?.playbackRate || 1).toFixed(Number(PlayerController.video?.playbackRate || 1) % 1 ? 2 : 0)}x`, title: t("player_playback_speed", {}, "Playback speed") },
       { action: "aspect", icon: "assets/icons/ic_player_aspect_ratio.svg", title: t("player_more_aspect_ratio", {}, "Aspect Ratio") },
       { action: "source", icon: "assets/icons/ic_player_source.svg", title: t("sources_title", {}, "Sources") },
+      { action: "stats", icon: "assets/icons/ic_player_stats.svg", title: t("stats_toggle_title", {}, "Stream stats") },
       { action: "backFromMore", icon: "assets/icons/ic_player_collapse_left.svg", title: t("player_collapse", {}, "Collapse") }
     ];
   },
@@ -6058,6 +6141,9 @@ export const PlayerScreen = {
     }
 
     this.syncPauseOverlayState();
+    if (this.statsOverlayVisible) {
+      this.renderStatsOverlay();
+    }
     this.renderNextEpisodeCard();
 
     if (this.seekOverlayVisible && this.seekPreviewSeconds == null) {
@@ -11168,6 +11254,11 @@ export const PlayerScreen = {
       this.cycleAspectMode();
       return;
     }
+
+    if (action === "stats") {
+      this.toggleStatsOverlay();
+      return;
+    }
   },
 
   syncPointerFocus(target) {
@@ -11516,6 +11607,11 @@ export const PlayerScreen = {
 
     if (keyCode === 69) {
       this.toggleEpisodePanel();
+      return;
+    }
+
+    if (keyCode === 73) {
+      this.toggleStatsOverlay();
       return;
     }
 
