@@ -3895,14 +3895,20 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .calendar-mode-button {
-  min-height: 56px;
-  padding: 0 28px;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 80px;
+  padding: 0 32px;
+  box-sizing: border-box;
   border: none;
   border-radius: 999px;
   background: var(--card-bg);
-  color: var(--text-secondary);
+  color: var(--text-color);
   font-size: 28px;
   font-weight: 500;
+  transform: scale(1);
+  transform-origin: center;
   transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
@@ -3913,10 +3919,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .calendar-mode-button.focused {
-  box-shadow: 0 0 0 4px var(--focus-color);
-  background: var(--focus-bg);
-  color: var(--text-color);
+  background: var(--secondary-color);
+  color: var(--on-secondary);
+  border-color: transparent;
+  box-shadow: none;
   transform: scale(1.05);
+  font-weight: bold;
 }
 
 .calendar-week-nav {
@@ -4001,7 +4009,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .calendar-week-range {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 48px;
 }
 
 .calendar-week-label {
