@@ -3668,6 +3668,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .library-actions-row .library-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
   min-width: 0;
   min-height: 80px;
   padding: 0 32px;
@@ -3679,6 +3682,12 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   color: var(--text-color);
   transform: scale(1);
   transform-origin: center;
+}
+
+.library-action-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
 }
 
 .library-action-button {
@@ -3861,9 +3870,9 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .calendar-header-buttons {
   display: flex;
-  flex-direction: column;
   gap: 24px;
   padding: 16px 0;
+  justify-content: space-between;
 }
 
 .calendar-header {
@@ -3882,7 +3891,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .calendar-mode-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 24px;
 }
 
 .calendar-mode-button {
@@ -3918,7 +3927,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   background: black;
   padding: 24px 36px;
   border-radius: 999px;
-  width: 1000px;
+  margin: 16px 0 32px 0;
 }
 
 .calendar-week-nav-button {
