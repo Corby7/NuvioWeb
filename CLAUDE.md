@@ -41,6 +41,10 @@ npx eslint <files>       # upstream's flat config (eslint.config.mjs)
 3. `npm run build` — zero `▲ [WARNING]` expected; duplicate-object-key warnings mean a merge
    left two definitions and the later one silently wins.
 
+Skip this for trivial, mechanically-obvious edits with no logic surface — swapping an SVG
+icon path, a string constant, a single CSS declaration. Reserve full verification for changes
+touching control flow, data handling, async code, or focus/nav.
+
 ## Layout
 
 ```

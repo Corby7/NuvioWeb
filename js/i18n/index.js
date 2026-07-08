@@ -44,6 +44,7 @@ const KEY_ALIASES = {
   "common.save": "action_save",
   "common.systemDefault": "appearance_language_system",
   "sidebar.addons": "nav_addons",
+  "sidebar.calendar": "nav_calendar",
   "sidebar.expandSidebar": "cd_expand_sidebar",
   "sidebar.home": "nav_home",
   "sidebar.library": "nav_library",

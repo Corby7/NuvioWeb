@@ -19,6 +19,7 @@ const _lazyFactories = {
   detail: () => import("../screens/detail/metaDetailsScreen.js").then((m) => m.MetaDetailsScreen),
   stream: () => import("../screens/stream/streamScreen.js").then((m) => m.StreamScreen),
   library: () => import("../screens/library/libraryScreen.js").then((m) => m.LibraryScreen),
+  calendar: () => import("../screens/calendar/calendarScreen.js").then((m) => m.CalendarScreen),
   search: () => import("../screens/search/searchScreen.js").then((m) => m.SearchScreen),
   discover: () => import("../screens/search/discoverScreen.js").then((m) => m.DiscoverScreen),
   trakt: () => import("../screens/trakt/traktScreen.js").then((m) => m.TraktScreen),
@@ -37,6 +38,7 @@ const ROUTE_PRELOADS = {
   search: ["detail"],
   discover: ["detail"],
   library: ["detail"],
+  calendar: ["detail"],
   detail: ["stream"],
   stream: ["player"]
 };
@@ -77,6 +79,7 @@ export const Router = {
     detail: null,
     stream: null,
     library: null,
+    calendar: null,
     search: null,
     discover: null,
     trakt: null,

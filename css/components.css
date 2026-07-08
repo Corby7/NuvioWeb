@@ -2156,7 +2156,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 22px 40px 56px;
+  padding: 48px 64px;
   margin-left: 0;
   transition: transform 200ms ease;
 }
@@ -3861,6 +3861,177 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   font-weight: 400;
   line-height: 1.25;
   color: var(--text-secondary);
+}
+
+.calendar-week-nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 48px;
+}
+
+.calendar-week-nav-button {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.calendar-week-nav-button.focused {
+  box-shadow: 0 0 0 4px var(--focus-color);
+  background: var(--focus-bg);
+  transform: scale(1.1);
+}
+
+.calendar-week-nav-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.calendar-week-range {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.calendar-week-label {
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--text-color);
+  letter-spacing: 0.3px;
+}
+
+.calendar-today-button {
+  min-height: 56px;
+  padding: 0 24px;
+  border: none;
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  font-size: 20px;
+  font-weight: 500;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.calendar-today-button.focused {
+  box-shadow: 0 0 0 4px var(--focus-color);
+  background: var(--focus-bg);
+  transform: scale(1.05);
+}
+
+.calendar-day-empty {
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.calendar-content {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+.calendar-day-group {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.calendar-day-header {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--text-color);
+}
+
+.calendar-episode-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.calendar-episode-card {
+  width: 420px;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  text-align: left;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.calendar-episode-card.focused {
+  border-color: var(--focus-color);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  background: var(--focus-bg);
+  transform: scale(1.03);
+}
+
+.calendar-episode-poster-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.calendar-episode-poster {
+  width: 84px;
+  height: 126px;
+  border-radius: 12px;
+  background: var(--card-bg) center center / cover no-repeat;
+}
+
+.calendar-episode-poster.placeholder {
+  background: var(--card-bg);
+}
+
+.calendar-episode-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.calendar-episode-show {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendar-episode-meta {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+}
+
+.calendar-episode-title {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .library-loading-state {
