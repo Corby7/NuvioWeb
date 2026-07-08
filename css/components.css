@@ -3901,7 +3901,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   border-radius: 999px;
   background: var(--card-bg);
   color: var(--text-secondary);
-  font-size: 20px;
+  font-size: 28px;
   font-weight: 500;
   transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
@@ -3955,15 +3955,14 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
    ~14613): content pulled straight from aria-label via a pseudo-element, no
    background pill — just bold text with a strong drop-shadow so it reads
    over any background, shown on .focused since native `title` never
-   triggers for d-pad/keyboard focus (mouse-hover only). Positioned below
-   the button rather than above (detail's convention) since above collides
-   with this screen's stacked header rows. */
+   triggers for d-pad/keyboard focus (mouse-hover only). Positioned beside
+   the button rather than centered below it: Prev sits at the left edge of
+   the header, Next at the right edge, so each tooltip opens toward the
+   center of the bar instead of risking clipping at the screen edge. */
 .calendar-week-nav-button::after {
   content: attr(aria-label);
   position: absolute;
-  top: calc(100% + 16px);
-  left: 50%;
-  transform: translateX(-50%) translateY(-4px);
+  top: 50%;
   white-space: nowrap;
   color: rgba(255, 255, 255, 0.92);
   padding: 7px 16px;
@@ -3977,9 +3976,21 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   z-index: 10;
 }
 
+.calendar-week-nav-button[data-action="calendarPrevWeek"]::after,
+.calendar-week-nav-button[data-action="calendarPrevMonth"]::after {
+  left: calc(100% + 16px);
+  transform: translateY(-50%) translateX(-4px);
+}
+
+.calendar-week-nav-button[data-action="calendarNextWeek"]::after,
+.calendar-week-nav-button[data-action="calendarNextMonth"]::after {
+  right: calc(100% + 16px);
+  transform: translateY(-50%) translateX(4px);
+}
+
 .calendar-week-nav-button.focused::after {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(-50%) translateX(0);
 }
 
 .calendar-week-nav-icon {
@@ -4003,7 +4014,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .calendar-today-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 20px;
   min-height: 56px;
   padding: 0 24px;
   border: none;
@@ -4016,8 +4027,8 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .calendar-today-icon {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
 }
 
