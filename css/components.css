@@ -6716,6 +6716,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 }
 
 .settings-workspace {
+  width: 100%;
   padding: 48px 64px;
   display: grid;
   grid-template-columns: 440px minmax(0, 1fr);
@@ -8139,7 +8140,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .settings-action-row {
   min-height: 124px;
   width: 100%;
-  padding: 24px 36px;
+  padding: 0 36px;
   border-radius: 999px;
   border: 1px solid transparent;
   background: var(--bg-color);
@@ -8147,7 +8148,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
   text-align: left;
 }
 
@@ -8169,9 +8170,24 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .settings-row-copy {
   min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.settings-row-leading-icon {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  color: #fff;
+  font-family: "Material Icons";
+  font-size: 48px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
 }
 
 .settings-row-title {
@@ -8373,10 +8389,10 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .settings-collapsible-trigger,
 .settings-subsection-card .settings-action-row {
   min-height: 124px;
-  padding: 24px 36px;
+  padding: 0 36px;
   border-radius: 999px;
   background: var(--bg-color);
-  gap: 24px;
+  gap: 20px;
 }
 
 .settings-collapsible-trigger .settings-row-copy,
@@ -9686,7 +9702,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   grid-template-columns: 56px minmax(0, 1fr) 40px;
   align-items: center;
   gap: 32px;
-  padding: 0 40px;
+  padding: 0 36px;
   text-align: left;
   transition: transform 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
