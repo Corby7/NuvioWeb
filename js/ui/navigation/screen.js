@@ -94,10 +94,16 @@ export const ScreenUtils = {
         return { node, rect, dx, dy };
       })
       .filter(({ dx, dy }) => {
-        if (direction === "up") return dy < -2;
-        if (direction === "down") return dy > 2;
-        if (direction === "left") return dx < -2;
-        if (direction === "right") return dx > 2;
+        // A same-row/column tolerance of a few px: flex-wrap rows of cards
+        // with slightly different content (e.g. a longer truncated title)
+        // can render a handful of pixels apart in height even though they're
+        // visually the same row — too tight a threshold here previously let
+        // a same-row sibling qualify as an "up"/"down" candidate, causing
+        // dpad nav to oscillate sideways instead of moving to the next row.
+        if (direction === "up") return dy < -10;
+        if (direction === "down") return dy > 10;
+        if (direction === "left") return dx < -10;
+        if (direction === "right") return dx > 10;
         return false;
       })
       .map((entry) => {

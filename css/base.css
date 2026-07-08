@@ -100,6 +100,17 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* Form controls don't inherit font-family from body by default (browser UA
+   stylesheets give them their own font) — without this, any button/input
+   that doesn't set font-family itself silently falls back to the system UI
+   font instead of the app's. */
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
 * {
     -webkit-box-sizing: border-box;
     box-sizing: border-box;

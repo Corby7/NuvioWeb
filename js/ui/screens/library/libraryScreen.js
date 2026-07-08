@@ -460,6 +460,7 @@ export const LibraryScreen = {
           ${primaryPickerMarkup}
         </div>
         ${secondaryPickerMarkup ? `<div class="library-picker-row">${secondaryPickerMarkup}</div>` : ""}
+        ${this.renderActions(state)}
       </section>
     `;
   },
@@ -477,7 +478,6 @@ export const LibraryScreen = {
     }
     return `
       <div id="libraryContentAreaMount">
-        ${this.renderActions(state)}
         ${state.visibleItems.length ? this.renderGrid(state.visibleItems) : this.renderEmptyState()}
         ${state.transientMessage ? `<div class="library-toast">${escapeHtml(state.transientMessage)}</div>` : ""}
       </div>
@@ -502,6 +502,21 @@ export const LibraryScreen = {
         }
       }
     });
+
+    // .library-actions-row now lives inside #libraryPickerGroupsMount, which
+    // this "lightweight" path updates in place rather than fully replacing —
+    // its disabled/label state needs the same manual sync the picker values
+    // get above, or it'd go stale between full picker-row re-renders.
+    const manageListsBtn = this.container?.querySelector('.library-actions-row [data-action="openManageLists"]');
+    if (manageListsBtn instanceof HTMLElement) {
+      manageListsBtn.classList.toggle("background-focused", Boolean(state.showManageDialog));
+      manageListsBtn.disabled = Boolean(state.pendingOperation || state.isSyncing);
+    }
+    const syncBtn = this.container?.querySelector('.library-actions-row [data-action="refreshLibrary"]');
+    if (syncBtn instanceof HTMLElement) {
+      syncBtn.disabled = Boolean(state.pendingOperation || state.isSyncing);
+      syncBtn.textContent = state.isSyncing ? t("library_syncing_btn", {}, "Syncing") : t("library_sync_btn", {}, "Sync");
+    }
   },
 
   closePickerMenuInDom(picker = "") {

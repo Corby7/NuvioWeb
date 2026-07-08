@@ -26,7 +26,9 @@ const DEFAULTS = {
   blurContinueWatchingNextUp: false,
   showUnairedNextUp: true,
   nextUpFromFurthestEpisode: true,
-  continueWatchingSortMode: "default"
+  continueWatchingSortMode: "default",
+  calendarShowMode: "subscribed",
+  calendarViewMode: "month"
 };
 
 function normalizeContinueWatchingSortMode(value) {
@@ -38,6 +40,14 @@ function normalizeContinueWatchingSortMode(value) {
     normalized === "streamingstyle"
     ? "streaming_style"
     : "default";
+}
+
+function normalizeCalendarShowMode(value) {
+  return String(value || "all").trim().toLowerCase() === "subscribed" ? "subscribed" : "all";
+}
+
+function normalizeCalendarViewMode(value) {
+  return String(value || "month").trim().toLowerCase() === "week" ? "week" : "month";
 }
 
 function normalizeLayoutPreferences(value = {}) {
@@ -70,6 +80,8 @@ function normalizeLayoutPreferences(value = {}) {
     showUnairedNextUp: merged.showUnairedNextUp !== false,
     nextUpFromFurthestEpisode: merged.nextUpFromFurthestEpisode !== false,
     continueWatchingSortMode: normalizeContinueWatchingSortMode(merged.continueWatchingSortMode),
+    calendarShowMode: normalizeCalendarShowMode(merged.calendarShowMode),
+    calendarViewMode: normalizeCalendarViewMode(merged.calendarViewMode),
     collapseSidebar: modernSidebar ? false : Boolean(merged.collapseSidebar),
     modernSidebar,
     modernSidebarBlur: modernSidebar
