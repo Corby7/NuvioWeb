@@ -2404,6 +2404,17 @@ export const HomeScreen = {
     const rowSection = focusState.rowKey
       ? this.container.querySelector(`[data-row-key="${CSS.escape(String(focusState.rowKey))}"]`)
       : null;
+    // Same virtualized-row mounting restoreModernFocusState does: a row that's still
+    // a pending stub (or has pending rows above it) needs those mounted before the
+    // node lookup and scroll math below can land on the right, visible card. Without
+    // this, this second/third restore pass (scheduled ~180ms after the first) reads
+    // stale/incomplete DOM and can silently pick the wrong card or scroll position.
+    const targetRowIndex = Number(rowSection?.dataset?.rowIndex);
+    if (rowSection && Number.isFinite(targetRowIndex)) {
+      Array.from(this.container.querySelectorAll(".home-modern-row[data-row-pending]"))
+        .filter((section) => Number(section.dataset.rowIndex) <= targetRowIndex)
+        .forEach((section) => this.mountPendingRow(section));
+    }
     const track = rowSection?.querySelector?.(".home-track, .home-grid-track") || null;
     const nodes = Array.from(track?.querySelectorAll(".home-content-card.focusable") || []);
     const target = nodes[focusState.itemIndex] || nodes[0] || null;
@@ -2416,7 +2427,14 @@ export const HomeScreen = {
     this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
     target.classList.add("focused");
     this.focusWithoutAutoScroll(target, { suppressDelegatedFocus: true });
-    viewport.scrollTop = Math.max(0, Math.min(maxScrollTop, Number(focusState.mainScrollTop || 0)));
+    // Re-anchor against the live, post-mount layout instead of trusting the raw
+    // saved pixel value above, which drifts once any pending rows were just mounted.
+    const aligned = this.getModernMainAlignedScrollTarget(target, "down");
+    if (aligned?.container) {
+      aligned.container.scrollTop = aligned.value;
+    } else {
+      viewport.scrollTop = Math.max(0, Math.min(maxScrollTop, Number(focusState.mainScrollTop || 0)));
+    }
     this.lastMainFocus = target;
     this.rememberMainRowFocus(target);
     this.syncFocusedCollectionCardState();
@@ -2489,14 +2507,20 @@ export const HomeScreen = {
     const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
     viewport.scrollTop = Math.max(0, Math.min(maxScrollTop, Number(focusState.mainScrollTop || 0)));
 
-    const targetTrack = rowSection?.querySelector?.(".home-track") || null;
-    let targetNodes = Array.from(targetTrack?.querySelectorAll(".home-content-card.focusable") || []);
-    // If the intended row is pending (virtual), mount it eagerly so scroll and focus
-    // can be restored to the correct position instead of falling back to the first card.
-    if (targetNodes.length === 0 && rowSection?.dataset?.rowPending != null) {
-      this.mountPendingRow(rowSection);
-      targetNodes = Array.from(targetTrack?.querySelectorAll(".home-content-card.focusable") || []);
+    // Mount every still-pending row above the target too, not just the target's own
+    // row. Otherwise the fallback timers (schedulePendingRowFallbackMount, the
+    // IntersectionObserver in initVirtualRows) mount them a few hundred ms later,
+    // which changes their height from placeholder to full-card and silently shoves
+    // the already-restored target out from under the scroll position we just set.
+    const targetRowIndex = Number(rowSection?.dataset?.rowIndex);
+    if (rowSection && Number.isFinite(targetRowIndex)) {
+      Array.from(this.container.querySelectorAll(".home-modern-row[data-row-pending]"))
+        .filter((section) => Number(section.dataset.rowIndex) <= targetRowIndex)
+        .forEach((section) => this.mountPendingRow(section));
     }
+
+    const targetTrack = rowSection?.querySelector?.(".home-track") || null;
+    const targetNodes = Array.from(targetTrack?.querySelectorAll(".home-content-card.focusable") || []);
     const fallback = this.isRestoringFocusFromBack
       ? this.syncMainFocusToViewport({ suppressFlows: true })
       : this.container.querySelector(".home-main .home-continue-card.focusable, .home-main .home-poster-card.focusable");
@@ -2511,8 +2535,16 @@ export const HomeScreen = {
     this.syncFocusedCollectionCardState();
     this.lastMainFocus = target;
     this.rememberMainRowFocus(target);
-    if (!this.isRestoringFocusFromBack) {
-      this.ensureMainVerticalVisibility(target, "down");
+    // Rows still pending above the target were stubbed at a shorter placeholder height
+    // when focusState.mainScrollTop was captured (or may still be pending now), so the
+    // raw scrollTop restore above drifts further off the further down the target row
+    // is — and scheduleReturnFocusRestore() re-runs this whole method again ~180ms
+    // later, which would otherwise stomp any correction back to that stale value.
+    // Re-anchor against the live (post-mount) layout every time, instantly (no spring
+    // animation), so both passes converge on the same correct, visible position.
+    const aligned = this.getModernMainAlignedScrollTarget(target, "down");
+    if (aligned?.container) {
+      aligned.container.scrollTop = aligned.value;
     }
     this.scheduleModernHeroUpdate(target);
     this.scheduleFocusedPosterFlow(target);
