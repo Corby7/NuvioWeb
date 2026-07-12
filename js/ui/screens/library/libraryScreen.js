@@ -383,6 +383,11 @@ export const LibraryScreen = {
       if (target.matches?.(".library-grid-card.focusable")) {
         const scroller = this.container?.querySelector(".library-main");
         scrollCardIntoContainerView(target, scroller, { center: true, padding: 40, behavior: "smooth" });
+      } else if (target.closest?.(".library-picker-groups")) {
+        const scroller = this.container?.querySelector(".library-main");
+        if (scroller && Number(scroller.scrollTop || 0) > 0) {
+          smoothScrollTo(scroller, 0, 200);
+        }
       } else {
         scrollIntoNearestView(target);
       }

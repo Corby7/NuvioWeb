@@ -907,8 +907,8 @@ export const MetaDetailsScreen = {
       trailerSource: this.trailerSource ? { ...this.trailerSource } : null,
       selectedSeason: Number(this.selectedSeason || 0),
       selectedRatingSeason: Number(this.selectedRatingSeason || 0),
-      seriesInsightTab: String(this.seriesInsightTab || "cast"),
-      movieInsightTab: String(this.movieInsightTab || "cast"),
+      seriesInsightTab: String(this.seriesInsightTab || ""),
+      movieInsightTab: String(this.movieInsightTab || ""),
       commentsPage: Number(this.commentsPage || 0),
       commentsPageCount: Number(this.commentsPageCount || 0),
       episodeFocusIndexBySeason: this.episodeFocusIndexBySeason ? { ...this.episodeFocusIndexBySeason } : {},
@@ -943,8 +943,8 @@ export const MetaDetailsScreen = {
     this.trailerSource = snapshot.trailerSource ? { ...snapshot.trailerSource } : resolveTrailerSource(this.meta);
     this.selectedSeason = Number(snapshot.selectedSeason || this.episodes[0]?.season || 1);
     this.selectedRatingSeason = Number(snapshot.selectedRatingSeason || this.selectedSeason || 1);
-    this.seriesInsightTab = String(snapshot.seriesInsightTab || "cast");
-    this.movieInsightTab = String(snapshot.movieInsightTab || "cast");
+    this.seriesInsightTab = String(snapshot.seriesInsightTab || "");
+    this.movieInsightTab = String(snapshot.movieInsightTab || "");
     this.commentsPage = Number(snapshot.commentsPage || 0);
     this.commentsPageCount = Number(snapshot.commentsPageCount || 0);
     this.episodeFocusIndexBySeason = snapshot.episodeFocusIndexBySeason && typeof snapshot.episodeFocusIndexBySeason === "object"
@@ -1077,8 +1077,8 @@ export const MetaDetailsScreen = {
     this.streamChooserLoadToken = 0;
     this.isLoadingDetail = true;
     this.detailLoadToken = (this.detailLoadToken || 0) + 1;
-    this.seriesInsightTab = "cast";
-    this.movieInsightTab = "cast";
+    this.seriesInsightTab = "";
+    this.movieInsightTab = "";
     this.selectedRatingSeason = 0;
     this.selectedSeason = 0;
     this.hasManualSeasonSelection = false;

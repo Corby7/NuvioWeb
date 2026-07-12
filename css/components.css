@@ -15112,9 +15112,6 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   background-color: var(--focus-bg);
   transform: none;
   overflow: hidden;
-}
-
-.detail-trailer-card.focused .detail-morelike-poster-wrap {
   filter: brightness(1);
 }
 
@@ -15520,7 +15517,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   border-radius: 16px;
   overflow: visible;
   background-color: transparent;
-  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, filter 120ms ease;
 }
 
 .detail-morelike-poster {
@@ -18058,9 +18055,12 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
     opacity 220ms ease;
 }
 
+.detail-morelike-card .detail-morelike-poster-wrap {
+  filter: brightness(0.8);
+}
+
 .detail-trailer-card .detail-morelike-poster-wrap {
   position: relative;
-  filter: brightness(0.8);
 }
 
 .detail-trailer-play-badge {

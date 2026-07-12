@@ -1190,7 +1190,7 @@ export const SearchScreen = {
     if (!sidebarFocused) {
       this.rememberContentFocus(target);
     }
-    if (zone === "header" && currentZone === "results") {
+    if (zone === "header" && currentZone !== "header") {
       this.ensureHeaderVisible();
     }
     if (zone === "results") {
@@ -1399,17 +1399,14 @@ export const SearchScreen = {
 
   ensureHeaderVisible() {
     const content = this.container?.querySelector(".search-content");
-    const header = this.container?.querySelector(".search-header");
-    if (!content || !header) return;
-
-    const contentRect = content.getBoundingClientRect();
-    const headerRect = header.getBoundingClientRect();
-    const topInset = 22;
-    const visibleTop = contentRect.top + topInset;
-
-    if (headerRect.top < visibleTop) {
-      this.animateScroll(content, "y", content.scrollTop + (headerRect.top - visibleTop), MODERN_HOME_CONSTANTS.cameraFollowDurationYMs, { mode: "spring" });
+    if (!content) return;
+    if (Number(content.scrollTop || 0) <= 0) {
+      // A still-settling spring from results scrolling could drag the view back
+      // down after the input focus handler force-resets scrollTop to 0.
+      this.cancelScrollAnimation(content, "y");
+      return;
     }
+    this.animateScroll(content, "y", 0, MODERN_HOME_CONSTANTS.cameraFollowDurationYMs, { mode: "spring" });
   },
 
   handleSearchDpad(event) {
@@ -1594,7 +1591,10 @@ export const SearchScreen = {
 
     input.addEventListener("focus", () => {
       const content = this.container?.querySelector(".search-content");
-      if (content) content.scrollTop = 0;
+      if (content) {
+        this.cancelScrollAnimation(content, "y");
+        content.scrollTop = 0;
+      }
       const current = this.container?.querySelector(".focusable.focused") || null;
       if (current !== input) {
         this.focusNode(current, input);
