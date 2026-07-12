@@ -5,6 +5,9 @@ import { I18n } from "../../../i18n/index.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
 import { traktCalendarService } from "../../../data/repository/traktCalendarService.js";
+import { CalendarShowsStore } from "../../../data/local/calendarShowsStore.js";
+import { normalizeEpisodes } from "../../../data/repository/episodeUtils.js";
+import { NuvioDialog } from "../../components/nuvioDialog.js";
 import {
   focusWithoutAutoScroll,
   getRootSidebarSelectedNode
@@ -62,6 +65,10 @@ function caretLeftSvg() {
 
 function caretRightSvg() {
   return '<svg viewBox="0 0 256 256" class="calendar-week-nav-icon" aria-hidden="true" focusable="false"><path fill="currentColor" d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"/></svg>';
+}
+
+function manageIconSvg() {
+  return '<svg viewBox="0 0 256 256" class="calendar-manage-icon" aria-hidden="true" focusable="false"><path fill="currentColor" d="M229.66,58.34l-96,96a8,8,0,0,1-11.32,0l-40-40a8,8,0,0,1,11.32-11.32L128,137.37l90.34-90.35a8,8,0,0,1,11.32,11.32ZM216,128a8,8,0,0,0-8,8v72H48V48h120a8,8,0,0,0,0-16H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V136A8,8,0,0,0,216,128Z"/></svg>';
 }
 
 function todayIconSvg() {
@@ -170,6 +177,25 @@ function formatMonthLabel(monthStart) {
     return monthStart.toLocaleDateString(locale, { month: "long", year: "numeric" });
   } catch (_) {
     return `${monthStart.getMonth() + 1}/${monthStart.getFullYear()}`;
+  }
+}
+
+// Trakt's `first_aired` carries a real broadcast time; addon `videos` dates
+// are usually bare days. Only render a time when the source actually had
+// one — parseReleaseDate() pins date-only values to local midnight, which
+// would otherwise show a meaningless "00:00" on every card.
+function formatAirTime(episode) {
+  const raw = String(episode?.released || "").trim();
+  if (!episode?.releasedDate || /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z?)?$/.test(raw)) {
+    return "";
+  }
+  try {
+    return episode.releasedDate.toLocaleTimeString(I18n.getLocale() || undefined, {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  } catch (_) {
+    return "";
   }
 }
 
@@ -288,6 +314,8 @@ export const CalendarScreen = {
     this.lastFocusedAction = null;
     this.weekCache = new Map();
     this.monthCache = new Map();
+    this.localShowMetaCache = new Map();
+    this.manageDialog = null;
     this.groups = [];
     this.monthDays = [];
     this.selectedDayKey = null;
@@ -304,16 +332,106 @@ export const CalendarScreen = {
   },
 
   async fetchCalendarEpisodes(startDate, days) {
-    const result = await traktCalendarService.fetchCalendar({ mode: this.mode, startDate, days });
-    if (result.status === "unauthenticated") {
+    if (this.mode !== "subscribed") {
+      const result = await traktCalendarService.fetchCalendar({ mode: this.mode, startDate, days });
+      if (result.status === "unauthenticated") {
+        return "unauthenticated";
+      }
+      if (result.status !== "success") {
+        throw new Error("Trakt calendar request failed");
+      }
+      return result.episodes
+        .map((episode) => ({ ...episode, releasedDate: parseReleaseDate(episode.released) }))
+        .filter((episode) => episode.releasedDate);
+    }
+
+    // "My Shows" is the union of Trakt's my-calendar (when connected) and
+    // shows added locally from their detail page, minus shows the user
+    // removed here — so the screen keeps working without a Trakt account
+    // as long as something was added locally.
+    const { added, hidden } = CalendarShowsStore.get();
+    const addedIds = Object.keys(added);
+    const result = await traktCalendarService.fetchCalendar({ mode: "subscribed", startDate, days });
+    if (result.status === "unauthenticated" && !addedIds.length) {
       return "unauthenticated";
     }
-    if (result.status !== "success") {
+    if (result.status !== "success" && result.status !== "unauthenticated") {
       throw new Error("Trakt calendar request failed");
     }
-    return result.episodes
+    const traktEpisodes = (result.episodes || [])
       .map((episode) => ({ ...episode, releasedDate: parseReleaseDate(episode.released) }))
       .filter((episode) => episode.releasedDate);
+    // Shows already covered by Trakt are skipped locally so an episode never
+    // appears twice; Trakt's entry wins since it carries the broadcast time.
+    const traktShowKeys = new Set(traktEpisodes.map((episode) => showKeyOf(episode)));
+    const localIds = addedIds.filter((id) => !traktShowKeys.has(id));
+    const localEpisodes = await this.fetchAddedShowEpisodes(localIds, added, startDate, days);
+    return [...traktEpisodes, ...localEpisodes].filter((episode) => !hidden[showKeyOf(episode)]);
+  },
+
+  // Locally-added shows don't come from Trakt's calendar; their upcoming
+  // episodes are read from installed-addon meta (`videos` carries release
+  // dates) — the same lookup poster enrichment already performs per show.
+  async fetchAddedShowEpisodes(showIds, added, startDate, days) {
+    if (!showIds.length) {
+      return [];
+    }
+    const rangeStart = startOfDay(startDate).getTime();
+    const rangeEnd = addDays(startOfDay(startDate), days).getTime();
+    const episodes = [];
+    for (let index = 0; index < showIds.length; index += POSTER_BATCH_SIZE) {
+      const batch = showIds.slice(index, index + POSTER_BATCH_SIZE);
+      await Promise.all(batch.map(async (showId) => {
+        const meta = await this.getAddedShowMeta(showId);
+        if (!meta) {
+          return;
+        }
+        const name = meta.name || added[showId]?.name || showId;
+        const poster = meta.poster || added[showId]?.poster || null;
+        normalizeEpisodes(meta.videos || []).forEach((entry) => {
+          const releasedDate = parseReleaseDate(entry.released);
+          if (!releasedDate) {
+            return;
+          }
+          const time = releasedDate.getTime();
+          if (time < rangeStart || time >= rangeEnd) {
+            return;
+          }
+          episodes.push({
+            id: `${showId}:${entry.season}:${entry.episode}`,
+            title: entry.title,
+            season: entry.season,
+            episode: entry.episode,
+            released: entry.released,
+            releasedDate,
+            seriesImdbId: showId,
+            seriesTmdbId: null,
+            seriesTraktId: null,
+            seriesName: name,
+            seriesPoster: poster
+          });
+        });
+      }));
+    }
+    return episodes;
+  },
+
+  async getAddedShowMeta(showId) {
+    if (this.localShowMetaCache.has(showId)) {
+      return this.localShowMetaCache.get(showId);
+    }
+    let meta = null;
+    try {
+      const result = await metaRepository.getMetaFromAllAddons("series", showId);
+      if (result?.status === "success" && result?.data) {
+        meta = result.data;
+      }
+    } catch (_) {
+      // No addon can serve this show right now; it simply contributes no
+      // episodes this session instead of failing the whole calendar load.
+    }
+    this.localShowMetaCache.set(showId, meta);
+    return meta;
   },
 
   async loadWeek() {
@@ -452,16 +570,24 @@ export const CalendarScreen = {
   // separately through whichever installed addon can serve meta for the
   // show's imdb id — the same mechanism the rest of the app already uses.
   async enrichPosters(episodes, token) {
+    // Locally-added shows arrive with a poster straight from their meta —
+    // seed those and only look up shows that still lack artwork.
+    const posterByKey = new Map();
+    episodes.forEach((episode) => {
+      const key = showKeyOf(episode);
+      if (episode.seriesPoster && !posterByKey.has(key)) {
+        posterByKey.set(key, episode.seriesPoster);
+      }
+    });
     const imdbIdByKey = new Map();
     episodes.forEach((episode) => {
       const key = showKeyOf(episode);
-      if (!imdbIdByKey.has(key) && episode.seriesImdbId) {
+      if (!imdbIdByKey.has(key) && !posterByKey.has(key) && episode.seriesImdbId) {
         imdbIdByKey.set(key, episode.seriesImdbId);
       }
     });
 
     const entries = Array.from(imdbIdByKey.entries());
-    const posterByKey = new Map();
     for (let index = 0; index < entries.length; index += POSTER_BATCH_SIZE) {
       if (this.loadToken !== token) {
         return;
@@ -567,6 +693,10 @@ export const CalendarScreen = {
       this.setMode(action === "calendarModeAll" ? "all" : "subscribed");
       return;
     }
+    if (action === "calendarManageShows") {
+      this.openManageShowsDialog();
+      return;
+    }
     if (action === "calendarViewWeek" || action === "calendarViewMonth") {
       this.setViewMode(action === "calendarViewWeek" ? "week" : "month");
       return;
@@ -635,6 +765,105 @@ export const CalendarScreen = {
     this.render();
   },
 
+  // Every show the user could plausibly want to toggle: shows contributing
+  // episodes to the currently loaded range (Trakt or local), explicitly
+  // added shows even when nothing airs right now, and hidden shows so a
+  // removal can be undone. `wasAdded` decides how re-enabling works — an
+  // explicit subscription is restored, a Trakt-derived show only unhidden.
+  collectManageShowEntries() {
+    const { added, hidden } = CalendarShowsStore.get();
+    const byId = new Map();
+    [...this.groups, ...this.monthDays].forEach((day) => {
+      (day.episodes || []).forEach((episode) => {
+        const key = showKeyOf(episode);
+        if (!byId.has(key)) {
+          byId.set(key, { id: key, name: episode.seriesName || key, inCalendar: true, wasAdded: Boolean(added[key]) });
+        }
+      });
+    });
+    Object.values(added).forEach((entry) => {
+      if (!byId.has(entry.id)) {
+        byId.set(entry.id, { id: entry.id, name: entry.name || entry.id, inCalendar: true, wasAdded: true });
+      }
+    });
+    Object.values(hidden).forEach((entry) => {
+      const known = byId.get(entry.id);
+      byId.set(entry.id, {
+        id: entry.id,
+        name: entry.name || known?.name || entry.id,
+        inCalendar: false,
+        wasAdded: true
+      });
+    });
+    return Array.from(byId.values())
+      .sort((left, right) => String(left.name).localeCompare(String(right.name)));
+  },
+
+  openManageShowsDialog() {
+    if (this.manageDialog) {
+      return;
+    }
+    const entries = this.collectManageShowEntries();
+    this.lastFocusedAction = "calendarManageShows";
+    let changed = false;
+    let finalized = false;
+    const finalize = () => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      this.manageDialog = null;
+      if (changed) {
+        this.weekCache.clear();
+        this.monthCache.clear();
+        this.load();
+      } else {
+        this.restoreFocus();
+      }
+    };
+    const dialog = new NuvioDialog({
+      title: t("calendar_manage_title", {}, "My Calendar Shows"),
+      subtitle: entries.length
+        ? t("calendar_manage_subtitle", {}, "Choose which shows appear in your calendar")
+        : t("calendar_manage_empty", {}, "No shows yet — add running shows from their detail page."),
+      widthVw: 43.75,
+      suppressEnterUntilKeyUp: true,
+      panelClassName: "poster-list-picker-dialog-panel",
+      actionsClassName: "poster-list-picker-actions",
+      buttons: [
+        ...entries.map((entry) => ({
+          label: entry.name,
+          key: `show:${entry.id}`,
+          selected: entry.inCalendar,
+          className: "poster-list-picker-list-button",
+          onAction: () => {
+            entry.inCalendar = !entry.inCalendar;
+            if (!entry.inCalendar) {
+              CalendarShowsStore.remove({ id: entry.id, name: entry.name });
+            } else if (entry.wasAdded) {
+              CalendarShowsStore.add({ id: entry.id, name: entry.name });
+            } else {
+              CalendarShowsStore.unhide(entry.id);
+            }
+            changed = true;
+            dialog.setButtonSelected(`show:${entry.id}`, entry.inCalendar);
+          }
+        })),
+        {
+          label: t("action_done", {}, "Done"),
+          key: "done",
+          className: "poster-list-picker-save-button",
+          onAction: () => {
+            dialog.destroy();
+            finalize();
+          }
+        }
+      ],
+      onDismiss: finalize
+    }).mount(document.body);
+    this.manageDialog = dialog;
+  },
+
   shouldTransferToSidebar(node) {
     if (!node) {
       return false;
@@ -687,6 +916,7 @@ export const CalendarScreen = {
   renderEpisodeCard(episode) {
     const focusKey = `card:${showKeyOf(episode)}:${episode.id}`;
     const canOpenDetail = Boolean(episode.seriesImdbId);
+    const airTime = formatAirTime(episode);
     return `
       <article class="calendar-episode-card${canOpenDetail ? " focusable" : ""}"
                ${canOpenDetail ? `data-action="openDetail" data-item-id="${escapeHtml(episode.seriesImdbId)}" data-item-type="series" data-item-title="${escapeHtml(episode.seriesName || "Untitled")}"` : ""}
@@ -696,7 +926,7 @@ export const CalendarScreen = {
         </div>
         <div class="calendar-episode-info">
           <div class="calendar-episode-show">${escapeHtml(episode.seriesName || "Untitled")}</div>
-          <div class="calendar-episode-meta">${escapeHtml(`S${episode.season}E${episode.episode}`)}</div>
+          <div class="calendar-episode-meta">${escapeHtml(`S${episode.season}E${episode.episode}`)}${airTime ? `<span class="calendar-episode-airtime">${escapeHtml(airTime)}</span>` : ""}</div>
           <div class="calendar-episode-title">${escapeHtml(episode.title || "")}</div>
         </div>
       </article>
@@ -705,10 +935,14 @@ export const CalendarScreen = {
 
   renderModeRow() {
     const isAll = this.mode !== "subscribed";
+    const manageButton = !isAll
+      ? `<button class="calendar-mode-button calendar-manage-button focusable" data-action="calendarManageShows">${manageIconSvg()}${escapeHtml(t("calendar_manage_shows", {}, "Manage"))}</button>`
+      : "";
     return `
       <div class="calendar-mode-row">
         <button class="calendar-mode-button focusable${!isAll ? " selected" : ""}" data-action="calendarModeSubscribed">${escapeHtml(t("calendar_mode_subscribed", {}, "My Shows"))}</button>
         <button class="calendar-mode-button focusable${isAll ? " selected" : ""}" data-action="calendarModeAll">${escapeHtml(t("calendar_mode_all", {}, "All Shows"))}</button>
+        ${manageButton}
       </div>
     `;
   },
@@ -762,10 +996,11 @@ export const CalendarScreen = {
   },
 
   renderDayGroups(groups) {
+    const todayKey = dateKey(startOfDay(new Date()));
     return `
       <div class="calendar-content">
         ${groups.map((group) => `
-          <section class="calendar-day-group">
+          <section class="calendar-day-group${group.key === todayKey ? " is-today" : ""}">
             <h2 class="calendar-day-header">${escapeHtml(formatDayHeader(group.date))}</h2>
             ${group.episodes.length
     ? `<div class="calendar-episode-grid">${group.episodes.map((episode) => this.renderEpisodeCard(episode)).join("")}</div>`
@@ -865,8 +1100,8 @@ export const CalendarScreen = {
     return `
       <section class="library-empty-state">
         ${calendarEmptyIconSvg()}
-        <h3 class="library-empty-title">${escapeHtml(t("calendar_auth_required_title", {}, "Connect Trakt to see your shows"))}</h3>
-        <p class="library-empty-subtitle">${escapeHtml(t("calendar_auth_required_subtitle", {}, "Sign in with Trakt in Settings to see episodes for the shows you follow."))}</p>
+        <h3 class="library-empty-title">${escapeHtml(t("calendar_auth_required_title", {}, "Nothing in your calendar yet"))}</h3>
+        <p class="library-empty-subtitle">${escapeHtml(t("calendar_auth_required_subtitle", {}, "Add running shows to your calendar from their detail page, or connect Trakt to follow your watchlist automatically."))}</p>
         <button class="library-action-button focusable" data-action="openTraktSettings">${escapeHtml(t("calendar_open_trakt_settings", {}, "Open Trakt Settings"))}</button>
       </section>
     `;
@@ -1040,6 +1275,10 @@ export const CalendarScreen = {
   cleanup() {
     RootSidebarController.unregister("calendar");
     this.loadToken = (this.loadToken || 0) + 1;
+    if (this.manageDialog) {
+      this.manageDialog.destroy();
+      this.manageDialog = null;
+    }
     ScreenUtils.hide(this.container);
   }
 

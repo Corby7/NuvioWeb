@@ -12,6 +12,7 @@ import {
   normalizeTraktContinueWatchingDaysCap
 } from "../../data/local/traktSettingsStore.js";
 import { AnimeSkipSettingsStore } from "../../data/local/animeSkipSettingsStore.js";
+import { CalendarShowsStore } from "../../data/local/calendarShowsStore.js";
 import { StreamBadgeSettingsStore } from "../../data/local/streamBadgeSettingsStore.js";
 import { TorrentSettingsStore } from "../../data/local/torrentSettingsStore.js";
 import {
@@ -1686,6 +1687,56 @@ const FEATURE_ADAPTERS = {
         return false;
       }
       DebridSettingsStore.setForProfile(profileId, partial, { silentSync: true });
+      return true;
+    }
+  },
+  calendar_shows: {
+    export(profileId) {
+      const value = CalendarShowsStore.getForProfile(profileId);
+      return {
+        calendar_added_shows: Object.keys(value.added || {}).length ? JSON.stringify(value.added) : "",
+        calendar_hidden_shows: Object.keys(value.hidden || {}).length ? JSON.stringify(value.hidden) : ""
+      };
+    },
+    project(rawFeature = {}) {
+      const raw = normalizeFeaturePayload(rawFeature);
+      return {
+        calendar_added_shows: String(raw.calendar_added_shows || "").trim(),
+        calendar_hidden_shows: String(raw.calendar_hidden_shows || "").trim()
+      };
+    },
+    import(profileId, rawFeature = {}) {
+      const raw = normalizeFeaturePayload(rawFeature);
+      // Absent field (older blob) → leave local alone; present-but-empty
+      // string means the remote list is genuinely empty and replaces local.
+      const parseShowMap = (value) => {
+        if (value == null) {
+          return null;
+        }
+        const text = String(value || "").trim();
+        if (!text) {
+          return {};
+        }
+        try {
+          const parsed = JSON.parse(text);
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+        } catch (_) {
+          return null;
+        }
+      };
+      const partial = {};
+      const added = parseShowMap(raw.calendar_added_shows);
+      if (added) {
+        partial.added = added;
+      }
+      const hidden = parseShowMap(raw.calendar_hidden_shows);
+      if (hidden) {
+        partial.hidden = hidden;
+      }
+      if (!Object.keys(partial).length) {
+        return false;
+      }
+      CalendarShowsStore.setForProfile(profileId, partial, { silentSync: true });
       return true;
     }
   }

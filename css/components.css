@@ -3944,13 +3944,20 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   font-weight: bold;
 }
 
+/* Focus alone draws a white ring over the untinted pill; only .selected
+   fills the pill white, so focus and selection stay distinguishable. */
 .calendar-mode-button.focused {
-  background: var(--secondary-color);
-  color: var(--on-secondary);
+  background: var(--focus-bg);
+  color: var(--text-color);
   border-color: transparent;
-  box-shadow: none;
+  box-shadow: 0 0 0 4px var(--focus-color);
   transform: scale(1.05);
   font-weight: bold;
+}
+
+.calendar-mode-button.selected.focused {
+  background: var(--secondary-color);
+  color: var(--on-secondary);
 }
 
 .calendar-week-nav {
@@ -3958,10 +3965,20 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  background: black;
+  background: var(--card-bg);
   padding: 24px 36px;
   border-radius: 999px;
   margin: 16px 0 32px 0;
+}
+
+.calendar-manage-button {
+  gap: 12px;
+}
+
+.calendar-manage-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
 }
 
 .calendar-week-nav-button {
@@ -4176,13 +4193,13 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .calendar-month-day-posters {
   display: flex;
-  gap: 4px;
+  gap: 6px;
 }
 
 .calendar-month-day-poster {
-  width: 40px;
-  height: 60px;
-  border-radius: 6px;
+  width: 84px;
+  height: 126px;
+  border-radius: 10px;
   background: var(--card-bg) center center / cover no-repeat;
   flex: 0 0 auto;
 }
@@ -4283,6 +4300,16 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   color: var(--text-color);
 }
 
+.calendar-day-group.is-today .calendar-day-header {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  padding: 8px 22px;
+  border-radius: 999px;
+  background: var(--secondary-color);
+  color: var(--on-secondary);
+}
+
 .calendar-episode-grid {
   display: flex;
   flex-wrap: wrap;
@@ -4350,6 +4377,13 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   font-weight: 500;
   color: var(--text-tertiary);
   letter-spacing: 0.3px;
+}
+
+.calendar-episode-airtime {
+  margin-left: 10px;
+  padding-left: 12px;
+  border-left: 2px solid rgb(var(--focus-color-rgb) / 0.25);
+  color: var(--text-secondary);
 }
 
 .calendar-episode-title {

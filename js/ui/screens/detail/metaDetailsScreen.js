@@ -17,6 +17,7 @@ import { imdbEpisodeRatingsRepository } from "../../../data/repository/imdbEpiso
 import { TmdbSettingsStore } from "../../../data/local/tmdbSettingsStore.js";
 import { PlayerSettingsStore } from "../../../data/local/playerSettingsStore.js";
 import { TraktSettingsStore } from "../../../data/local/traktSettingsStore.js";
+import { CalendarShowsStore } from "../../../data/local/calendarShowsStore.js";
 import { TraktAuthService } from "../../../data/repository/traktAuthService.js";
 import { Environment } from "../../../platform/environment.js";
 import { Platform } from "../../../platform/index.js";
@@ -412,6 +413,29 @@ function renderLibraryGlyph(isSaved = false) {
   return isSaved
     ? `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_library_saved.svg');--series-icon-focused:url('../assets/icons/ic_detail_library_saved_filled.svg');" aria-hidden="true"></span>`
     : `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_library_add.svg');" aria-hidden="true"></span>`;
+}
+
+function renderCalendarGlyph(isInCalendar = false) {
+  return isInCalendar
+    ? `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_calendar_saved.svg');--series-icon-focused:url('../assets/icons/ic_detail_calendar_saved_filled.svg');" aria-hidden="true"></span>`
+    : `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_calendar_add.svg');" aria-hidden="true"></span>`;
+}
+
+// A show belongs on the airing calendar only while new episodes can still
+// arrive. Metadata status is authoritative when present ("Continuing" /
+// "Returning Series" vs "Ended" / "Canceled"); when addons omit it, any
+// episode with a future release date proves the show is still running.
+function isSeriesStillRunning(meta = {}, episodes = null) {
+  const status = String(meta?.status || "").trim().toLowerCase();
+  if (status) {
+    return !(status.includes("ended") || status.includes("cancel"));
+  }
+  const resolved = Array.isArray(episodes) ? episodes : normalizeEpisodes(meta?.videos || []);
+  const now = Date.now();
+  return resolved.some((episode) => {
+    const released = Date.parse(episode.released || "");
+    return Number.isFinite(released) && released > now;
+  });
 }
 
 function renderWatchedBadgeGlyph(className = "series-watched-badge-svg") {
@@ -2124,6 +2148,13 @@ export const MetaDetailsScreen = {
           </button>
         `
       : "";
+    const calendarImdbId = isSeriesDetailMeta(meta, this.episodes) && isSeriesStillRunning(meta, this.episodes)
+      ? resolveMetaImdbId(meta, this.params)
+      : null;
+    const isInCalendar = calendarImdbId ? CalendarShowsStore.isInCalendar(calendarImdbId) : false;
+    const calendarButton = calendarImdbId
+      ? `<button class="series-circle-btn focusable${isInCalendar ? " is-selected" : ""}" data-action="toggleCalendar" aria-label="${escapeAttribute(isInCalendar ? t("detail.removeFromCalendar", {}, "Remove from Calendar") : t("detail.addToCalendar", {}, "Add to Calendar"))}">${renderCalendarGlyph(isInCalendar)}</button>`
+      : "";
     return `
       <section class="detail-hero-section">
         <div class="detail-hero-brand">
@@ -2139,6 +2170,7 @@ export const MetaDetailsScreen = {
             ${renderLibraryGlyph(this.isSavedInLibrary)}
           </button>
           ${showWatchedButton ? `<button class="series-circle-btn focusable${this.isMarkedWatched ? " is-selected" : ""}" data-action="toggleWatched" aria-label="${escapeAttribute(this.isMarkedWatched ? t("common.markUnwatched", {}, "Mark Unwatched") : t("common.markWatched", {}, "Mark Watched"))}">${renderWatchedGlyph(this.isMarkedWatched)}</button>` : ""}
+          ${calendarButton}
           ${trailerButton}
         </div>
         ${creditLine ? `<p class="series-detail-support">${escapeHtml(creditPrefix)}: ${escapeHtml(creditLine)}</p>` : ""}
@@ -3205,6 +3237,20 @@ export const MetaDetailsScreen = {
     this.syncDetailActionButtons();
   },
 
+  toggleCalendarFromHero() {
+    const imdbId = resolveMetaImdbId(this.meta, this.params);
+    if (!imdbId) {
+      return;
+    }
+    const name = this.meta?.name || this.params?.fallbackTitle || imdbId;
+    if (CalendarShowsStore.isInCalendar(imdbId)) {
+      CalendarShowsStore.remove({ id: imdbId, name });
+    } else {
+      CalendarShowsStore.add({ id: imdbId, name, poster: this.meta?.poster || null });
+    }
+    this.syncDetailActionButtons();
+  },
+
   cancelPendingPosterHold() {
     if (this.pendingPosterHoldTimer) {
       clearTimeout(this.pendingPosterHoldTimer);
@@ -4048,6 +4094,21 @@ export const MetaDetailsScreen = {
           ? t("common.markUnwatched", {}, "Mark Unwatched")
           : t("common.markWatched", {}, "Mark Watched");
       }
+    });
+    const calendarImdbId = resolveMetaImdbId(this.meta, this.params);
+    const isInCalendar = calendarImdbId ? CalendarShowsStore.isInCalendar(calendarImdbId) : false;
+    Array.from(this.container.querySelectorAll('[data-action="toggleCalendar"]')).forEach((node) => {
+      if (!(node instanceof HTMLElement)) {
+        return;
+      }
+      node.classList.toggle("is-selected", isInCalendar);
+      node.innerHTML = renderCalendarGlyph(isInCalendar);
+      node.setAttribute(
+        "aria-label",
+        isInCalendar
+          ? t("detail.removeFromCalendar", {}, "Remove from Calendar")
+          : t("detail.addToCalendar", {}, "Add to Calendar")
+      );
     });
     Router.captureCurrentRouteState();
   },
@@ -6341,6 +6402,10 @@ export const MetaDetailsScreen = {
       await this.toggleLibraryFromHero();
       return true;
     }
+    if (action === "toggleCalendar") {
+      this.toggleCalendarFromHero();
+      return true;
+    }
     if (action === "toggleWatched") {
       const focusRestore = this.captureDetailFocus();
       const isSeries = isSeriesDetailMeta(this.meta, this.episodes);
@@ -6727,6 +6792,11 @@ export const MetaDetailsScreen = {
 
     if (action === "toggleLibrary") {
       await this.toggleLibraryFromHero();
+      return;
+    }
+
+    if (action === "toggleCalendar") {
+      this.toggleCalendarFromHero();
       return;
     }
 
