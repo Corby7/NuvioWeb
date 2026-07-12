@@ -2847,7 +2847,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   border: 2px solid var(--border-color);
   background: var(--card-bg);
   color: var(--text-primary);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -3695,7 +3695,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   min-height: 80px;
   padding: 0 32px;
   box-sizing: border-box;
-  border-radius: 16px;
+  border-radius: 999px;
   border: 2px solid var(--border-color);
   background: var(--card-bg);
   color: var(--text-color);
@@ -3844,6 +3844,23 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   gap: 18px;
   padding-top: 38px;
   text-align: center;
+}
+
+.calendar-page .library-empty-state {
+  flex: 1;
+  min-height: 0;
+  padding-top: 0;
+}
+
+.calendar-page .library-empty-state .library-action-button {
+  border: none;
+}
+
+.calendar-page .library-empty-state .library-action-button.focused {
+  background: var(--secondary-color);
+  color: var(--on-secondary);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .library-empty-icon {
@@ -4029,7 +4046,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   border-radius: 999px;
   background: var(--card-bg);
   color: var(--text-color);
-  font-size: 20px;
+  font-size: 28px;
   font-weight: 500;
   transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, transform 120ms ease;
 }
@@ -7349,7 +7366,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 32px;
 }
 
 .settings-nav-label {
@@ -8620,7 +8637,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 32px;
   text-align: left;
 }
 

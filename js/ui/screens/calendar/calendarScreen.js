@@ -638,6 +638,12 @@ export const CalendarScreen = {
     if (!node) {
       return false;
     }
+    // Auth-required state renders a single centered button with no header
+    // rows — nothing is ever to its left, but it also never sits within the
+    // left-edge threshold below, so Left must still reach the sidebar.
+    if (this.authRequired) {
+      return true;
+    }
     const main = this.container?.querySelector(".home-main");
     if (!main || !main.contains(node)) {
       return false;
@@ -916,13 +922,9 @@ export const CalendarScreen = {
       ? this.renderMonthNav()
       : this.renderWeekNav(formatWeekRangeLabel(this.weekStart), dateKey(this.weekStart) === dateKey(startOfWeek(new Date())));
 
-    this.container.innerHTML = `
-      <div class="home-shell calendar-shell">
-        <main class="home-main calendar-main${enterClass}">
-          <section class="library-page calendar-page">
-            <header class="library-page-header">
-              <h1 class="library-page-title">${escapeHtml(t("calendar_title", {}, "Calendar"))}</h1>
-            </header>
+    const headerMarkup = this.authRequired
+      ? ""
+      : `
             <div class="calendar-header-buttons">
               ${this.renderModeRow()}
               ${this.renderViewModeRow()}
@@ -930,6 +932,16 @@ export const CalendarScreen = {
             <div class="calendar-header">
               ${navMarkup}
             </div>
+      `;
+
+    this.container.innerHTML = `
+      <div class="home-shell calendar-shell">
+        <main class="home-main calendar-main${enterClass}">
+          <section class="library-page calendar-page">
+            <header class="library-page-header">
+              <h1 class="library-page-title">${escapeHtml(t("calendar_title", {}, "Calendar"))}</h1>
+            </header>
+            ${headerMarkup}
             ${bodyMarkup}
           </section>
         </main>
