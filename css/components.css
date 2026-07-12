@@ -3849,18 +3849,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .calendar-page .library-empty-state {
   flex: 1;
   min-height: 0;
-  padding-top: 0;
-}
-
-.calendar-page .library-empty-state .library-action-button {
-  border: none;
-}
-
-.calendar-page .library-empty-state .library-action-button.focused {
-  background: var(--secondary-color);
-  color: var(--on-secondary);
-  border-color: transparent;
-  box-shadow: none;
 }
 
 .library-empty-icon {
@@ -4046,7 +4034,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   border-radius: 999px;
   background: var(--card-bg);
   color: var(--text-color);
-  font-size: 28px;
+  font-size: 28 px;
   font-weight: 500;
   transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, transform 120ms ease;
 }
