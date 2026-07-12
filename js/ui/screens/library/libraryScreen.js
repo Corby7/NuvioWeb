@@ -314,6 +314,7 @@ export const LibraryScreen = {
     this.pillIconOnly = false;
     this.focusZone = "content";
     this.lastMainFocus = null;
+    this.hasUserInteracted = false;
     this.lastActionsRowAction = "openManageLists";
     this.pendingActionRestore = null;
     this.pendingPickerRestore = null;
@@ -341,6 +342,7 @@ export const LibraryScreen = {
     this.container.__libraryEventsBound = true;
 
     this.container.addEventListener("click", async (event) => {
+      this.hasUserInteracted = true;
       const target = event.target?.closest?.(".focusable, .library-dialog-input, .library-dialog-textarea");
       if (!target || !this.container.contains(target)) {
         return;
@@ -975,8 +977,8 @@ export const LibraryScreen = {
   },
 
   resolveMainEntryFocus() {
-    return this.container?.querySelector(".library-picker-row .library-picker-anchor.focusable")
-      || this.resolveLastMainFocus()
+    return this.resolveLastMainFocus()
+      || this.container?.querySelector(".library-picker-row .library-picker-anchor.focusable")
       || null;
   },
 
@@ -997,7 +999,12 @@ export const LibraryScreen = {
     } else if (this.pendingPickerRestore) {
       selector = `.library-picker-anchor[data-picker="${selectorValue(this.pendingPickerRestore)}"]`;
     } else if (this.lastMainFocus?.matches?.(".library-picker-anchor")) {
-      selector = this.getMainFocusSelector(this.lastMainFocus);
+      // Until the user presses a key, the remembered anchor is just the initial
+      // auto-focus (often "type" — the trakt list picker mounts async after the
+      // first render). Re-resolve to the first anchor so List ends up selected.
+      selector = this.hasUserInteracted
+        ? this.getMainFocusSelector(this.lastMainFocus)
+        : ".library-picker-row .library-picker-anchor.focusable";
     } else if (state.lastFocusedPosterKey) {
       selector = `.library-grid-card[data-focus-key="${selectorValue(state.lastFocusedPosterKey)}"]`;
     } else {
@@ -1080,6 +1087,55 @@ export const LibraryScreen = {
       || findNearestNodeByCenterX(referenceNode, anchors)
       || anchors[0]
       || null;
+  },
+
+  getPickerAnchorRows() {
+    return Array.from(this.container?.querySelectorAll(".library-picker-groups .library-picker-row") || [])
+      .map((row) => Array.from(row.querySelectorAll(".library-picker-anchor.focusable")))
+      .filter((anchors) => anchors.length > 0);
+  },
+
+  resolveAdjacentPickerRowNode(current, direction) {
+    const rows = this.getPickerAnchorRows();
+    const rowIndex = rows.findIndex((anchors) => anchors.includes(current));
+    if (rowIndex < 0) {
+      return null;
+    }
+    const nextAnchors = rows[rowIndex + (direction === "up" ? -1 : 1)] || null;
+    if (!nextAnchors) {
+      return null;
+    }
+    return findNearestNodeByCenterX(current, nextAnchors);
+  },
+
+  resolveLastPickerRowNode(referenceNode = null) {
+    const rows = this.getPickerAnchorRows();
+    const anchors = rows[rows.length - 1] || [];
+    if (!anchors.length) {
+      return null;
+    }
+    const remembered = this.resolveLastMainFocus();
+    if (remembered && anchors.includes(remembered)) {
+      return remembered;
+    }
+    return findNearestNodeByCenterX(referenceNode, anchors);
+  },
+
+  handlePickerRowVerticalNavigation(event, current) {
+    if (!current || !current.matches?.(".library-picker-anchor.focusable") || !current.closest?.(".library-picker-row")) {
+      return false;
+    }
+    const code = Number(event?.keyCode || 0);
+    if (code !== 38 && code !== 40) {
+      return false;
+    }
+    const target = this.resolveAdjacentPickerRowNode(current, code === 38 ? "up" : "down");
+    if (!target) {
+      return false;
+    }
+    event?.preventDefault?.();
+    this.setFocusedNode(target);
+    return true;
   },
 
   resolvePreferredGridNode(referenceNode = null) {
@@ -1166,7 +1222,7 @@ export const LibraryScreen = {
       return true;
     }
     if (code === 38) {
-      const target = this.resolvePreferredPickerRowNode(current);
+      const target = this.resolveLastPickerRowNode(current) || this.resolvePreferredPickerRowNode(current);
       if (!target) {
         return false;
       }
@@ -1270,8 +1326,8 @@ export const LibraryScreen = {
         return true;
       }
       const target = this.controller.getState().sourceMode === "trakt"
-        ? this.resolvePreferredActionsRowNode() || this.resolvePreferredPickerRowNode(current)
-        : this.resolvePreferredPickerRowNode(current);
+        ? this.resolvePreferredActionsRowNode() || this.resolveLastPickerRowNode(current) || this.resolvePreferredPickerRowNode(current)
+        : this.resolveLastPickerRowNode(current) || this.resolvePreferredPickerRowNode(current);
       if (!target) {
         return false;
       }
@@ -1635,6 +1691,7 @@ export const LibraryScreen = {
   },
 
   async onKeyDown(event) {
+    this.hasUserInteracted = true;
     if (Environment.isBackEvent(event)) {
       event?.preventDefault?.();
       if (this.closeTopOverlay()) {
@@ -1696,6 +1753,10 @@ export const LibraryScreen = {
     }
 
     if (!sidebarLocked && this.handleFilterRowHorizontalNavigation(event, current)) {
+      return;
+    }
+
+    if (!sidebarLocked && this.handlePickerRowVerticalNavigation(event, current)) {
       return;
     }
 

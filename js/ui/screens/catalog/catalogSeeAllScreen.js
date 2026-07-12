@@ -35,25 +35,6 @@ function t(key, params = {}, fallback = key) {
   return I18n.t(key, params, { fallback });
 }
 
-function extractReleaseYear(item = {}) {
-  const candidates = [
-    item?.released,
-    item?.releaseDate,
-    item?.release_date,
-    item?.releaseInfo,
-    item?.year
-  ].filter(Boolean);
-
-  for (const value of candidates) {
-    const match = String(value).match(/\b(19|20)\d{2}\b/);
-    if (match) {
-      return match[0];
-    }
-  }
-
-  return "";
-}
-
 function groupNodesByOffsetTop(nodes = []) {
   const grouped = [];
   nodes.forEach((node) => {
@@ -275,7 +256,7 @@ export const CatalogSeeAllScreen = {
     if (shell) {
       this.savedScrollTop = shell.scrollTop;
     }
-    const focused = this.container?.querySelector(".seeall-card.focused");
+    const focused = this.container?.querySelector(".library-grid-card.focused");
     if (focused?.dataset?.focusKey) {
       this.lastFocusedKey = focused.dataset.focusKey;
     }
@@ -298,7 +279,7 @@ export const CatalogSeeAllScreen = {
   },
 
   buildNavigationModel() {
-    const cards = Array.from(this.container?.querySelectorAll(".seeall-card.focusable") || []);
+    const cards = Array.from(this.container?.querySelectorAll(".library-grid-card.focusable") || []);
     const rows = groupNodesByOffsetTop(cards);
     rows.forEach((rowNodes, rowIndex) => {
       rowNodes.forEach((node, colIndex) => {
@@ -350,14 +331,12 @@ export const CatalogSeeAllScreen = {
     const shell = this.container?.querySelector(".seeall-shell") || null;
     const isFirstRow = Number(target.dataset.navRow || 0) === 0;
     const shouldLoadMore = this.shouldAutoLoadMore(target.dataset.itemIndex);
-    // Instant scroll on per-keypress focus: a smooth scrollTo restarts its easing
-    // on every held-down repeat, so the view jittered and only caught up on release.
     const nextScrollTop = isFirstRow
-      ? setContainerScrollTop(shell, 0, "auto")
+      ? setContainerScrollTop(shell, 0, "smooth")
       : scrollNodeIntoContainerView(target, shell, {
-          center: false,
-          padding: 20,
-          behavior: "auto"
+          center: true,
+          padding: 40,
+          behavior: shouldLoadMore ? "auto" : "smooth"
         });
     if (Number.isFinite(nextScrollTop)) {
       this.savedScrollTop = nextScrollTop;
@@ -385,7 +364,7 @@ export const CatalogSeeAllScreen = {
     }
 
     const nav = this.navModel;
-    const current = this.container?.querySelector(".seeall-card.focused") || null;
+    const current = this.container?.querySelector(".library-grid-card.focused") || null;
     if (!nav?.rows?.length || !current) {
       return false;
     }
@@ -424,9 +403,9 @@ export const CatalogSeeAllScreen = {
     const shell = this.container?.querySelector(".seeall-shell");
     const target =
       (this.lastFocusedKey
-        ? this.container?.querySelector(`.seeall-card[data-focus-key="${this.lastFocusedKey}"]`)
+        ? this.container?.querySelector(`.library-grid-card[data-focus-key="${this.lastFocusedKey}"]`)
         : null) ||
-      this.container?.querySelector(".seeall-card.focusable") ||
+      this.container?.querySelector(".library-grid-card.focusable") ||
       null;
 
     if (shell) {
@@ -444,13 +423,13 @@ export const CatalogSeeAllScreen = {
     focusWithoutAutoScroll(target);
     this.rememberRowFocus(target);
     if (scrollMode !== "none") {
-      scrollNodeIntoContainerView(target, shell, { center: scrollMode === "center", padding: 20 });
+      scrollNodeIntoContainerView(target, shell, { center: scrollMode === "center", padding: 40 });
     }
     this.lastFocusedKey = target.dataset.focusKey || this.lastFocusedKey;
   },
 
   isPosterHoldTarget(node) {
-    return Boolean(node?.matches?.(".seeall-card.focusable[data-action='openDetail']"));
+    return Boolean(node?.matches?.(".library-grid-card.focusable[data-action='openDetail']"));
   },
 
   cancelPendingPosterHold() {
@@ -480,7 +459,7 @@ export const CatalogSeeAllScreen = {
     this.pendingPosterHoldTimer = setTimeout(() => {
       this.pendingPosterHoldTimer = null;
       const current =
-        this.container?.querySelector(".seeall-card.focusable.focused[data-action='openDetail']") ||
+        this.container?.querySelector(".library-grid-card.focusable.focused[data-action='openDetail']") ||
         null;
       if (!this.hasPendingPosterHold(current)) {
         return;
@@ -575,7 +554,7 @@ export const CatalogSeeAllScreen = {
       ? this.items
           .map(
             (item, index) => `
-          <article class="seeall-card focusable"
+          <article class="library-grid-card focusable"
                    data-action="openDetail"
                    data-item-id="${item.id || ""}"
                     data-item-type="${item.type || descriptor.type || "movie"}"
@@ -584,19 +563,18 @@ export const CatalogSeeAllScreen = {
                     data-backdrop-src="${escapeHtml(item.background || item.backdrop || "")}"
                     data-focus-key="item:${item.id || index}"
                     data-item-index="${index}">
-            <div class="seeall-card-poster-wrap">
+            <div class="library-grid-poster${item.poster ? "" : " placeholder"}">
               ${
                 item.poster
-                  ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
-                  : `<div class="seeall-card-poster placeholder"></div>`
+                  ? `<img class="library-grid-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" onerror="this.hidden = true" />`
+                  : ""
               }
-              ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge() : ""}
+              ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge({ className: "library-watched-badge", iconClassName: "library-watched-badge-svg" }) : ""}
             </div>
             ${
               this.layoutPrefs?.posterLabelsEnabled !== false
                 ? `
               <div class="library-grid-title">${escapeHtml(item.name || "Untitled")}</div>
-              <div class="seeall-card-year">${escapeHtml(extractReleaseYear(item))}</div>
             `
                 : ""
             }
@@ -617,7 +595,7 @@ export const CatalogSeeAllScreen = {
               : ""
           }
         </header>
-        <section class="seeall-grid">
+        <section class="library-grid catalog-seeall-grid">
           ${cards}
         </section>
         ${this.loading ? `<div class="seeall-loading">${escapeHtml(t("discover_loading", {}, "Loading..."))}</div>` : ""}
@@ -640,7 +618,7 @@ export const CatalogSeeAllScreen = {
   },
 
   bindCardEvents() {
-    this.container?.querySelectorAll(".seeall-card.focusable").forEach((node) => {
+    this.container?.querySelectorAll(".library-grid-card.focusable").forEach((node) => {
       if (node.__boundFocusHandlers) return;
       node.__boundFocusHandlers = true;
       node.addEventListener("focus", () => {
@@ -710,7 +688,7 @@ export const CatalogSeeAllScreen = {
       return;
     }
     const current =
-      this.container?.querySelector(".seeall-card.focusable.focused[data-action='openDetail']") ||
+      this.container?.querySelector(".library-grid-card.focusable.focused[data-action='openDetail']") ||
       null;
     if (this.completePendingPosterHold(current, event)) {
       event?.preventDefault?.();

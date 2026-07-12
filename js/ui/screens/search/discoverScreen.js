@@ -62,25 +62,6 @@ function groupNodesByOffsetTop(nodes = []) {
   return grouped.map((entry) => entry.nodes);
 }
 
-function extractReleaseYear(item = {}) {
-  const candidates = [
-    item?.released,
-    item?.releaseDate,
-    item?.release_date,
-    item?.releaseInfo,
-    item?.year
-  ].filter(Boolean);
-
-  for (const value of candidates) {
-    const match = String(value).match(/\b(19|20)\d{2}\b/);
-    if (match) {
-      return match[0];
-    }
-  }
-
-  return "";
-}
-
 function actionForPickerKind(kind) {
   if (kind === "type") return "discoverFilterType";
   if (kind === "catalog") return "discoverFilterCatalog";
@@ -434,7 +415,7 @@ export const DiscoverScreen = {
   renderDiscoverCards(selectedCatalog = null) {
     return this.items.length
       ? this.items.map((item, index) => `
-              <article class="discover-card seeall-card focusable"
+              <article class="discover-card library-grid-card focusable"
                         data-action="openDetail"
                         data-item-id="${item.id || ""}"
                         data-item-type="${item.type || selectedCatalog?.type || "movie"}"
@@ -443,14 +424,13 @@ export const DiscoverScreen = {
                         data-backdrop-src="${escapeHtml(item.background || item.backdrop || "")}"
                         data-focus-key="item:${item.id || index}"
                         data-item-index="${index}">
-                 <div class="seeall-card-poster-wrap">
+                 <div class="library-grid-poster${item.poster ? "" : " placeholder"}">
                    ${item.poster
-      ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
-      : `<div class="seeall-card-poster placeholder"></div>`}
+      ? `<img class="library-grid-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" onerror="this.hidden = true" />`
+      : ""}
                  </div>
                  ${this.layoutPrefs?.posterLabelsEnabled !== false ? `
-                   <div class="seeall-card-title">${escapeHtml(item.name || "Untitled")}</div>
-                   <div class="seeall-card-year">${escapeHtml(extractReleaseYear(item))}</div>
+                   <div class="library-grid-title">${escapeHtml(item.name || "Untitled")}</div>
                  ` : ""}
                </article>
              `).join("")
@@ -764,7 +744,7 @@ export const DiscoverScreen = {
   },
 
   isPosterHoldTarget(node) {
-    return Boolean(node?.matches?.(".discover-card.seeall-card.focusable[data-action='openDetail']"));
+    return Boolean(node?.matches?.(".discover-card.focusable[data-action='openDetail']"));
   },
 
   cancelPendingPosterHold() {
@@ -793,7 +773,7 @@ export const DiscoverScreen = {
     };
     this.pendingPosterHoldTimer = setTimeout(() => {
       this.pendingPosterHoldTimer = null;
-      const current = this.container?.querySelector(".discover-card.seeall-card.focusable.focused[data-action='openDetail']") || null;
+      const current = this.container?.querySelector(".discover-card.focusable.focused[data-action='openDetail']") || null;
       if (!this.hasPendingPosterHold(current)) {
         return;
       }
@@ -1019,7 +999,7 @@ export const DiscoverScreen = {
     if (main) {
       this.savedScrollTop = main.scrollTop;
     }
-    const focused = this.container?.querySelector(".seeall-card.focused") || this.container?.querySelector(".discover-card.focused");
+    const focused = this.container?.querySelector(".discover-card.focused");
     if (focused?.dataset?.focusKey) {
       this.lastFocusedKey = String(focused.dataset.focusKey || "");
     }
@@ -1038,12 +1018,12 @@ export const DiscoverScreen = {
   restoreFocusedCard({ scrollMode = "center" } = {}) {
     this.restoreScrollState();
     const target = (this.lastFocusedKey
-      ? this.container?.querySelector(`.seeall-card.focusable[data-focus-key="${String(this.lastFocusedKey).replace(/["\\]/g, "\\$&")}"]`)
+      ? this.container?.querySelector(`.discover-card.focusable[data-focus-key="${String(this.lastFocusedKey).replace(/["\\]/g, "\\$&")}"]`)
       : null)
       || (this.lastFocusedDiscoverItemId
-        ? this.container?.querySelector(`.seeall-card.focusable[data-item-id="${String(this.lastFocusedDiscoverItemId).replace(/["\\]/g, "\\$&")}"]`)
+        ? this.container?.querySelector(`.discover-card.focusable[data-item-id="${String(this.lastFocusedDiscoverItemId).replace(/["\\]/g, "\\$&")}"]`)
         : null)
-      || this.container?.querySelector(".seeall-card.focusable")
+      || this.container?.querySelector(".discover-card.focusable")
       || (this.lastFocusedAction
         ? this.container?.querySelector(`.discover-filter.focusable[data-action="${String(this.lastFocusedAction).replace(/["\\]/g, "\\$&")}"]`)
         : null)
@@ -1078,7 +1058,7 @@ export const DiscoverScreen = {
   },
 
   buildNavigationModel() {
-    const cards = Array.from(this.container?.querySelectorAll(".discover-grid .seeall-card.focusable") || []);
+    const cards = Array.from(this.container?.querySelectorAll(".discover-grid .discover-card.focusable") || []);
     const rows = groupNodesByOffsetTop(cards);
     rows.forEach((rowNodes, rowIndex) => {
       rowNodes.forEach((node, colIndex) => {
@@ -1171,7 +1151,7 @@ export const DiscoverScreen = {
     }
 
     const nav = this.navModel;
-    const current = this.container?.querySelector(".discover-grid .seeall-card.focused") || null;
+    const current = this.container?.querySelector(".discover-grid .discover-card.focused") || null;
     if (!nav?.rows?.length || !current) {
       return false;
     }
@@ -1198,9 +1178,9 @@ export const DiscoverScreen = {
 
   focusFirstContentCard() {
     const target = (this.lastFocusedKey
-      ? this.container?.querySelector(`.discover-grid .seeall-card.focusable[data-focus-key="${String(this.lastFocusedKey).replace(/["\\]/g, "\\$&")}"]`)
+      ? this.container?.querySelector(`.discover-grid .discover-card.focusable[data-focus-key="${String(this.lastFocusedKey).replace(/["\\]/g, "\\$&")}"]`)
       : null)
-      || this.container?.querySelector(".discover-grid .seeall-card.focusable")
+      || this.container?.querySelector(".discover-grid .discover-card.focusable")
       || null;
     return this.focusNode(target);
   },
@@ -1216,16 +1196,16 @@ export const DiscoverScreen = {
       ? this.container?.querySelector(selector)
       : null;
     const posterTarget = this.lastFocusedKey
-      ? this.container?.querySelector(`.seeall-card.focusable[data-focus-key="${String(this.lastFocusedKey).replace(/["\\]/g, "\\$&")}"]`)
+      ? this.container?.querySelector(`.discover-card.focusable[data-focus-key="${String(this.lastFocusedKey).replace(/["\\]/g, "\\$&")}"]`)
       : null;
     const target = filterTarget
       || posterTarget
       || (selector ? this.container?.querySelector(selector) : null)
       || (this.lastFocusedDiscoverItemId
-        ? this.container?.querySelector(`.seeall-card.focusable[data-item-id="${String(this.lastFocusedDiscoverItemId).replace(/["\\]/g, "\\$&")}"]`)
+        ? this.container?.querySelector(`.discover-card.focusable[data-item-id="${String(this.lastFocusedDiscoverItemId).replace(/["\\]/g, "\\$&")}"]`)
         : null)
       || this.container?.querySelector(".discover-filter.focusable")
-      || this.container?.querySelector(".seeall-card.focusable")
+      || this.container?.querySelector(".discover-card.focusable")
       || null;
     if (!target) {
       return false;
@@ -1326,7 +1306,7 @@ export const DiscoverScreen = {
                 ${this.renderFilterPicker("genre", "Genre", this.selectedGenre || "Default")}
               </section>
             </section>
-            <section class="seeall-grid discover-grid" id="discoverGridMount">
+            <section class="library-grid discover-grid" id="discoverGridMount">
               ${cards}
             </section>
             <div id="discoverLoadingMount">${this.renderDiscoverLoadingMarkup()}</div>
@@ -1356,7 +1336,7 @@ export const DiscoverScreen = {
   },
 
   bindCardEvents() {
-    this.container?.querySelectorAll(".seeall-card.focusable").forEach((node) => {
+    this.container?.querySelectorAll(".discover-card.focusable").forEach((node) => {
       if (node.__boundDiscoverCardHandlers) return;
       node.__boundDiscoverCardHandlers = true;
       node.addEventListener("focus", () => {
@@ -1566,7 +1546,7 @@ export const DiscoverScreen = {
     if (Number(event?.keyCode || 0) !== 13) {
       return;
     }
-    const current = this.container?.querySelector(".discover-card.seeall-card.focusable.focused[data-action='openDetail']") || null;
+    const current = this.container?.querySelector(".discover-card.focusable.focused[data-action='openDetail']") || null;
     if (this.completePendingPosterHold(current, event)) {
       event?.preventDefault?.();
     }

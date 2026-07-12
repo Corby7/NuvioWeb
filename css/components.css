@@ -3084,35 +3084,23 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   color: var(--text-secondary);
 }
 
-.discover-grid {
-  display: grid;
+/* Discover and catalog see-all reuse the library grid look (.library-grid /
+   .library-grid-card); only the extra bottom padding for the pagination
+   loader is screen-specific. */
+.discover-grid,
+.catalog-seeall-grid {
   width: 100%;
-  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
-  justify-content: start;
-  gap: 16px 10px;
   padding-bottom: 32px;
 }
 
-.discover-card,
 .discover-action-card {
   width: 248px;
   scroll-margin-block: 12px;
   transition: transform 180ms ease;
 }
 
-.discover-card.seeall-card {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.discover-card.focused,
 .discover-action-card.focused {
   transform: none;
-}
-
-.discover-card.seeall-card.focused {
-  border-color: transparent;
-  box-shadow: none;
 }
 
 .discover-card-poster {
@@ -3126,7 +3114,6 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   transition: transform 180ms ease, border-color 180ms ease;
 }
 
-.discover-card.focused .discover-card-poster,
 .discover-action-card.focused .discover-action-card-inner {
   border-color: var(--secondary-color);
   box-shadow: 0 0 0 2px var(--secondary-color);
@@ -3766,6 +3753,18 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   background: transparent;
   color: var(--text-color);
   text-align: left;
+  /* Skip layout/paint for cards scrolled out of the viewport so vertical grid
+     scrolling doesn't re-render the whole library every frame. The intrinsic
+     size matches poster + gap + title so scroll range stays stable. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--library-poster-width, 252px) auto calc(var(--library-poster-height, 378px) + 46px);
+}
+
+/* content-visibility's paint containment would clip the focused card's scale
+   pop-out and focus ring at the card bounds. */
+.library-grid-card.focused,
+.library-grid-card:focus-within {
+  content-visibility: visible;
 }
 
 .library-grid-card.focused {
@@ -3794,6 +3793,16 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .library-grid-poster.placeholder {
   background: var(--card-bg);
+}
+
+/* Lazy-loaded <img> variant of the poster (used by the discover grid); the
+   radius insets past the poster's 4px focus border so corners stay clean. */
+.library-grid-poster-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: calc(var(--library-poster-radius, 24px) - 4px);
 }
 
 .library-grid-title {
@@ -15976,6 +15985,14 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
      (width/height/padding), which then reflow every frame for 140ms after any class
      toggle. Restrict to compositor/paint-cheap properties; everything else snaps. */
   transition-property: transform, opacity, background-color, color, border-color, box-shadow !important;
+}
+
+/* Buttons snap between their idle and focused states instead of fading —
+   without this exemption the constrained-mode catch-all above arms a 140ms
+   color/background fade on every button and its currentColor icons. */
+.performance-constrained button,
+.performance-constrained button * {
+  transition: none !important;
 }
 
 .performance-constrained .player-loading-identity {
