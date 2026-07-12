@@ -21,6 +21,7 @@ import {
   setLegacySidebarExpanded
 } from "../../components/sidebarNavigation.js";
 import { RootSidebarController } from "../../components/rootSidebarController.js";
+import { observeLazyPosterImages } from "../../components/lazyPosterImages.js";
 
 const POSTER_HOLD_DELAY_MS = 650;
 const PICKER_MENU_EXIT_MS = 160;
@@ -593,6 +594,7 @@ export const LibraryScreen = {
 
     ScreenUtils.indexFocusables(this.container);
     ScreenUtils.buildNavGrid(this.container, ".home-main .focusable");
+    observeLazyPosterImages(this, this.container);
 
     if (this.pendingPickerRestore) {
       const target = this.container.querySelector(`.library-picker-anchor[data-picker="${selectorValue(this.pendingPickerRestore)}"]`);
@@ -625,7 +627,8 @@ export const LibraryScreen = {
                        data-poster-src="${escapeHtml(item.poster || "")}"
                        data-backdrop-src="${escapeHtml(item.background || "")}"
                        data-focus-key="${escapeHtml(focusKey)}">
-                <div class="library-grid-poster${item.poster ? "" : " placeholder"}"${item.poster ? ` style="background-image:url('${escapeHtml(item.poster)}')"` : ""}>
+                <div class="library-grid-poster${item.poster ? "" : " placeholder"}">
+                  ${item.poster ? `<img class="library-grid-poster-image" data-lazy-src="${escapeHtml(item.poster)}" alt="" decoding="async" onerror="this.hidden = true" />` : ""}
                   ${isWatched ? `<span class="library-watched-badge" aria-label="${escapeHtml(t("episodes_cd_watched", {}, "Watched"))}">${renderWatchedBadgeGlyph()}</span>` : ""}
                 </div>
                 <div class="library-grid-title">${escapeHtml(item.name || item.id || "Untitled")}</div>
@@ -842,6 +845,7 @@ export const LibraryScreen = {
 
     ScreenUtils.indexFocusables(this.container);
     ScreenUtils.buildNavGrid(this.container, ".home-main .focusable");
+    observeLazyPosterImages(this, this.container);
     this.restoreFocus();
   },
 

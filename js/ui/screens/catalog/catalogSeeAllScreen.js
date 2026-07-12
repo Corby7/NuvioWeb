@@ -10,6 +10,7 @@ import {
   posterItemFromNode,
   PosterOptionsDialogController
 } from "../../components/posterOptionsMenu.js";
+import { observeLazyPosterImages } from "../../components/lazyPosterImages.js";
 import {
   buildWatchedTitleIdSet,
   isTitleItemWatched,
@@ -566,7 +567,7 @@ export const CatalogSeeAllScreen = {
             <div class="library-grid-poster${item.poster ? "" : " placeholder"}">
               ${
                 item.poster
-                  ? `<img class="library-grid-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" onerror="this.hidden = true" />`
+                  ? `<img class="library-grid-poster-image" data-lazy-src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" decoding="async" onerror="this.hidden = true" />`
                   : ""
               }
               ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge({ className: "library-watched-badge", iconClassName: "library-watched-badge-svg" }) : ""}
@@ -604,6 +605,7 @@ export const CatalogSeeAllScreen = {
     `;
 
     ScreenUtils.indexFocusables(this.container);
+    observeLazyPosterImages(this, this.container);
     this.buildNavigationModel();
     this.bindCardEvents();
     this.bindShellEvents();

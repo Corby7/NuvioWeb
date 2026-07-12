@@ -10,6 +10,7 @@ import {
   getRootSidebarSelectedNode
 } from "../../components/sidebarNavigation.js";
 import { RootSidebarController } from "../../components/rootSidebarController.js";
+import { observeLazyPosterImages } from "../../components/lazyPosterImages.js";
 
 // Concurrency cap for poster-enrichment lookups against installed addons —
 // bounded by however many distinct shows actually air in the visible range,
@@ -691,7 +692,7 @@ export const CalendarScreen = {
                ${canOpenDetail ? `data-action="openDetail" data-item-id="${escapeHtml(episode.seriesImdbId)}" data-item-type="series" data-item-title="${escapeHtml(episode.seriesName || "Untitled")}"` : ""}
                data-focus-key="${escapeHtml(focusKey)}">
         <div class="calendar-episode-poster-wrap">
-          <div class="calendar-episode-poster${episode.seriesPoster ? "" : " placeholder"}"${episode.seriesPoster ? ` style="background-image:url('${escapeHtml(episode.seriesPoster)}')"` : ""}></div>
+          <div class="calendar-episode-poster${episode.seriesPoster ? "" : " placeholder"}">${episode.seriesPoster ? `<img class="poster-fill-image" data-lazy-src="${escapeHtml(episode.seriesPoster)}" alt="" decoding="async" onerror="this.hidden = true" />` : ""}</div>
         </div>
         <div class="calendar-episode-info">
           <div class="calendar-episode-show">${escapeHtml(episode.seriesName || "Untitled")}</div>
@@ -790,7 +791,7 @@ export const CalendarScreen = {
         <span class="calendar-month-day-number${isToday ? " today" : ""}">${cell.date.getDate()}</span>
         ${posters.length ? `
           <div class="calendar-month-day-posters">
-            ${posters.map((episode) => `<div class="calendar-month-day-poster${episode.seriesPoster ? "" : " placeholder"}"${episode.seriesPoster ? ` style="background-image:url('${escapeHtml(episode.seriesPoster)}')"` : ""}></div>`).join("")}
+            ${posters.map((episode) => `<div class="calendar-month-day-poster${episode.seriesPoster ? "" : " placeholder"}">${episode.seriesPoster ? `<img class="poster-fill-image" data-lazy-src="${escapeHtml(episode.seriesPoster)}" alt="" decoding="async" onerror="this.hidden = true" />` : ""}</div>`).join("")}
           </div>
         ` : ""}
       </div>
@@ -949,6 +950,7 @@ export const CalendarScreen = {
     `;
 
     ScreenUtils.indexFocusables(this.container);
+    observeLazyPosterImages(this, this.container);
     this.bindEvents();
     this.restoreFocus();
     this.scrollSelectedDayIntoView();

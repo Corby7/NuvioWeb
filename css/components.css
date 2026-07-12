@@ -3795,14 +3795,26 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   background: var(--card-bg);
 }
 
-/* Lazy-loaded <img> variant of the poster (used by the discover grid); the
-   radius insets past the poster's 4px focus border so corners stay clean. */
+/* Lazy-loaded <img> variant of the poster (used by the library, discover and
+   see-all grids); the radius insets past the poster's 4px focus border so
+   corners stay clean. */
 .library-grid-poster-image {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   border-radius: calc(var(--library-poster-radius, 24px) - 4px);
+}
+
+/* Generic lazy <img> fill for borderless fixed-size poster frames (cast
+   credits, calendar) — replaces eager background-image posters so fetch is
+   viewport-driven and decode happens off the main thread. */
+.poster-fill-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
 }
 
 .library-grid-title {

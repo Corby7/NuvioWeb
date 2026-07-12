@@ -8,6 +8,7 @@ import {
   posterItemFromNode,
   PosterOptionsDialogController
 } from "../../components/posterOptionsMenu.js";
+import { observeLazyPosterImages } from "../../components/lazyPosterImages.js";
 
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w780";
@@ -218,7 +219,7 @@ export const CastDetailScreen = {
                data-item-title="${escapeAttribute(item.name)}"
                data-poster-src="${escapeAttribute(item.poster || "")}"
                data-backdrop-src="${escapeAttribute(item.poster || "")}">
-        <div class="cast-credit-poster"${item.poster ? ` style="background-image:url('${escapeAttribute(item.poster)}')"` : ""}></div>
+        <div class="cast-credit-poster">${item.poster ? `<img class="poster-fill-image" data-lazy-src="${escapeAttribute(item.poster)}" alt="" decoding="async" onerror="this.hidden = true" />` : ""}</div>
         <div class="cast-credit-title">${escapeHtml(item.name)}</div>
         <div class="cast-credit-subtitle">${escapeHtml(item.subtitle || item.type)}</div>
       </article>
@@ -274,6 +275,7 @@ export const CastDetailScreen = {
     `;
 
     ScreenUtils.indexFocusables(this.container);
+    observeLazyPosterImages(this, this.container);
     ScreenUtils.setInitialFocus(this.container, ".cast-credit-card.focusable");
     this.syncFocusedCardScroll({ instant: true });
   },
