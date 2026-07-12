@@ -3804,6 +3804,14 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   height: 100%;
   object-fit: cover;
   border-radius: calc(var(--library-poster-radius, 24px) - 4px);
+  transition: opacity 180ms ease;
+}
+
+/* Lazy posters stay invisible until fully loaded (lazyPosterImages.js removes
+   data-lazy-src on load), so progressive JPEG decode never flickers over the
+   skeleton background; the finished poster then fades in. */
+img[data-lazy-src] {
+  opacity: 0;
 }
 
 /* Generic lazy <img> fill for borderless fixed-size poster frames (cast
@@ -3815,6 +3823,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
   height: 100%;
   object-fit: cover;
   border-radius: inherit;
+  transition: opacity 180ms ease;
 }
 
 .library-grid-title {

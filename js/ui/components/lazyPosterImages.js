@@ -14,9 +14,25 @@ const LAZY_POSTER_ROOT_MARGIN = "2000px 600px";
 
 function hydrateLazyPosterImage(img) {
   const src = img.getAttribute("data-lazy-src") || "";
-  img.removeAttribute("data-lazy-src");
-  if (src && img.getAttribute("src") !== src) {
+  if (!src) {
+    img.removeAttribute("data-lazy-src");
+    return;
+  }
+  // data-lazy-src stays on until the image finishes loading: CSS keeps the img
+  // transparent while the attribute is present, so progressive JPEG decode
+  // never paints half-finished frames over the skeleton. Removing it on load
+  // fades the completed poster in. On error the attribute stays (img remains
+  // transparent) and the markup's inline onerror handler hides the node.
+  const reveal = () => {
+    img.onload = null;
+    img.removeAttribute("data-lazy-src");
+  };
+  if (img.getAttribute("src") !== src) {
+    img.onload = reveal;
     img.src = src;
+  }
+  if (img.complete && img.naturalWidth > 0) {
+    reveal();
   }
 }
 
