@@ -585,6 +585,18 @@ function renderSizeWithIcon(sizeText) {
   return `<span class="stream-route-size-icon">${SIZE_ICON_SVG}</span>${escapeHtml(sizeText)}`;
 }
 
+// Addons often embed the file size in their bitrate line; strip it (plus one
+// adjacent separator) so the prepended behaviorHints size isn't shown twice.
+// The \b keeps "Mbps"/"GB/s" bitrate tokens intact.
+function stripSizeTokenFromLine(line = "") {
+  return String(line)
+    .replace(/\d+(?:[.,]\d+)?\s*[KMGT]i?B\b(?!\/s)/i, "")
+    .replace(/\s*[•|·]\s*[•|·]\s*/g, " • ")
+    .replace(/^\s*[•|·]\s*/, "")
+    .replace(/\s*[•|·]\s*$/, "")
+    .trim();
+}
+
 function renderStreamHeadline(headline) {
   const escaped = escapeHtml(headline);
   if (NOT_CACHED_TEXT_PATTERN.test(escaped)) {
@@ -1617,7 +1629,7 @@ export const StreamScreen = {
     const sizeMergedIntoBitrateLine = Boolean(sizeText) && bitrateLineIndex !== -1;
     const renderedDescriptionLines = descriptionLines.map((line, lineIndex) => (
       sizeMergedIntoBitrateLine && lineIndex === bitrateLineIndex
-        ? `${renderSizeWithIcon(sizeText)} • ${escapeHtml(line)}`
+        ? `${renderSizeWithIcon(sizeText)} • ${escapeHtml(stripSizeTokenFromLine(line))}`
         : escapeHtml(line)
     ));
     const addonLogoUrl = normalizeAddonLogoUrl(stream.addonLogo) || resolveAddonLogo(stream.addonName, this.addonLogoLookup);
