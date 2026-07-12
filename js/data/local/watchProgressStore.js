@@ -105,9 +105,29 @@ function dedupeAndSort(items = []) {
   );
 }
 
+// Continue Watching and the detail screen call listAll() on every navigation;
+// parsing + deduping the full history (up to 5000 items) each time is measurable
+// on TV. All mutations go through this module, so cache the deduped list and
+// invalidate on write. (Upstream 11fdb24 keys the cache on the raw localStorage
+// string instead, but that misses LocalStore's deferred pending writes.)
+let listAllCache = null;
+
+function loadProgressItems() {
+  if (listAllCache) {
+    return listAllCache;
+  }
+  listAllCache = dedupeAndSort(LocalStore.get(WATCH_PROGRESS_KEY, []));
+  return listAllCache;
+}
+
+function persistProgressItems(items) {
+  LocalStore.set(WATCH_PROGRESS_KEY, items);
+  listAllCache = items;
+}
+
 export const WatchProgressStore = {
   listAll() {
-    return dedupeAndSort(LocalStore.get(WATCH_PROGRESS_KEY, []));
+    return loadProgressItems();
   },
 
   listForProfile(profileId) {
@@ -127,7 +147,7 @@ export const WatchProgressStore = {
       normalized,
       ...items.filter((item) => progressKey(item) !== key)
     ]).slice(0, 5000);
-    LocalStore.set(WATCH_PROGRESS_KEY, next);
+    persistProgressItems(next);
   },
 
   findByContentId(contentId, profileId) {
@@ -151,7 +171,7 @@ export const WatchProgressStore = {
       }
       return String(item.videoId || "") !== wantedVideoId;
     });
-    LocalStore.set(WATCH_PROGRESS_KEY, next);
+    persistProgressItems(next);
   },
 
   replaceForProfile(profileId, items = []) {
@@ -163,6 +183,6 @@ export const WatchProgressStore = {
       .map((item) => normalizeProgress(item, pid))
       .filter((item) => Boolean(item.contentId));
     const next = dedupeAndSort([...normalized, ...keepOtherProfiles]).slice(0, 5000);
-    LocalStore.set(WATCH_PROGRESS_KEY, next);
+    persistProgressItems(next);
   }
 };

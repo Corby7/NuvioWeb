@@ -3,6 +3,8 @@ import { watchProgressRepository } from "../../data/repository/watchProgressRepo
 import { SupabaseApi } from "../../data/remote/supabase/supabaseApi.js";
 import { ProfileManager } from "./profileManager.js";
 import { LocalStore } from "../storage/localStore.js";
+import { TraktAuthStore } from "../../data/local/traktAuthStore.js";
+import { TraktSettingsStore, WatchProgressSource } from "../../data/local/traktSettingsStore.js";
 
 const PULL_RPC = "sync_pull_watch_progress";
 const PUSH_RPC = "sync_push_watch_progress";
@@ -243,6 +245,13 @@ function resolveProfileId() {
   return 1;
 }
 
+// When Trakt is authenticated and selected as the progress source, Trakt owns
+// watch progress — Supabase pull/delete would fight it with stale data.
+function shouldUseSupabaseWatchProgressSync() {
+  const source = TraktSettingsStore.get().watchProgressSource || WatchProgressSource.TRAKT;
+  return !(TraktAuthStore.isAuthenticated() && source === WatchProgressSource.TRAKT);
+}
+
 function toPositiveIntegerOrNull(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) {
@@ -465,6 +474,9 @@ export const WatchProgressSyncService = {
       if (!AuthManager.isAuthenticated) {
         return [];
       }
+      if (!shouldUseSupabaseWatchProgressSync()) {
+        return [];
+      }
       const localItems = await watchProgressRepository.getAll();
       const profileId = resolveProfileId();
       const rows = await SupabaseApi.rpc(PULL_RPC, { p_profile_id: profileId }, true);
@@ -515,6 +527,9 @@ export const WatchProgressSyncService = {
     try {
       if (!AuthManager.isAuthenticated) {
         return false;
+      }
+      if (!shouldUseSupabaseWatchProgressSync()) {
+        return true;
       }
       const keys = buildDeleteKeys(items);
       if (!keys.length) {

@@ -14,6 +14,8 @@ import { ProfileManager } from "./core/profile/profileManager.js";
 import { ProfileSyncService } from "./core/profile/profileSyncService.js";
 import { ProfileSettingsSyncService } from "./core/profile/profileSettingsSyncService.js";
 import { TraktCredentialSyncService } from "./core/profile/traktCredentialSyncService.js";
+import { WatchedItemsSyncService } from "./core/profile/watchedItemsSyncService.js";
+import { WatchProgressSyncService } from "./core/profile/watchProgressSyncService.js";
 import { StartupSyncService } from "./core/profile/startupSyncService.js";
 import { CollectionSyncService } from "./core/profile/collectionSyncService.js";
 import { LibrarySyncService } from "./core/profile/librarySyncService.js";
@@ -278,7 +280,13 @@ async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
     const pullResults = await awaitBootSyncValue(
       Promise.all([
         ProfileSettingsSyncService.pull(activeProfile.id),
-        TraktCredentialSyncService.pullFromRemote(activeProfile.id),
+        // Watched/progress pulls run after the Trakt credential pull so their
+        // Trakt-vs-Supabase source gating sees fresh credentials.
+        TraktCredentialSyncService.pullFromRemote(activeProfile.id).then(async (credentialResult) => {
+          await WatchedItemsSyncService.pull();
+          await WatchProgressSyncService.pull();
+          return credentialResult;
+        }),
         CollectionSyncService.pull(activeProfile.id),
         HomeCatalogSettingsSyncService.pull(activeProfile.id),
         LibrarySyncService.pull()

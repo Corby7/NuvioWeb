@@ -1620,6 +1620,54 @@ export const PlayerController = {
     return Math.max(0, Number(this.video?.duration || 0));
   },
 
+  getBufferedTimeSeconds() {
+    // AVPlay reports buffering-operation progress, not a buffered media
+    // timestamp. Returning no value prevents the UI from presenting that
+    // percentage as playable time.
+    if (this.isUsingAvPlay()) {
+      return null;
+    }
+
+    const video = this.video;
+    const durationSeconds = Number(video?.duration || 0);
+    const currentSeconds = Number(video?.currentTime || 0);
+    const ranges = video?.buffered;
+    if (
+      !ranges
+      || !Number.isFinite(durationSeconds)
+      || durationSeconds <= 0
+      || !Number.isFinite(currentSeconds)
+      || currentSeconds < 0
+    ) {
+      return null;
+    }
+
+    try {
+      const rangeCount = Number(ranges.length || 0);
+      if (!Number.isFinite(rangeCount) || rangeCount <= 0) {
+        return null;
+      }
+      for (let index = 0; index < rangeCount; index += 1) {
+        const startSeconds = Number(ranges.start(index));
+        const endSeconds = Number(ranges.end(index));
+        if (
+          Number.isFinite(startSeconds)
+          && Number.isFinite(endSeconds)
+          && startSeconds >= 0
+          && endSeconds >= startSeconds
+          && startSeconds <= currentSeconds
+          && endSeconds >= currentSeconds
+        ) {
+          return Math.max(0, Math.min(endSeconds, durationSeconds));
+        }
+      }
+    } catch (_) {
+      // TimeRanges can change while it is being read on older TV engines.
+    }
+
+    return null;
+  },
+
   seekToSeconds(targetSeconds) {
     const seconds = Number(targetSeconds || 0);
     if (!Number.isFinite(seconds) || seconds < 0) {
@@ -3285,6 +3333,7 @@ export const PlayerController = {
     this.lastPlaybackErrorCode = 0;
     this.playRequestToken = Number(this.playRequestToken || 0) + 1;
     this.clearPlaybackEngineAttempts();
+    this.avplayFallbackAttempts.clear();
 
     if (this.progressSaveTimer) {
       clearInterval(this.progressSaveTimer);

@@ -3,6 +3,8 @@ import { MAX_PROFILES, ProfileManager } from "../../core/profile/profileManager.
 import { ProfileSyncService } from "../../core/profile/profileSyncService.js";
 import { ProfileSettingsSyncService } from "../../core/profile/profileSettingsSyncService.js";
 import { TraktCredentialSyncService } from "../../core/profile/traktCredentialSyncService.js";
+import { WatchedItemsSyncService } from "../../core/profile/watchedItemsSyncService.js";
+import { WatchProgressSyncService } from "../../core/profile/watchProgressSyncService.js";
 import { StartupSyncService } from "../../core/profile/startupSyncService.js";
 import { CollectionSyncService } from "../../core/profile/collectionSyncService.js";
 import { HomeCatalogSettingsSyncService } from "../../core/profile/homeCatalogSettingsSyncService.js";
@@ -2144,6 +2146,8 @@ export const ProfileSelectionScreen = {
       await TraktCredentialSyncService.pullFromRemote(profileId);
       await CollectionSyncService.pull(profileId);
       await HomeCatalogSettingsSyncService.pull(profileId);
+      await WatchedItemsSyncService.pull();
+      await WatchProgressSyncService.pull();
       await I18n.init();
       ThemeManager.apply();
       I18n.apply();

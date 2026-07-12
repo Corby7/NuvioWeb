@@ -1471,6 +1471,10 @@ function buildSkipIntervalLabel(interval = {}) {
   return t("skip_intro", {}, "Skip Intro");
 }
 
+function getSkipIntervalKey(interval = null) {
+  return interval ? `${interval.type}:${interval.startTime}:${interval.endTime}` : "";
+}
+
 function stripQuotes(value) {
   const text = String(value || "").trim();
   if (text.startsWith("\"") && text.endsWith("\"")) {
@@ -1580,6 +1584,7 @@ export const PlayerScreen = {
     this.startupSubtitlePreferenceApplying = false;
     this.startupAudioPreferenceApplied = false;
     this.startupAudioPreferenceApplying = false;
+    this.startupAudioPreferenceRetryCount = 0;
     this.startupTrackPreferenceReady = false;
     this.trackDialogCache = createTrackDialogCache();
     this.builtInSubtitleCount = 0;
@@ -1652,6 +1657,7 @@ export const PlayerScreen = {
     this.skipIntervals = [];
     this.activeSkipInterval = null;
     this.skipIntervalDismissed = false;
+    this.skipIntroSuppressedKey = "";
     this.skipIntroAutoHidden = false;
     this.skipIntroCountdownProgress = 0;
     this.skipIntroCountdownLastTickAt = 0;
@@ -2040,6 +2046,7 @@ export const PlayerScreen = {
       this.skipIntervals = [];
       this.activeSkipInterval = null;
       this.skipIntervalDismissed = false;
+      this.skipIntroSuppressedKey = "";
       this.skipIntroAutoHidden = false;
       this.skipIntroCountdownProgress = 0;
       this.skipIntroCountdownLastTickAt = Date.now();
@@ -2053,6 +2060,7 @@ export const PlayerScreen = {
       this.skipIntervals = [];
       this.activeSkipInterval = null;
       this.skipIntervalDismissed = false;
+      this.skipIntroSuppressedKey = "";
       this.skipIntroAutoHidden = false;
       this.skipIntroCountdownProgress = 0;
       this.skipIntroCountdownLastTickAt = Date.now();
@@ -2067,6 +2075,7 @@ export const PlayerScreen = {
     }
     this.skipIntervals = Array.isArray(intervals) ? intervals : [];
     this.skipIntervalDismissed = false;
+    this.skipIntroSuppressedKey = "";
     this.skipIntroAutoHidden = false;
     this.skipIntroCountdownProgress = 0;
     this.skipIntroCountdownLastTickAt = Date.now();
@@ -2077,13 +2086,29 @@ export const PlayerScreen = {
 
   updateActiveSkipInterval(currentTime = this.getPlaybackCurrentSeconds()) {
     const previous = this.activeSkipInterval;
-    const active = (Array.isArray(this.skipIntervals) ? this.skipIntervals : []).find((interval) => {
+    let active = (Array.isArray(this.skipIntervals) ? this.skipIntervals : []).find((interval) => {
       const start = Number(interval?.startTime);
       const end = Number(interval?.endTime);
       return Number.isFinite(start) && Number.isFinite(end) && currentTime >= start && currentTime < end;
     }) || null;
-    const previousKey = previous ? `${previous.type}:${previous.startTime}:${previous.endTime}` : "";
-    const nextKey = active ? `${active.type}:${active.startTime}:${active.endTime}` : "";
+    // After "Skip intro" seeks past the interval, currentTime can keep reporting
+    // inside it until the seek settles — don't let the button pop back up.
+    const candidateKey = getSkipIntervalKey(active);
+    const suppressedKey = String(this.skipIntroSuppressedKey || "");
+    if (candidateKey && candidateKey === suppressedKey) {
+      const activeEnd = Number(active?.endTime);
+      const stillInsideSuppressedInterval = Number.isFinite(activeEnd)
+        && Number(currentTime) < (activeEnd - 0.5);
+      if (stillInsideSuppressedInterval) {
+        active = null;
+      } else {
+        this.skipIntroSuppressedKey = "";
+      }
+    } else if (suppressedKey && (!candidateKey || candidateKey !== suppressedKey)) {
+      this.skipIntroSuppressedKey = "";
+    }
+    const previousKey = getSkipIntervalKey(previous);
+    const nextKey = getSkipIntervalKey(active);
     if (previousKey !== nextKey) {
       this.skipIntervalDismissed = false;
       this.skipIntroAutoHidden = false;
@@ -2391,8 +2416,10 @@ export const PlayerScreen = {
     if (!this.activeSkipInterval) {
       return false;
     }
-    const targetTime = Number(this.activeSkipInterval.endTime || 0) + 0.25;
-    this.seekPlaybackSeconds(targetTime);
+    const interval = this.activeSkipInterval;
+    const targetTime = Number(interval.endTime || 0) + 0.25;
+    this.skipIntroSuppressedKey = getSkipIntervalKey(interval);
+    this.seekPlaybackSeconds(targetTime, { preserveSkipIntroSuppression: true });
     this.skipIntervalDismissed = false;
     this.activeSkipInterval = null;
     this.skipIntroAutoHidden = false;
@@ -2904,7 +2931,20 @@ export const PlayerScreen = {
         const type = String(track?.type || track?.track || track?.codecType || "").toLowerCase();
         return type === "text" || type === "subtitle";
       })
-      .filter((track) => !UNSUPPORTED_EMBEDDED_SUBTITLE_CODECS.has(String(track?.codec || "").trim().toUpperCase()))
+      .filter((track) => {
+        const codec = String(track?.codec || "").trim().toUpperCase();
+        if (UNSUPPORTED_EMBEDDED_SUBTITLE_CODECS.has(codec)) {
+          // TEMP bitmap-subs audit: surface how often bitmap subtitle tracks
+          // get hidden, to decide whether porting the VobSub decoder is worth it.
+          console.info("[bitmap-subs-audit] hiding embedded subtitle track", {
+            codec,
+            language: String(getTrackLanguageValue(track) || "").trim(),
+            label: getMeaningfulTrackLabel(track) || ""
+          });
+          return false;
+        }
+        return true;
+      })
       .map((track, index) => {
         const sourceTrackId = Number(track?.id);
         const rawLanguage = getTrackLanguageValue(track);
@@ -3702,6 +3742,7 @@ export const PlayerScreen = {
             <div class="player-controls-bar">
               <div id="playerProgressShell" class="player-progress-shell focusable" tabindex="-1" data-player-pointer-action="progress">
                 <div class="player-progress-track">
+                  <div id="playerProgressBuffered" class="player-progress-buffered"></div>
                   <div id="playerProgressFill" class="player-progress-fill"></div>
                 </div>
               </div>
@@ -3764,11 +3805,14 @@ export const PlayerScreen = {
       progressShell: uiRoot.querySelector("#playerProgressShell"),
       clock: uiRoot.querySelector("#playerClock"),
       endsAt: uiRoot.querySelector("#playerEndsAt"),
+      progressBuffered: uiRoot.querySelector("#playerProgressBuffered"),
       progressFill: uiRoot.querySelector("#playerProgressFill"),
       controlButtons: uiRoot.querySelector("#playerControlButtons"),
       timeLabel: uiRoot.querySelector("#playerTimeLabel")
     } : null;
     this.lastUiTickState = {
+      bufferedVisible: false,
+      bufferedWidth: "",
       progressWidth: "",
       clockText: "",
       clockMinuteKey: "",
@@ -5306,6 +5350,10 @@ export const PlayerScreen = {
       this.schedulePauseOverlay();
     };
 
+    const onProgress = () => {
+      this.updateUiTick();
+    };
+
     const onTimeUpdate = () => {
       if (
         isTizenAvPlayPlayback()
@@ -5532,6 +5580,7 @@ export const PlayerScreen = {
       ["playing", onPlaying],
       ["error", onError],
       ["pause", onPause],
+      ["progress", onProgress],
       ["timeupdate", onTimeUpdate],
       ["loadedmetadata", onLoadedMetadata],
       ["loadeddata", onPlayable],
@@ -5833,12 +5882,38 @@ export const PlayerScreen = {
     if ((!this.hasPresentedPlaybackFrame && !avplayReadyBehindGate && !nativeReadyBehindGate) || this.pendingPlaybackRestore) {
       return false;
     }
-    return !this.trackDiscoveryInProgress
+    // Hold the loading gate until the preferred audio language is actually
+    // applied — releasing earlier makes playback start on the wrong track and
+    // audibly switch a moment later. If no audio tracks surfaced, there is
+    // nothing to wait for.
+    const audioPreferenceSettled = Boolean(this.startupAudioPreferenceApplied)
+      || (!this.startupAudioPreferenceApplying && !this.hasAudioTracksAvailable());
+    return audioPreferenceSettled
+      && !this.trackDiscoveryInProgress
       && !this.subtitleLoading
       && !this.embeddedSubtitleLoading
       && !this.manifestLoading
       && !this.startupAudioPreferenceApplying
       && !this.startupSubtitlePreferenceApplying;
+  },
+
+  retryStartupAudioPreferenceIfPending() {
+    if (
+      !this.startupTrackPreferenceReady
+      || this.startupAudioPreferenceApplied
+      || this.startupAudioPreferenceApplying
+    ) {
+      return;
+    }
+    const attempts = Number(this.startupAudioPreferenceRetryCount || 0);
+    if (attempts >= 20) {
+      // Preference never verified (e.g. a native selection that won't confirm) —
+      // don't hold the loading gate hostage, start with the active track.
+      this.startupAudioPreferenceApplied = true;
+      return;
+    }
+    this.startupAudioPreferenceRetryCount = attempts + 1;
+    this.applyStartupAudioPreference();
   },
 
   scheduleLoadingCompletionCheck(delayMs = 250) {
@@ -5852,6 +5927,7 @@ export const PlayerScreen = {
         return;
       }
       if (!this.isPlaybackStartupSettled()) {
+        this.retryStartupAudioPreferenceIfPending();
         this.scheduleLoadingCompletionCheck(250);
         return;
       }
@@ -5891,6 +5967,14 @@ export const PlayerScreen = {
     return Number(PlayerController.video?.duration || 0);
   },
 
+  getPlaybackBufferedSeconds() {
+    if (typeof PlayerController.getBufferedTimeSeconds !== "function") {
+      return null;
+    }
+    const bufferedSeconds = PlayerController.getBufferedTimeSeconds();
+    return bufferedSeconds == null ? null : Number(bufferedSeconds);
+  },
+
   hasKnownPlaybackDuration() {
     const durationSeconds = Number(this.getPlaybackDurationSeconds() || 0);
     return Number.isFinite(durationSeconds) && durationSeconds > 0;
@@ -5906,7 +5990,10 @@ export const PlayerScreen = {
       && currentSeconds > 0.2;
   },
 
-  seekPlaybackSeconds(seconds) {
+  seekPlaybackSeconds(seconds, { preserveSkipIntroSuppression = false } = {}) {
+    if (!preserveSkipIntroSuppression) {
+      this.skipIntroSuppressedKey = "";
+    }
     // Mark user-initiated seeks so the player can stay responsive while it settles.
     this.seekLoading = true;
     if (typeof PlayerController.seekToSeconds === "function") {
@@ -6121,6 +6208,25 @@ export const PlayerScreen = {
     const progress = duration > 0 ? clamp(effectiveProgressSeconds / duration, 0, 1) : 0;
     const uiRefs = this.uiRefs || {};
     const uiState = this.lastUiTickState || (this.lastUiTickState = {});
+    const progressBuffered = uiRefs.progressBuffered;
+    if (progressBuffered) {
+      const bufferedSeconds = this.getPlaybackBufferedSeconds();
+      const bufferedVisible = Number.isFinite(bufferedSeconds)
+        && duration > 0
+        && bufferedSeconds > current + 0.25;
+      const bufferedProgress = bufferedVisible
+        ? clamp(bufferedSeconds / duration, 0, 1)
+        : 0;
+      const nextBufferedWidth = `${Math.round(bufferedProgress * 10000) / 100}%`;
+      if (uiState.bufferedWidth !== nextBufferedWidth) {
+        progressBuffered.style.width = nextBufferedWidth;
+        uiState.bufferedWidth = nextBufferedWidth;
+      }
+      if (uiState.bufferedVisible !== bufferedVisible) {
+        progressBuffered.classList.toggle("is-visible", bufferedVisible);
+        uiState.bufferedVisible = bufferedVisible;
+      }
+    }
     const progressFill = uiRefs.progressFill;
     if (progressFill) {
       const nextWidth = `${Math.round(progress * 10000) / 100}%`;
@@ -6619,6 +6725,7 @@ export const PlayerScreen = {
     this.startupSubtitlePreferenceApplying = false;
     this.startupAudioPreferenceApplied = false;
     this.startupAudioPreferenceApplying = false;
+    this.startupAudioPreferenceRetryCount = 0;
     this.startupTrackPreferenceReady = false;
     this.builtInSubtitleCount = 0;
     this.embeddedSubtitleTracks = [];
@@ -7603,16 +7710,33 @@ export const PlayerScreen = {
   },
 
   mergeEmbeddedAudioTrackMetadata(track, index) {
-    const embeddedTrack = this.getEmbeddedAudioTrack(index);
+    let embeddedTrack = this.getEmbeddedAudioTrack(index);
     if (!embeddedTrack) {
       return track;
     }
+    // If the native track carries an explicit language that disagrees with the
+    // embedded track at the same index, the index mapping is off — rematch by
+    // language so the dialog doesn't label tracks with the wrong metadata.
+    const explicitLanguage = normalizeTrackLanguageCode(track?.language || track?.lang || "");
+    let embeddedLanguage = normalizeTrackLanguageCode(embeddedTrack?.language || embeddedTrack?.lang || "");
+    if (explicitLanguage && embeddedLanguage && explicitLanguage !== embeddedLanguage) {
+      const languageMatchedTrack = (this.embeddedAudioTracks || []).find((candidate) => (
+        normalizeTrackLanguageCode(candidate?.language || candidate?.lang || "") === explicitLanguage
+      ));
+      if (languageMatchedTrack) {
+        embeddedTrack = languageMatchedTrack;
+        embeddedLanguage = normalizeTrackLanguageCode(embeddedTrack?.language || embeddedTrack?.lang || "");
+      }
+    }
+    const embeddedLabel = cleanDisplayText(embeddedTrack.label);
+    const trackLabel = cleanDisplayText(track?.label || track?.name);
+    const useEmbeddedLabel = Boolean(embeddedLabel && (!explicitLanguage || !embeddedLanguage || explicitLanguage === embeddedLanguage));
     return {
       ...track,
-      label: cleanDisplayText(embeddedTrack.label) || track?.label || track?.name || "",
-      name: cleanDisplayText(track?.name || embeddedTrack.label) || track?.name || "",
-      language: embeddedTrack.language || track?.language || track?.lang || "",
-      lang: embeddedTrack.lang || track?.lang || track?.language || "",
+      label: useEmbeddedLabel ? embeddedLabel : trackLabel || "",
+      name: cleanDisplayText(track?.name || (useEmbeddedLabel ? embeddedLabel : "")) || track?.name || "",
+      language: track?.language || track?.lang || embeddedTrack?.language || embeddedTrack?.lang || "",
+      lang: track?.lang || track?.language || embeddedTrack?.lang || embeddedTrack?.language || "",
       codec: embeddedTrack.codec || track?.codec || track?.audioCodec || "",
       audioCodec: embeddedTrack.audioCodec || track?.audioCodec || track?.codec || "",
       channels: embeddedTrack.channels || track?.channels || track?.channelCount || "",
@@ -7623,18 +7747,32 @@ export const PlayerScreen = {
 
   mergeAvPlayAudioTrackMetadata(track, index) {
     const avplayTrackIndex = Number(track?.avplayTrackIndex);
-    const embeddedTrack = this.getEmbeddedAudioTrackByNativeIndex(
+    let embeddedTrack = this.getEmbeddedAudioTrackByNativeIndex(
       Number.isFinite(avplayTrackIndex) ? avplayTrackIndex : index
     );
     if (!embeddedTrack) {
       return track;
     }
+    const explicitLanguage = normalizeTrackLanguageCode(track?.language || track?.lang || "");
+    let embeddedLanguage = normalizeTrackLanguageCode(embeddedTrack?.language || embeddedTrack?.lang || "");
+    if (explicitLanguage && embeddedLanguage && explicitLanguage !== embeddedLanguage) {
+      const languageMatchedTrack = (this.embeddedAudioTracks || []).find((candidate) => (
+        normalizeTrackLanguageCode(candidate?.language || candidate?.lang || "") === explicitLanguage
+      ));
+      if (languageMatchedTrack) {
+        embeddedTrack = languageMatchedTrack;
+        embeddedLanguage = normalizeTrackLanguageCode(embeddedTrack?.language || embeddedTrack?.lang || "");
+      }
+    }
+    const embeddedLabel = cleanDisplayText(embeddedTrack.label);
+    const trackLabel = cleanDisplayText(track?.label || track?.name);
+    const useEmbeddedLabel = Boolean(embeddedLabel && (!explicitLanguage || !embeddedLanguage || explicitLanguage === embeddedLanguage));
     return {
       ...track,
-      label: cleanDisplayText(embeddedTrack.label) || track?.label || track?.name || "",
-      name: cleanDisplayText(track?.name || embeddedTrack.label) || track?.name || "",
-      language: embeddedTrack.language || track?.language || track?.lang || "",
-      lang: embeddedTrack.lang || track?.lang || track?.language || "",
+      label: useEmbeddedLabel ? embeddedLabel : trackLabel || "",
+      name: cleanDisplayText(track?.name || (useEmbeddedLabel ? embeddedLabel : "")) || track?.name || "",
+      language: track?.language || track?.lang || embeddedTrack?.language || embeddedTrack?.lang || "",
+      lang: track?.lang || track?.language || embeddedTrack?.lang || embeddedTrack?.language || "",
       codec: embeddedTrack.codec || track?.codec || track?.audioCodec || "",
       audioCodec: embeddedTrack.audioCodec || track?.audioCodec || track?.codec || "",
       channels: embeddedTrack.channels || track?.channels || track?.channelCount || "",
@@ -12084,6 +12222,9 @@ export const PlayerScreen = {
     this.nextEpisodeTransitionMeta = null;
     this.streamCandidatesByVideoId?.clear?.();
     this.streamCandidatesLoadPromises?.clear?.();
+    this.failedPlaybackUrls?.clear?.();
+    this.failedPlaybackStreamIds?.clear?.();
+    this.skipIntroSuppressedKey = "";
     this.skipIntervalsRequestToken = Number(this.skipIntervalsRequestToken || 0) + 1;
     this.subtitleLoadToken = (this.subtitleLoadToken || 0) + 1;
     this.manifestLoadToken = (this.manifestLoadToken || 0) + 1;
