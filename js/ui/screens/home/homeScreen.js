@@ -7151,7 +7151,17 @@ export const HomeScreen = {
     if (this.hasLoadedOnce && Array.isArray(this.rows) && this.rows.length) {
       this.homeLoadToken = (this.homeLoadToken || 0) + 1;
       this.render();
-      this.loadData({ background: true }).catch((error) => {
+      // warmStart: true is required here, not optional — without it loadData's
+      // mergedInitialRows collapses to just the freshly-fetched initial catalog
+      // batch (getInitialCatalogLoadCount(), ~4-5 rows), silently dropping every
+      // already-loaded "deferred" row (everything below that) from this.rows for
+      // the ~1-2s this background refresh takes. If focus was restored into one
+      // of those now-missing rows, the follow-up render() (loadData always calls
+      // render() again on completion, background or not) can't find that row's
+      // section in the DOM, falls through to the generic first-focusable
+      // fallback, and focus jumps to Continue Watching until the deferred batch
+      // re-populates — the exact "flickers to Continue Watching" back-nav bug.
+      this.loadData({ background: true, warmStart: true }).catch((error) => {
         console.warn("Home background refresh failed", error);
       });
       return;
