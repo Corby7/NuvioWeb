@@ -27,7 +27,7 @@ import {
   MODERN_HOME_CONSTANTS,
   renderModernHomeLayout
 } from "./modernHomeLayout.js";
-import { optimizePosterUrl, optimizeBackdropUrl, optimizeLogoUrl, setPosterLoadsPaused } from "./posterLoader.js";
+import { optimizePosterUrl, optimizeBackdropUrl, optimizeCardBackdropUrl, optimizeLogoUrl, setPosterLoadsPaused } from "./posterLoader.js";
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
@@ -68,7 +68,7 @@ const HOME_ROW_TIMEOUT_MS = 3500;
 const HOME_ROW_RETRY_TIMEOUT_MS = 12000;
 const HOME_BACKGROUND_RENDER_DELAY_MS = 120;
 const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;
-const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 400;
+const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 600;
 const CW_META_TIMEOUT_MS = 1800;
 const CW_META_TIMEOUT_TV_MS = 4200;
 const CW_NEXT_UP_META_TIMEOUT_MS = 2200;
@@ -241,7 +241,15 @@ const trackTransformPositions = new WeakMap();
 const trackWindowUpdateTimers = new WeakMap();
 const trackLayerDemoteTimers = new WeakMap();
 const TRACK_WINDOW_UPDATE_DELAY_MS = 80;
-const TRACK_LAYER_DEMOTE_DELAY_MS = 400;
+// How long a track inner keeps its compositor layer after the last movement.
+// Demoting destroys the layer's rastered tiles; at 400ms every d-pad press
+// re-rastered the row from scratch and newly exposed cards painted black for
+// several frames (verified on the C3: DOM/img state was fully ready — the gap
+// was tile raster). 6s lets tiles accumulate across a browsing burst and lets
+// Chromium pre-raster the rest of the row during dwell; the (expensive,
+// row-wide) demote commit then runs at idle instead of mid-interaction. Cost:
+// ~10MB GPU per recently-scrolled row for 6s.
+const TRACK_LAYER_DEMOTE_DELAY_MS = 6000;
 const TRACK_WINDOW_MIN_CARDS = 7;
 const DETAIL_PREFETCH_DWELL_MS = 300;
 const HOME_SNAPSHOT_KEY_PREFIX = "nuvio.homeSnapshot.";
@@ -281,6 +289,49 @@ function getTrackMaxScrollPx(track) {
   return Math.max(0, inner.offsetWidth + padLeft + padRight - (track.clientWidth || 0));
 }
 
+// Promote the inner to a compositor layer (and refresh the demote timer).
+// Called from movement ticks ONLY — do not promote speculatively on row focus
+// changes: a dwell-promotion variant demote-chained row-wide layers during
+// vertical browsing and, combined with the cold-boot decode storm, wedged the
+// C3's renderer outright (evaluate stopped responding until app relaunch).
+//
+// STRICTLY ONE promoted track at a time: row inners are ~5300px wide (~10MB
+// of GPU tiles each); with the long demote delay, horizontally browsing a few
+// rows in succession would otherwise pin them all. Promoting a new track
+// demotes the previous one immediately.
+let promotedTrackNode = null;
+
+function demoteTrackLayer(track) {
+  if (!track) {
+    return;
+  }
+  clearTimeout(trackLayerDemoteTimers.get(track));
+  trackLayerDemoteTimers.delete(track);
+  track.classList.remove("is-track-animating");
+  if (promotedTrackNode === track) {
+    promotedTrackNode = null;
+  }
+}
+
+function promoteTrackLayer(track) {
+  if (!getTrackInnerNode(track)) {
+    return;
+  }
+  if (promotedTrackNode && promotedTrackNode !== track) {
+    demoteTrackLayer(promotedTrackNode);
+  }
+  promotedTrackNode = track;
+  track.classList.add("is-track-animating");
+  clearTimeout(trackLayerDemoteTimers.get(track));
+  trackLayerDemoteTimers.set(track, setTimeout(() => {
+    trackLayerDemoteTimers.delete(track);
+    if (promotedTrackNode === track) {
+      promotedTrackNode = null;
+    }
+    track.classList.remove("is-track-animating");
+  }, TRACK_LAYER_DEMOTE_DELAY_MS));
+}
+
 function applyTrackTransformPx(track, px) {
   const inner = getTrackInnerNode(track);
   if (!inner) {
@@ -288,12 +339,7 @@ function applyTrackTransformPx(track, px) {
     return;
   }
   trackTransformPositions.set(track, px);
-  track.classList.add("is-track-animating");
-  clearTimeout(trackLayerDemoteTimers.get(track));
-  trackLayerDemoteTimers.set(track, setTimeout(() => {
-    trackLayerDemoteTimers.delete(track);
-    track.classList.remove("is-track-animating");
-  }, TRACK_LAYER_DEMOTE_DELAY_MS));
+  promoteTrackLayer(track);
   inner.style.transform = px ? `translateX(-${px}px)` : "";
   scheduleTrackVirtualWindowUpdate(track);
 }
@@ -333,9 +379,16 @@ function updateTrackVirtualWindow(track, { targetScrollLeft = null } = {}) {
   const target = Number.isFinite(targetScrollLeft) ? Number(targetScrollLeft) : current;
   // Positions are normalized to the first card, so the window tolerates the
   // track's left padding; the buffer absorbs that slack many times over.
-  const bufferPx = Math.max(600, Math.round(viewportWidth * 0.35));
+  const bufferPx = Math.max(900, Math.round(viewportWidth * 0.5));
   const windowStart = Math.min(current, target) - bufferPx;
   const windowEnd = Math.max(current, target) + viewportWidth + bufferPx;
+  // Stub hysteresis: only re-stub cards a full viewport beyond the unstub
+  // window. Stubbing at the window edge churned the same edge cards on every
+  // press — content-visibility: hidden drops the decoded bitmap, so the next
+  // press unstubbed them just-in-time and the async re-decode landed after
+  // the card was already on screen, popping in from the dark frame.
+  const stubStart = windowStart - viewportWidth;
+  const stubEnd = windowEnd + viewportWidth;
 
   // Read pass — no writes until every card's geometry is captured.
   const firstLeft = cards[0].offsetLeft;
@@ -351,7 +404,8 @@ function updateTrackVirtualWindow(track, { targetScrollLeft = null } = {}) {
         toUnstub.push(card);
       }
     } else if (
-      !isStub
+      ((left + width) < stubStart || left > stubEnd)
+      && !isStub
       && !card.classList.contains("focused")
       && !card.classList.contains("is-expanded")
     ) {
@@ -367,6 +421,14 @@ function updateTrackVirtualWindow(track, { targetScrollLeft = null } = {}) {
     card.classList.remove("is-row-stub");
     card.style.width = "";
     card.style.height = "";
+    // Unstubbing restores paint, but the poster's decode would otherwise wait
+    // for the first paint attempt mid-tween; kick it now so the bitmap is
+    // ready before the card scrolls into view. decode() rejects on aborted
+    // loads — ignore, the normal paint path handles it.
+    const poster = card.querySelector(".content-poster");
+    if (poster instanceof HTMLImageElement && poster.src && typeof poster.decode === "function") {
+      poster.decode().catch(() => {});
+    }
   }
   for (const { card, width, height } of toStub) {
     // content-visibility: hidden applies size containment, so pin the box to
@@ -500,6 +562,25 @@ function preloadImageSource(src) {
   });
 }
 
+// Remove hero backdrop transition overlays; a visible (crossfaded-in) overlay
+// fades back out first so a URL mismatch between overlay and main backdrop
+// (e.g. enrichment landed a different image) softens into a crossfade instead
+// of a hard pop.
+function fadeOutHeroOverlays(scope) {
+  scope?.querySelectorAll?.(".home-hero-backdrop-transition-overlay").forEach((node) => {
+    if (node.classList.contains("is-visible")) {
+      // is-fading-out exempts the node from the instant cleanups that target
+      // not-yet-visible overlays, so the fade isn't cut short by a new swap.
+      node.classList.add("is-fading-out");
+      node.classList.remove("is-visible");
+      setTimeout(() => node.remove(), HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS + 50);
+    } else if (!node.classList.contains("is-fading-out")) {
+      node.remove();
+    }
+  });
+  scope?.querySelectorAll?.(".home-hero-backdrop-transition-ghost").forEach((node) => node.remove());
+}
+
 function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
   if (!(backdrop instanceof HTMLImageElement)) {
     return;
@@ -515,7 +596,7 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
   // Visible overlays (is-visible) stay in place — they cover the old backdrop and must not be
   // removed until the new overlay is confirmed ready. The new finalize() removes all at once.
   const clearPendingOverlays = () => {
-    backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-overlay:not(.is-visible)")?.forEach((node) => node.remove());
+    backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-overlay:not(.is-visible):not(.is-fading-out)")?.forEach((node) => node.remove());
     backdrop.parentElement?.querySelectorAll?.(".home-hero-backdrop-transition-ghost")?.forEach((node) => node.remove());
     backdrop.classList.remove("home-hero-backdrop-transition-enter", "is-visible");
   };
@@ -573,7 +654,24 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
     backdrop.setAttribute("src", normalizedSrc);
     backdrop.setAttribute("alt", normalizedAlt);
     backdrop.classList.remove("placeholder");
-    removeAllOverlays();
+    // Setting src is async even from cache — the img keeps displaying its old
+    // bitmap until the new one commits. Removing the overlay in the same task
+    // flashed that stale (previous hero's) bitmap for a frame or two. Gate the
+    // removal on the backdrop having actually loaded the new src.
+    const done = () => {
+      if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
+        return;
+      }
+      removeAllOverlays();
+    };
+    if (!backdrop.complete && typeof backdrop.decode === "function") {
+      Promise.race([
+        backdrop.decode().catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, MODERN_HOME_CONSTANTS.heroSwapDecodeTimeoutMs))
+      ]).then(() => requestAnimationFrame(done));
+    } else {
+      requestAnimationFrame(done);
+    }
   };
 
   const reveal = () => {
@@ -2181,7 +2279,9 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
   const posterSrc = useLandscapePoster
     ? landscapeVisualSrc
     : firstNonEmpty(normalized.poster, normalized.thumbnail, preferredLandscapePosterSrc, normalized.backdrop, normalized.backdropUrl);
-  const expandedVisualSrc = firstNonEmpty(backdropSrc, posterSrc);
+  // Expanded reveal is ~620px wide — size the backdrop to it. Addon URLs come
+  // through raw and are frequently TMDB /original (multi-megapixel).
+  const expandedVisualSrc = optimizeCardBackdropUrl(firstNonEmpty(backdropSrc, posterSrc));
   const expandedClass = isExpanded ? " is-expanded" : "";
   const landscapeClass = useLandscapePoster ? " is-landscape" : "";
   const focusableClass = isLoading ? "" : " focusable";
@@ -2214,13 +2314,13 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
         <div class="home-poster-expanded-gradient"></div>
         <div class="home-poster-expanded-brand">
           ${(!isLoading && normalized.logo)
-      ? `<img class="home-poster-expanded-logo" data-src="${escapeAttribute(normalized.logo)}" decoding="async" loading="lazy" fetchpriority="low" alt="${escapeAttribute(normalized.name || "content")}" />`
+      ? `<img class="home-poster-expanded-logo" data-src="${escapeAttribute(optimizeLogoUrl(normalized.logo))}" decoding="async" loading="lazy" fetchpriority="low" alt="${escapeAttribute(normalized.name || "content")}" />`
       : `<div class="home-poster-expanded-title">${escapeHtml(normalized.name || "Untitled")}</div>`}
         </div>
         ${(!isLoading && useLandscapePoster && !suppressPosterText) ? `
           <div class="home-poster-landscape-copy" aria-hidden="true">
             ${normalized.logo
-      ? `<img class="home-poster-landscape-logo" src="${escapeAttribute(normalized.logo)}" decoding="async" ${posterLoadAttr} alt="" />`
+      ? `<img class="home-poster-landscape-logo" src="${escapeAttribute(optimizeLogoUrl(normalized.logo))}" decoding="async" ${posterLoadAttr} alt="" />`
       : `<div class="home-poster-landscape-title">${escapeHtml(normalized.name || "Untitled")}</div>`}
             ${subtitle ? `<div class="home-poster-landscape-subtitle">${escapeHtml(subtitle)}</div>` : ""}
           </div>
@@ -3324,6 +3424,9 @@ export const HomeScreen = {
   },
 
   cancelPendingHeroFocus() {
+    // A press-time copy clear whose commit will never run (focus left, or a
+    // new schedule re-adds it right after) must not leave the copy hidden.
+    this.container?.querySelector(".home-hero-card")?.classList?.remove("is-hero-copy-clearing");
     if (this.heroFocusDelayTimer) {
       clearTimeout(this.heroFocusDelayTimer);
       this.heroFocusDelayTimer = null;
@@ -3335,6 +3438,26 @@ export const HomeScreen = {
     if (this.heroCopyOverlayCleanupTimer) {
       clearTimeout(this.heroCopyOverlayCleanupTimer);
       this.heroCopyOverlayCleanupTimer = null;
+    }
+    if (this.heroCrossfadeCommitTimer) {
+      // A crossfade started but its backdrop commit will never run. The copy
+      // committed at schedule time, so finish the backdrop forward — copy and
+      // backdrop must not disagree (the overlay is at/near full opacity, so
+      // the direct src flip underneath is invisible).
+      clearTimeout(this.heroCrossfadeCommitTimer);
+      this.heroCrossfadeCommitTimer = null;
+      const heroNode = this.container?.querySelector(".home-hero-card");
+      if (heroNode) {
+        const mainBackdrop = heroNode.querySelector(".home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
+        const visibleOverlay = heroNode.querySelector(".home-hero-backdrop-transition-overlay.is-visible");
+        const targetSrc = String(visibleOverlay?.getAttribute("src") || "");
+        if (mainBackdrop instanceof HTMLImageElement && targetSrc) {
+          mainBackdrop.setAttribute("src", targetSrc);
+          mainBackdrop.setAttribute("alt", visibleOverlay.getAttribute("alt") || "featured");
+          mainBackdrop.classList.remove("placeholder");
+        }
+        heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+      }
     }
   },
 
@@ -3368,7 +3491,7 @@ export const HomeScreen = {
     this.applyHeroToDom();
   },
 
-  applyHeroToDom() {
+  applyHeroToDom({ skipBackdrop = false } = {}) {
     const heroNode = this.container?.querySelector(".home-hero-card");
     if (!heroNode) {
       return;
@@ -3392,9 +3515,20 @@ export const HomeScreen = {
     const isHiding = heroNode.classList.contains("is-hero-copy-updating");
     const backdrop = heroNode.querySelector(".home-hero-backdrop");
 
-    if (backdrop) {
+    if (backdrop && !skipBackdrop) {
       const src = display.backdrop || "";
-      if (isHiding && backdrop instanceof HTMLImageElement) {
+      // A scheduled swap's crossfade overlay may already be showing exactly
+      // this image, with its commit timer set to flip the main src — starting
+      // a duplicate two-layer transition here (e.g. from the enrichment pass)
+      // would only churn overlays and defer the cleanup.
+      const pendingOverlay = heroNode.querySelector(".home-hero-backdrop-transition-overlay.is-visible");
+      const pendingOverlayOwnsSrc = Boolean(src)
+        && Boolean(pendingOverlay)
+        && String(pendingOverlay.getAttribute("src") || "") === src
+        && Boolean(this.heroCrossfadeCommitTimer);
+      if (pendingOverlayOwnsSrc) {
+        backdrop.setAttribute("alt", display.title || "featured");
+      } else if (isHiding && backdrop instanceof HTMLImageElement) {
         // GPU texture was pre-warmed during the focus delay via the early DOM overlay created in
         // scheduleModernHeroUpdate. Direct swap is safe — overlay removal happens in heroCopyFadeInRaf
         // alongside is-hero-copy-updating removal, so there's no gap between overlay and backdrop.
@@ -3429,8 +3563,12 @@ export const HomeScreen = {
 
     const logoNode = heroNode.querySelector(".home-hero-logo");
     const brandNode = heroNode.querySelector(".home-hero-brand");
+    // The press-time clear also counts as hidden: routing the logo through the
+    // async crossfade while the copy is about to fade back in left the OLD
+    // hero's logo visible for the frames the preload/ghost machinery needs.
+    const isCopyHidden = isHiding || heroNode.classList.contains("is-hero-copy-clearing");
     if (display.logo) {
-      if (isHiding) {
+      if (isCopyHidden) {
         // Parent is invisible — skip crossfade, swap directly
         if (logoNode instanceof HTMLImageElement) {
           logoNode.heroLogoTransitionToken = (Number(logoNode.heroLogoTransitionToken) || 0) + 1;
@@ -3438,6 +3576,11 @@ export const HomeScreen = {
           logoNode.classList.remove("home-hero-logo-transition-enter", "is-visible");
           logoNode._heroLogoOrigSrc = display.logo;
           logoNode.style.display = "";
+          if (String(logoNode.getAttribute("src") || "") !== String(display.logo)) {
+            // An img keeps painting its previous bitmap while a new src loads —
+            // drop it first so an uncached logo shows blank, never the old one.
+            logoNode.removeAttribute("src");
+          }
           logoNode.setAttribute("src", display.logo);
           logoNode.setAttribute("alt", display.title || "logo");
           applyLogoTrim(logoNode);
@@ -3515,27 +3658,53 @@ export const HomeScreen = {
     if (!hero?.heroMetaEnriching) {
       this.heroCopyFadeInRaf = requestAnimationFrame(() => {
         this.heroCopyFadeInRaf = null;
-        // Add the reveal animation BEFORE removing is-hero-copy-updating so it's
-        // active the moment the opacity:0 !important constraint lifts. CSS animations
-        // are reliable across WebOS versions unlike transition-on-class-removal.
+        if (!heroNode.classList.contains("is-hero-copy-updating")) {
+          // Nothing was hidden — running the reveal anyway would animate the
+          // visible backdrop from opacity 0 (a blink).
+          return;
+        }
         const mainBackdrop = heroNode.querySelector(".home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
-        if (mainBackdrop instanceof HTMLElement) {
-          mainBackdrop.classList.add("home-hero-backdrop-revealing");
-        }
-        heroNode.classList.remove("is-hero-copy-updating");
-        // Keep the overlay visible for the full 400ms so the fading-in backdrop
-        // is never exposed at partial opacity (which would flash dark).
-        if (this.heroCopyOverlayCleanupTimer) {
-          clearTimeout(this.heroCopyOverlayCleanupTimer);
-        }
-        this.heroCopyOverlayCleanupTimer = setTimeout(() => {
-          this.heroCopyOverlayCleanupTimer = null;
-          if (!heroNode.isConnected) return;
-          heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
-          if (mainBackdrop instanceof HTMLElement) {
-            mainBackdrop.classList.remove("home-hero-backdrop-revealing");
+        const startReveal = () => {
+          if (!heroNode.isConnected) {
+            return;
           }
-        }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS + 50);
+          // Add the reveal animation BEFORE removing is-hero-copy-updating so it's
+          // active the moment the opacity:0 !important constraint lifts. CSS animations
+          // are reliable across WebOS versions unlike transition-on-class-removal.
+          if (mainBackdrop instanceof HTMLElement) {
+            mainBackdrop.classList.add("home-hero-backdrop-revealing");
+          }
+          heroNode.classList.remove("is-hero-copy-updating");
+          // Keep the overlay covering for the full crossfade so the fading-in
+          // backdrop is never exposed at partial opacity (which would flash dark).
+          if (this.heroCopyOverlayCleanupTimer) {
+            clearTimeout(this.heroCopyOverlayCleanupTimer);
+          }
+          this.heroCopyOverlayCleanupTimer = setTimeout(() => {
+            this.heroCopyOverlayCleanupTimer = null;
+            if (!heroNode.isConnected) return;
+            fadeOutHeroOverlays(heroNode);
+            if (mainBackdrop instanceof HTMLElement) {
+              mainBackdrop.classList.remove("home-hero-backdrop-revealing");
+            }
+          }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS + 50);
+        };
+        // The enrichment pass can swap the src to a URL that was never
+        // pre-warmed; revealing before it loads fades in the img's stale
+        // previous bitmap — visible as the old backdrop flickering back.
+        if (
+          mainBackdrop instanceof HTMLImageElement
+          && mainBackdrop.getAttribute("src")
+          && !mainBackdrop.complete
+          && typeof mainBackdrop.decode === "function"
+        ) {
+          Promise.race([
+            mainBackdrop.decode().catch(() => {}),
+            new Promise((resolve) => setTimeout(resolve, MODERN_HOME_CONSTANTS.heroSwapDecodeTimeoutMs))
+          ]).then(startReveal);
+        } else {
+          startReveal();
+        }
       });
     }
     this.scheduleHomeTruncationUpdate({ scope: heroNode });
@@ -4540,43 +4709,90 @@ export const HomeScreen = {
     }
     this._lastScheduledHeroId = String(hero.id);
     this.cancelPendingHeroFocus();
+    // Clear the outgoing copy (title/logo/description) at press time — leaving
+    // it up through the settle delay read as the old text hanging around. The
+    // backdrop is not touched; it crossfades on its own schedule.
+    const heroNodeAtPress = this.container?.querySelector(".home-hero-card");
+    if (heroNodeAtPress && String(heroNodeAtPress.dataset.itemId || "") !== String(hero.id || "")) {
+      heroNodeAtPress.classList.add("is-hero-copy-clearing");
+    }
     const now = Date.now();
     const previous = Number(this.lastModernHeroNavAt || 0);
     const isRapidNav = previous > 0 && (now - previous) < MODERN_HOME_CONSTANTS.heroRapidNavThresholdMs;
     const delay = this.getHeroFocusDelay({ rapid: isRapidNav });
     this.lastModernHeroNavAt = now;
-    const heroNode = this.container?.querySelector(".home-hero-card");
-    if (heroNode && String(heroNode.dataset.itemId || "") !== String(hero.id || "")) {
-      heroNode.classList.add("is-hero-copy-updating");
-      // Create an early backdrop overlay in the DOM so its GPU compositor layer is warm before
-      // applyHeroToDom fires. Catalog cards warm GPU via home-poster-expanded-backdrop; CW cards don't.
-      // A DOM element with will-change:opacity uploads the GPU texture even at opacity 0.
-      const backdropWrap = heroNode.querySelector(".home-hero-backdrop-wrap");
-      if (backdropWrap) {
-        backdropWrap.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
-        const heroDisplay = buildModernHeroPresentation(hero);
-        const preWarmSrc = heroDisplay?.backdrop || "";
-        const mainBackdrop = backdropWrap.querySelector(".home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
-        const currentSrc = String(mainBackdrop?.getAttribute("src") || "").trim();
-        if (preWarmSrc && preWarmSrc !== currentSrc) {
-          const earlyOverlay = document.createElement("img");
-          earlyOverlay.className = "home-hero-backdrop home-hero-backdrop-transition-overlay";
-          earlyOverlay.setAttribute("alt", heroDisplay?.title || "featured");
-          earlyOverlay.setAttribute("decoding", "async");
-          backdropWrap.appendChild(earlyOverlay);
-          // Only pre-warm the GPU compositor layer; visual reveal happens in heroCopyFadeInRaf
-          // together with the text, so the backdrop and description/logo appear simultaneously.
-          earlyOverlay.setAttribute("src", preWarmSrc);
+    // The old hero must stay fully visible until the replacement backdrop is
+    // decoded: hiding it at press time (the previous behavior) flashed the top
+    // half black for the whole fetch+decode of the new w1280 image, and let
+    // copy/logo/backdrop swap on independent schedules (stale-logo-over-new-
+    // text combos were visible on the C3 during d-pad runs). Overlay creation
+    // now happens inside the settle timer, so held-key navigation doesn't
+    // fetch a backdrop per skipped card, and the swap itself is gated on
+    // decode with a timeout floor.
+    this.heroFocusDelayTimer = setTimeout(() => {
+      this.heroFocusDelayTimer = null;
+      const heroNode = this.container?.querySelector(".home-hero-card");
+      const heroChanged = Boolean(heroNode) && String(heroNode.dataset.itemId || "") !== String(hero.id || "");
+      const scheduledHeroId = String(hero.id);
+
+      // Prefer the enriched backdrop/logo when the meta prefetch already has
+      // them — committing the catalog variants first meant the enrichment
+      // pass re-swapped logo/backdrop to different URLs moments later.
+      const cachedMeta = shouldEnrichModernHero(hero) ? this._heroMetaCache?.get(String(hero.id)) : null;
+      const heroSeed = (cachedMeta?.background || cachedMeta?.logo)
+        ? {
+          ...hero,
+          ...(cachedMeta.logo ? { logo: cachedMeta.logo } : {}),
+          ...(cachedMeta.background ? { background: cachedMeta.background } : {})
+        }
+        : hero;
+
+      // Backdrop pre-warm — built before the copy commit below updates
+      // heroNode.dataset.itemId. Once decoded, the overlay crossfades in over
+      // the still-visible old backdrop.
+      const preWarm = [];
+      let earlyOverlay = null;
+      let heroDisplay = null;
+      let mainBackdrop = null;
+      if (heroChanged) {
+        const backdropWrap = heroNode.querySelector(".home-hero-backdrop-wrap");
+        if (backdropWrap) {
+          // Visible/fading overlays keep covering old content (the new overlay
+          // stacks on top); removing them here snapped a mid-crossfade swap
+          // back to the previous backdrop.
+          backdropWrap.querySelectorAll(".home-hero-backdrop-transition-overlay:not(.is-visible):not(.is-fading-out), .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+          heroDisplay = buildModernHeroPresentation(heroSeed);
+          const preWarmSrc = heroDisplay?.backdrop || "";
+          mainBackdrop = backdropWrap.querySelector(".home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
+          const currentSrc = String(mainBackdrop?.getAttribute("src") || "").trim();
+          if (preWarmSrc && preWarmSrc !== currentSrc) {
+            earlyOverlay = document.createElement("img");
+            earlyOverlay.className = "home-hero-backdrop home-hero-backdrop-transition-overlay";
+            earlyOverlay.setAttribute("alt", heroDisplay?.title || "featured");
+            earlyOverlay.setAttribute("decoding", "async");
+            backdropWrap.appendChild(earlyOverlay);
+            earlyOverlay.setAttribute("src", preWarmSrc);
+            if (typeof earlyOverlay.decode === "function") {
+              preWarm.push(earlyOverlay.decode().catch(() => {}));
+            }
+          }
+          if (heroDisplay?.logo) {
+            preWarm.push(preloadImageSource(heroDisplay.logo));
+          }
         }
       }
-    }
-    this.heroFocusDelayTimer = setTimeout(() => {
-      this.heroItem = shouldEnrichModernHero(hero) ? { ...hero, heroMetaEnriching: true } : hero;
+
+      // The copy (title/logo/description/meta) commits right now — it never
+      // waits on image decode or the backdrop crossfade.
+      this.heroItem = shouldEnrichModernHero(hero) ? { ...heroSeed, heroMetaEnriching: true } : heroSeed;
       const matchedIndex = this.heroCandidates.findIndex((item) => String(item?.id || "") === String(hero.id || ""));
       if (matchedIndex >= 0) {
         this.heroIndex = matchedIndex;
       }
-      this.applyHeroToDom();
+      this.applyHeroToDom({ skipBackdrop: true });
+      // New copy is in place — lift the press-time clear so it fades back in
+      // (the base 200ms opacity transition applies on class removal).
+      heroNode?.classList?.remove("is-hero-copy-clearing");
       if (shouldEnrichModernHero(hero)) {
         const heroId = String(hero.id);
         setTimeout(() => {
@@ -4588,6 +4804,78 @@ export const HomeScreen = {
         }, 0);
       }
       this._prefetchAdjacentCards(node);
+
+      if (!earlyOverlay) {
+        // Backdrop unchanged, absent, or clearing — the two-layer swap no-ops
+        // on identical src and handles the clear-to-placeholder case.
+        if (heroChanged && mainBackdrop instanceof HTMLImageElement) {
+          animateModernHeroBackdropSwap(mainBackdrop, heroDisplay?.backdrop || "", heroDisplay?.title || "featured");
+        }
+        return;
+      }
+      // Cap the decode wait so a dead CDN can't stall the crossfade forever;
+      // on timeout the overlay fades in anyway and the src flip below is
+      // decode-gated as the floor.
+      Promise.race([
+        Promise.allSettled(preWarm),
+        new Promise((resolve) => setTimeout(resolve, MODERN_HOME_CONSTANTS.heroSwapDecodeTimeoutMs))
+      ]).then(() => {
+        if (this._lastScheduledHeroId !== scheduledHeroId || !earlyOverlay.isConnected) {
+          earlyOverlay.remove();
+          return;
+        }
+        // Double rAF: a cache-hit decode can resolve in the append task, and
+        // adding is-visible before the opacity:0 start style is committed
+        // skips the transition entirely (hard pop instead of crossfade).
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (this._lastScheduledHeroId !== scheduledHeroId) {
+              earlyOverlay.remove();
+              return;
+            }
+            earlyOverlay.classList.add("is-visible");
+            const backdropTokenAtStart = Number(mainBackdrop?.heroBackdropTransitionToken || 0);
+            this.heroCrossfadeCommitTimer = setTimeout(() => {
+              this.heroCrossfadeCommitTimer = null;
+              if (this._lastScheduledHeroId !== scheduledHeroId) {
+                return;
+              }
+              if (!(mainBackdrop instanceof HTMLImageElement) || !mainBackdrop.isConnected) {
+                return;
+              }
+              if (Number(mainBackdrop.heroBackdropTransitionToken || 0) !== backdropTokenAtStart) {
+                // An animateModernHeroBackdropSwap took over meanwhile (the
+                // enrichment pass landed a different URL) — its finalize now
+                // owns the src flip and overlay cleanup.
+                return;
+              }
+              const targetSrc = String(earlyOverlay.getAttribute("src") || "");
+              if (targetSrc && String(mainBackdrop.getAttribute("src") || "") !== targetSrc) {
+                mainBackdrop.setAttribute("src", targetSrc);
+                mainBackdrop.setAttribute("alt", earlyOverlay.getAttribute("alt") || "featured");
+                mainBackdrop.classList.remove("placeholder");
+              }
+              const finish = () => {
+                if (this._lastScheduledHeroId !== scheduledHeroId) {
+                  return;
+                }
+                if (Number(mainBackdrop.heroBackdropTransitionToken || 0) !== backdropTokenAtStart) {
+                  return;
+                }
+                fadeOutHeroOverlays(heroNode);
+              };
+              if (!mainBackdrop.complete && typeof mainBackdrop.decode === "function") {
+                Promise.race([
+                  mainBackdrop.decode().catch(() => {}),
+                  new Promise((resolve) => setTimeout(resolve, MODERN_HOME_CONSTANTS.heroSwapDecodeTimeoutMs))
+                ]).then(() => requestAnimationFrame(finish));
+              } else {
+                requestAnimationFrame(finish);
+              }
+            }, HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS);
+          });
+        });
+      });
     }, delay);
   },
 
@@ -4635,7 +4923,13 @@ export const HomeScreen = {
         if (this._heroMetaCache.size >= 100) {
           this._heroMetaCache.delete(this._heroMetaCache.keys().next().value);
         }
-        this._heroMetaCache.set(itemId, result?.status === "success" && result.data ? result.data : null);
+        const meta = result?.status === "success" && result.data ? result.data : null;
+        this._heroMetaCache.set(itemId, meta);
+        // The enriched meta usually carries a different backdrop/logo than the
+        // catalog item; warm them so the hero pre-warm overlay (which prefers
+        // cached enriched assets) gets a cache hit instead of a mid-swap fetch.
+        if (meta?.background) preloadImageSource(optimizeBackdropUrl(meta.background));
+        if (meta?.logo) preloadImageSource(optimizeLogoUrl(meta.logo));
       })
       .catch(() => {
         this._heroPrefetchPending.delete(itemId);
@@ -4684,7 +4978,7 @@ export const HomeScreen = {
               this.heroCopyOverlayCleanupTimer = setTimeout(() => {
                 this.heroCopyOverlayCleanupTimer = null;
                 if (!stuckNode.isConnected) return;
-                stuckNode.querySelectorAll(".home-hero-backdrop-transition-overlay, .home-hero-backdrop-transition-ghost").forEach((n) => n.remove());
+                fadeOutHeroOverlays(stuckNode);
                 if (stuckBackdrop instanceof HTMLElement) {
                   stuckBackdrop.classList.remove("home-hero-backdrop-revealing");
                 }
@@ -4877,6 +5171,17 @@ export const HomeScreen = {
           }
           backdrop.dataset.loadState = "ready";
         };
+        // load fires at network completion but the (large) decode still runs at
+        // first paint — mid-expand, on the raster path. decode() defers the
+        // reveal until pixels are actually ready; on an already-decoded image
+        // it resolves immediately.
+        const markBackdropReadyAfterDecode = () => {
+          if (typeof backdrop.decode === "function") {
+            backdrop.decode().then(markBackdropReady).catch(markBackdropReady);
+          } else {
+            markBackdropReady();
+          }
+        };
         const markBackdropPending = () => {
           node.classList.remove("is-expanded-backdrop-ready");
           backdrop.dataset.loadState = src ? "pending" : "";
@@ -4885,13 +5190,13 @@ export const HomeScreen = {
           backdrop.setAttribute("src", src);
         }
         if (backdrop.complete && Number(backdrop.naturalWidth || 0) > 0) {
-          markBackdropReady();
+          markBackdropReadyAfterDecode();
         } else if (src) {
           markBackdropPending();
           if (backdrop.dataset.loadBound !== "true") {
             backdrop.dataset.loadBound = "true";
             backdrop.addEventListener("load", () => {
-              markBackdropReady();
+              markBackdropReadyAfterDecode();
             }, { once: true });
             backdrop.addEventListener("error", () => {
               if (node.isConnected) {
@@ -8374,7 +8679,10 @@ export const HomeScreen = {
         const firstCard = cards[0];
         const cardWidth = firstCard ? firstCard.offsetWidth : 212;
         const gapApprox = 24; // --home-poster-gap
-        const nearEndThreshold = (cardWidth + gapApprox) * 4;
+        // 8 cards of lead: the next catalog page is a network round trip, and
+        // 4 cards was losable in a race against held-key scrolling — the
+        // appended card then materialized with its poster fetch just starting.
+        const nearEndThreshold = (cardWidth + gapApprox) * 8;
         const distanceFromEnd = getTrackMaxScrollPx(track) - getTrackScrollLeftPx(track);
         if (distanceFromEnd > nearEndThreshold) {
           return;
@@ -8451,12 +8759,30 @@ export const HomeScreen = {
             liveRowData.result.data.currentPage = result.data?.currentPage ?? liveRowData.result.data.currentPage;
           }
           if (newMarkup && track.isConnected) {
-            const frag = document.createRange().createContextualFragment(newMarkup);
-            (getTrackInnerNode(track) || track).appendChild(frag);
-            ScreenUtils.indexFocusables(track);
-            this.buildNavigationModel();
-            scheduleTrackVirtualWindowUpdate(track);
-            appendedMore = true;
+            // Warm the page's posters before its cards enter the DOM — the
+            // append point is ~8 cards offscreen, so the delay is invisible,
+            // and cards materializing with unfetched posters showed as blank
+            // tiles when held-key scrolling outran the network. Returning the
+            // chain keeps .finally (in-flight release + recheck) ordered
+            // after the append.
+            const posterWarmups = newItems.slice(0, 8).map((item) => {
+              const posterUrl = String(item?.poster || "").trim();
+              return posterUrl ? preloadImageSource(optimizePosterUrl(posterUrl)) : Promise.resolve(false);
+            });
+            return Promise.race([
+              Promise.allSettled(posterWarmups),
+              new Promise((resolve) => setTimeout(resolve, 1500))
+            ]).then(() => {
+              if (!track.isConnected || token !== this.homeLoadToken) {
+                return;
+              }
+              const frag = document.createRange().createContextualFragment(newMarkup);
+              (getTrackInnerNode(track) || track).appendChild(frag);
+              ScreenUtils.indexFocusables(track);
+              this.buildNavigationModel();
+              scheduleTrackVirtualWindowUpdate(track);
+              appendedMore = true;
+            });
           }
         }).catch((err) => {
           console.warn("Home track pagination failed for", rowKey, err);

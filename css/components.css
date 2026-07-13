@@ -6503,16 +6503,16 @@ img[data-lazy-src] {
 .home-screen-shell.home-layout-modern .home-hero-backdrop {
   object-position: 100% 0;
   opacity: 1;
-  transition: opacity 400ms ease-in-out;
+  transition: opacity 600ms ease-in-out;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-revealing {
-  animation: home-hero-backdrop-reveal-anim 400ms ease-out forwards;
+  animation: home-hero-backdrop-reveal-anim 600ms ease-out forwards;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-enter {
   opacity: 0;
-  transition-duration: 400ms;
+  transition-duration: 600ms;
   transition-timing-function: ease-out;
   will-change: opacity;
 }
@@ -6523,7 +6523,7 @@ img[data-lazy-src] {
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop.home-hero-backdrop-transition-overlay {
   opacity: 0;
-  transition: opacity 400ms ease-out;
+  transition: opacity 600ms ease-in-out;
   will-change: opacity;
 }
 
@@ -6533,7 +6533,7 @@ img[data-lazy-src] {
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost {
   opacity: 1;
-  transition: opacity 400ms ease-in;
+  transition: opacity 600ms ease-in;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-backdrop-transition-ghost.is-fading-out {
@@ -6609,6 +6609,13 @@ img[data-lazy-src] {
   transition: none;
 }
 
+/* Press-time clear: the outgoing title/logo/description vanish the moment
+   d-pad focus moves to a different hero; the commit at settle removes the
+   class so the new copy fades in via the base 200ms transition. */
+.home-screen-shell.home-layout-modern .home-modern-hero-card.is-hero-copy-clearing .home-modern-hero-copy {
+  opacity: 0;
+  transition: none;
+}
 .home-screen-shell.home-layout-modern .home-modern-hero-card.is-hero-copy-updating .home-hero-backdrop:not(.home-hero-backdrop-transition-overlay) {
   opacity: 0 !important;
   transition: none !important;
@@ -6624,7 +6631,7 @@ img[data-lazy-src] {
 }
 
 .home-screen-shell.home-layout-modern .home-hero-logo {
-  transition: opacity 400ms ease;
+  transition: opacity 600ms ease;
 }
 
 .home-screen-shell.home-layout-modern .home-hero-logo.home-hero-logo-transition-enter {

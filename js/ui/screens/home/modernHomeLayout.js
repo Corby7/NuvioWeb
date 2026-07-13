@@ -1,7 +1,14 @@
 export const MODERN_HOME_CONSTANTS = {
   heroFocusDelayMs: 180,
-  heroRapidNavThresholdMs: 130,
-  heroRapidSettleMs: 120,
+  // Presses closer together than the threshold count as held-key navigation;
+  // the settle delay must exceed the press interval or hero swaps fire (and
+  // fetch w1280 backdrops) for cards the user is skimming past. The old
+  // 130/120 pair let swaps slip through between ~150ms key repeats — visible
+  // as per-card hero churn on the C3.
+  heroRapidNavThresholdMs: 450,
+  heroRapidSettleMs: 300,
+  // Max wait for the new hero backdrop/logo decode before swapping anyway.
+  heroSwapDecodeTimeoutMs: 800,
   keyRepeatThrottleMs: 80,
   cameraFollowDelayMs: 140,
   cameraFollowDurationXMs: 280,

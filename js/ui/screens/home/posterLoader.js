@@ -178,6 +178,17 @@ export function optimizeBackdropUrl(url) {
   return url;
 }
 
+// Card-sized backdrop (expanded poster reveal, ~620px wide) — w1280 is the
+// full-screen hero size; cards need w780. Raw addon URLs are often /original
+// (measured 143ms single decodes + 60-80ms GPU uploads on the C3).
+export function optimizeCardBackdropUrl(url) {
+  if (!url) return url;
+  if (TMDB_POSTER_RE.test(url)) {
+    return url.replace(TMDB_POSTER_RE, "/image.tmdb.org/t/p/w780/");
+  }
+  return url;
+}
+
 export function optimizeLogoUrl(url) {
   if (!url) return url;
   if (TMDB_POSTER_RE.test(url)) {
