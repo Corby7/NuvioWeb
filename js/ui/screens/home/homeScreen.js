@@ -2093,7 +2093,13 @@ function groupNodesByOffsetTop(nodes = []) {
 export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowData = null, showLabels = true, layoutMode = "classic", isExpanded = false, preferLandscapePoster = false) {
   const suppressPosterText = Boolean(rowData?.suppressPosterText);
   const tvEager = Platform.isWebOS() || Platform.isTizen();
-  const posterLoadAttr = tvEager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy" fetchpriority="low"';
+  // Always eager: modern rows scroll by transform inside overflow-x: clip, and
+  // native loading="lazy" has no anticipation for transform movement — clipped
+  // cards (even the +1 at the row edge) stayed unfetched until d-pad scrolling
+  // moved them into the viewport. Rows mount lazily (data-row-pending), so
+  // eager fetch is bounded to on-screen rows; low priority off-TV keeps a
+  // mounting row's posters from competing with the hero backdrop.
+  const posterLoadAttr = tvEager ? 'loading="eager" fetchpriority="high"' : 'loading="eager" fetchpriority="low"';
   const collectionSeed = rowData?.rowKind === "collection"
     ? {
       ...(item || {}),
@@ -2214,7 +2220,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
         ${(!isLoading && useLandscapePoster && !suppressPosterText) ? `
           <div class="home-poster-landscape-copy" aria-hidden="true">
             ${normalized.logo
-      ? `<img class="home-poster-landscape-logo" src="${escapeAttribute(normalized.logo)}" decoding="async" loading="lazy" alt="" />`
+      ? `<img class="home-poster-landscape-logo" src="${escapeAttribute(normalized.logo)}" decoding="async" ${posterLoadAttr} alt="" />`
       : `<div class="home-poster-landscape-title">${escapeHtml(normalized.name || "Untitled")}</div>`}
             ${subtitle ? `<div class="home-poster-landscape-subtitle">${escapeHtml(subtitle)}</div>` : ""}
           </div>

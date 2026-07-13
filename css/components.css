@@ -18344,15 +18344,20 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   display: none;
 }
 
-/* ─── Poster focus: sibling dimming via :has() ───────────────────────────── */
+/* ─── Poster focus: non-focused sibling dimming ──────────────────────────── */
 
-/* Dim + shrink non-focused posters in the same row when a sibling is focused */
-.home-screen-shell .home-track:has(.home-poster-card.focusable) .home-poster-card:not(.focused) {
+/* Dim non-focused posters. The .focusable guard skips skeleton/loading cards.
+   Deliberately NOT expressed via .home-track:has(...): :has() forced Chromium
+   to invalidate the whole track subtree on every .focused/.is-expanded class
+   flip — ~210-element style recalcs, 35-77ms each on the LG C3, three per
+   d-pad press (measured via SelectorStats trace). The per-card form is
+   visually identical and invalidates only the two cards that change. */
+.home-screen-shell .home-poster-card.focusable:not(.focused) {
   filter: brightness(0.8);
 }
 
 /* Same dimming for continue watching cards */
-.home-screen-shell .home-track:has(.home-continue-card.focusable) .home-continue-card:not(.focused) {
+.home-screen-shell .home-continue-card.focusable:not(.focused) {
   filter: brightness(0.8);
 }
 

@@ -12,6 +12,28 @@
 
 const LAZY_POSTER_ROOT_MARGIN = "2000px 600px";
 
+// rootMargin only expands the observer root's own rect — it does not loosen
+// clipping by intermediate scroll containers. These grids all live inside an
+// inner scroller (e.g. .library-main, height:100vh + overflow-y:auto), so with
+// root:null every below-the-fold card clipped to a zero rect and the preload
+// margin never did anything: posters only loaded once actually scrolled into
+// view. The scroller itself must be the root for the margin to apply.
+function isScrollableOverflow(value) {
+  return value === "auto" || value === "scroll" || value === "overlay";
+}
+
+function resolveScrollRoot(node) {
+  let current = node instanceof HTMLElement ? node.parentElement : null;
+  while (current && current !== document.body) {
+    const style = getComputedStyle(current);
+    if (isScrollableOverflow(style.overflowY) || isScrollableOverflow(style.overflowX)) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 function hydrateLazyPosterImage(img) {
   const src = img.getAttribute("data-lazy-src") || "";
   if (!src) {
@@ -62,6 +84,13 @@ export function observeLazyPosterImages(host, root) {
     scopes.forEach(hydrateLazyPostersWithin);
     return;
   }
+  const scrollRoot = resolveScrollRoot(scopes.values().next().value);
+  // Full re-renders replace the scroller node; an observer cached against the
+  // old (now detached) root would never fire again, so rebuild it.
+  if (host.__lazyPosterObserver && host.__lazyPosterObserver.root !== scrollRoot) {
+    host.__lazyPosterObserver.disconnect();
+    host.__lazyPosterObserver = null;
+  }
   if (!host.__lazyPosterObserver) {
     host.__lazyPosterObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
@@ -75,7 +104,7 @@ export function observeLazyPosterImages(host, root) {
           // Ignore unobserve failures.
         }
       });
-    }, { root: null, rootMargin: LAZY_POSTER_ROOT_MARGIN, threshold: 0.01 });
+    }, { root: scrollRoot, rootMargin: LAZY_POSTER_ROOT_MARGIN, threshold: 0.01 });
   }
   scopes.forEach((scope) => host.__lazyPosterObserver.observe(scope));
 }
