@@ -103,6 +103,31 @@ function resolveMetaImdbId(meta = {}, params = {}) {
     .find((value) => /^tt\d+$/i.test(value)) || null;
 }
 
+// Addon metas (Cinemeta) ship /t/p/original image URLs; a 4K backdrop decode
+// blocks the C3 compositor for 1.3s+ on detail entry — always downsize.
+const TMDB_IMAGE_SIZE_RE = /\/image\.tmdb\.org\/t\/p\/(?:original|w\d+)\//;
+
+function optimizeTmdbImageUrl(url, size) {
+  const raw = String(url || "");
+  if (!TMDB_IMAGE_SIZE_RE.test(raw)) {
+    return url;
+  }
+  return raw.replace(TMDB_IMAGE_SIZE_RE, `/image.tmdb.org/t/p/${size}/`);
+}
+
+function normalizeDetailMetaImages(meta) {
+  if (!meta || typeof meta !== "object") {
+    return meta;
+  }
+  return {
+    ...meta,
+    background: optimizeTmdbImageUrl(meta.background, "w1280"),
+    landscapePoster: optimizeTmdbImageUrl(meta.landscapePoster, "w1280"),
+    poster: optimizeTmdbImageUrl(meta.poster, "w500"),
+    logo: optimizeTmdbImageUrl(meta.logo, "w500")
+  };
+}
+
 function extractCast(meta = {}) {
   const toPhoto = (value) => {
     const raw = String(value || "").trim();
@@ -110,13 +135,13 @@ function extractCast(meta = {}) {
       return "";
     }
     if (raw.startsWith("//")) {
-      return `https:${raw}`;
+      return optimizeTmdbImageUrl(`https:${raw}`, "w300");
     }
     if (raw.startsWith("http://")) {
-      return `https://${raw.slice("http://".length)}`;
+      return optimizeTmdbImageUrl(`https://${raw.slice("http://".length)}`, "w300");
     }
-    if (raw.startsWith("http://") || raw.startsWith("https://")) {
-      return raw;
+    if (raw.startsWith("https://")) {
+      return optimizeTmdbImageUrl(raw, "w300");
     }
     if (raw.startsWith("/")) {
       return `https://image.tmdb.org/t/p/w300${raw}`;
@@ -1007,9 +1032,25 @@ export const MetaDetailsScreen = {
       if (this.consumeBackRequest()) {
         return;
       }
-      Router.back();
+      this.requestExitWithFade();
     };
     document.addEventListener("keydown", this.backHandler, true);
+  },
+
+  requestExitWithFade() {
+    if (this.exitBackPending) {
+      return;
+    }
+    this.exitBackPending = true;
+    // Immediate visual ack before Router.back(): rebuilding the home screen
+    // blocks the main thread for ~1s on the C3, but this opacity transition
+    // runs on the compositor so it keeps animating through that block.
+    this.container?.classList.add("detail-exit-fading");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        Router.back();
+      });
+    });
   },
 
   bindTrailerProxyMessaging() {
@@ -1138,6 +1179,8 @@ export const MetaDetailsScreen = {
     this.autoOpenedContinueWatchingStream = false;
     this.restoredContentScrollTop = 0;
     this.restoredTrackScrollLeftByKey = {};
+    this.exitBackPending = false;
+    this.container?.classList.remove("detail-exit-fading");
     this.bindBackHandler();
     this.bindTrailerProxyMessaging();
 
@@ -1237,9 +1280,11 @@ export const MetaDetailsScreen = {
       allProgressPromise,
       allWatchedPromise
     ]);
-    const meta = metaResult.status === "success"
-      ? metaResult.data
-      : { id: itemId, type: itemType, name: fallbackTitle, description: "" };
+    const meta = normalizeDetailMetaImages(
+      metaResult.status === "success"
+        ? metaResult.data
+        : { id: itemId, type: itemType, name: fallbackTitle, description: "" }
+    );
     if (token !== this.detailLoadToken) {
       return;
     }
@@ -1280,7 +1325,7 @@ export const MetaDetailsScreen = {
         return;
       }
 
-      this.meta = enrichedMeta || meta;
+      this.meta = normalizeDetailMetaImages(enrichedMeta || meta);
       this.episodes = normalizeEpisodes(this.meta?.videos || []);
       this.castItems = extractCast(this.meta);
       this.buildEpisodeState(allProgressItems, allWatchedItems);
@@ -6464,7 +6509,7 @@ export const MetaDetailsScreen = {
   },
 
   async onKeyDown(event) {
-    if (!this.container) {
+    if (!this.container || this.exitBackPending) {
       return;
     }
 
@@ -6497,7 +6542,7 @@ export const MetaDetailsScreen = {
         this.closeEpisodeStreamChooser();
         return;
       }
-      Router.back();
+      this.requestExitWithFade();
       return;
     }
 
@@ -6884,6 +6929,8 @@ export const MetaDetailsScreen = {
 
   cleanup() {
     this.detailLoadToken = (this.detailLoadToken || 0) + 1;
+    this.exitBackPending = false;
+    this.container?.classList.remove("detail-exit-fading");
     if (this.episodeThumbObserver) {
       try {
         this.episodeThumbObserver.disconnect();

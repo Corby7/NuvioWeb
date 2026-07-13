@@ -15629,6 +15629,15 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   color: var(--detail-text-secondary);
 }
 
+/* Back-exit acknowledgment: fades on the compositor while the main thread
+   rebuilds the home screen, so the back press feels instant. */
+.detail-exit-fading {
+  opacity: 0;
+  transition: opacity 300ms ease;
+  will-change: opacity;
+  pointer-events: none;
+}
+
 .detail-loading-shell {
   position: fixed;
   top: 0;
@@ -15664,7 +15673,9 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 
 .detail-loading-block {
   position: relative;
-  background: rgba(255,255,255,0.04);
+  /* 0.04 white was invisible on the TV panel — the screen read as pure black
+     while detail data loaded. Keep it subtle but perceivable. */
+  background: rgba(255, 255, 255, 0.09);
   animation: nuvioSkeletonPulse 1.5s ease-in-out infinite;
 }
 

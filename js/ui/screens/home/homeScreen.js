@@ -862,6 +862,13 @@ function normalizeCollectionPosterShape(value) {
   return "SQUARE";
 }
 
+const COLLECTION_FOCUS_VIDEO_MOUNT_DELAY_MS = 240;
+const COLLECTION_FOCUS_VIDEO_RELEASE_DELAY_MS = 260;
+
+function isVideoCollectionAssetUrl(value) {
+  return /\.(mp4|m4v|webm|mov)(?:$|[?#])/i.test(String(value || ""));
+}
+
 function normalizeAnimatedCollectionAssetUrl(value) {
   const normalized = String(value || "").trim();
   if (!normalized) {
@@ -896,9 +903,10 @@ export function normalizeCollectionFolderItem(item, collectionMeta = null) {
   const hideTitle = Boolean(item.hideTitle);
   const tileShape = normalizeCollectionPosterShape(item.tileShape || item.posterShape);
   const coverEmoji = firstNonEmpty(item.coverEmoji);
+  const focusGifPosterFallback = isVideoCollectionAssetUrl(focusGifUrl) ? "" : focusGifUrl;
   const cardImage = focusGifEnabled
     ? firstNonEmpty(coverImageUrl, collectionMeta?.backdropImageUrl)
-    : firstNonEmpty(focusGifUrl, coverImageUrl, collectionMeta?.backdropImageUrl);
+    : firstNonEmpty(focusGifPosterFallback, coverImageUrl, collectionMeta?.backdropImageUrl);
   const heroBackdrop = firstNonEmpty(item.heroBackdropUrl, coverImageUrl, collectionMeta?.backdropImageUrl);
   return {
     ...item,
@@ -2218,7 +2226,9 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
         ? " is-collection-square"
         : " is-landscape is-collection-landscape");
     const focusGifOverlay = collectionItem.focusGifEnabled && collectionItem.focusGifUrl
-      ? `<img class="home-poster-focus-gif" data-src="${escapeAttribute(collectionItem.focusGifUrl)}" alt="" aria-hidden="true" />`
+      ? (isVideoCollectionAssetUrl(collectionItem.focusGifUrl)
+        ? `<video class="home-poster-focus-gif" data-src="${escapeAttribute(collectionItem.focusGifUrl)}" muted playsinline preload="none" aria-hidden="true"></video>`
+        : `<img class="home-poster-focus-gif" data-src="${escapeAttribute(collectionItem.focusGifUrl)}" alt="" aria-hidden="true" />`)
       : "";
     const contentMarkup = visualSrc
       ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(visualSrc))}" decoding="async" ${posterLoadAttr} alt="${escapeAttribute(collectionItem.name || collectionItem.heroTitle || collectionItem.collectionTitle || "collection")}" />`
@@ -5122,19 +5132,98 @@ export const HomeScreen = {
   },
 
   hydrateCollectionFocusGif(node, active = false) {
-    const gifNode = node?.querySelector?.(".home-poster-focus-gif") || null;
-    if (!(gifNode instanceof HTMLImageElement)) {
+    const mediaNode = node?.querySelector?.(".home-poster-focus-gif") || null;
+    if (mediaNode instanceof HTMLVideoElement) {
+      this.hydrateCollectionFocusVideo(node, mediaNode, active);
+      return;
+    }
+    if (!(mediaNode instanceof HTMLImageElement)) {
       return;
     }
     if (active) {
-      const src = String(gifNode.dataset.src || gifNode.getAttribute("src") || "").trim();
-      if (src && !gifNode.getAttribute("src")) {
-        gifNode.setAttribute("src", src);
+      const src = String(mediaNode.dataset.src || mediaNode.getAttribute("src") || "").trim();
+      if (src && !mediaNode.getAttribute("src")) {
+        mediaNode.setAttribute("src", src);
       }
       node.classList.add("is-focus-gif-active");
       return;
     }
     node.classList.remove("is-focus-gif-active");
+  },
+
+  hydrateCollectionFocusVideo(node, video, active) {
+    if (video._focusMediaTimer) {
+      clearTimeout(video._focusMediaTimer);
+      video._focusMediaTimer = null;
+    }
+    if (video._focusMediaReveal) {
+      video.removeEventListener("playing", video._focusMediaReveal);
+      video._focusMediaReveal = null;
+    }
+    if (!active) {
+      node.classList.remove("is-focus-gif-active");
+      // let the opacity fade finish before releasing the decoder pipeline
+      video._focusMediaTimer = setTimeout(() => {
+        video._focusMediaTimer = null;
+        this.releaseCollectionFocusVideo(video);
+      }, COLLECTION_FOCUS_VIDEO_RELEASE_DELAY_MS);
+      return;
+    }
+    // debounce so d-pad scrubbing along a row doesn't churn decoder pipelines
+    video._focusMediaTimer = setTimeout(() => {
+      video._focusMediaTimer = null;
+      if (!node.isConnected || !node.classList.contains("focused")) {
+        return;
+      }
+      const src = String(video.dataset.src || "").trim();
+      if (!src) {
+        return;
+      }
+      if (!video.getAttribute("src")) {
+        video.setAttribute("src", src);
+      }
+      video.muted = true;
+      const reveal = () => {
+        video._focusMediaReveal = null;
+        if (node.classList.contains("focused")) {
+          node.classList.add("is-focus-gif-active");
+        } else {
+          this.releaseCollectionFocusVideo(video);
+        }
+      };
+      video._focusMediaReveal = reveal;
+      video.addEventListener("playing", reveal, { once: true });
+      const playAttempt = video.play();
+      if (playAttempt?.catch) {
+        playAttempt.catch(() => {});
+      }
+    }, COLLECTION_FOCUS_VIDEO_MOUNT_DELAY_MS);
+  },
+
+  releaseCollectionFocusVideo(video) {
+    try {
+      video.pause();
+    } catch {
+      // ignore
+    }
+    if (video.getAttribute("src")) {
+      video.removeAttribute("src");
+      video.load();
+    }
+  },
+
+  releaseAllCollectionFocusVideos() {
+    Array.from(this.container?.querySelectorAll?.("video.home-poster-focus-gif") || []).forEach((video) => {
+      if (video._focusMediaTimer) {
+        clearTimeout(video._focusMediaTimer);
+        video._focusMediaTimer = null;
+      }
+      if (video._focusMediaReveal) {
+        video.removeEventListener("playing", video._focusMediaReveal);
+        video._focusMediaReveal = null;
+      }
+      this.releaseCollectionFocusVideo(video);
+    });
   },
 
   syncFocusedCollectionCardState() {
@@ -8861,6 +8950,7 @@ export const HomeScreen = {
     this.cancelFocusedPosterFlow();
     this.clearFocusedPosterFlowState();
     this.collapseFocusedPoster();
+    this.releaseAllCollectionFocusVideos();
     this.teardownGridStickyHeader();
     this.teardownModernTrackScrollPagination();
     this.destroyVirtualRowObserver();
