@@ -18,6 +18,7 @@ import {
   setLegacySidebarExpanded
 } from "../../components/sidebarNavigation.js";
 import { RootSidebarController } from "../../components/rootSidebarController.js";
+import { optimizePosterUrl } from "../home/posterLoader.js";
 import {
   PosterOptionsDialogController,
   posterItemFromNode
@@ -791,7 +792,7 @@ export const SearchScreen = {
                      data-backdrop-src="${escapeHtml(item.background || item.backdrop || item.landscapePoster || "")}"
                      data-row-key="${escapeHtml(rowKey)}">
               <div class="search-result-poster-wrap">
-                ${item.poster ? `<img class="search-result-poster" src="${item.poster}" alt="${item.name || "content"}" loading="lazy" decoding="async" />` : `<div class="search-result-poster placeholder"></div>`}
+                ${item.poster ? `<img class="search-result-poster" src="${escapeHtml(optimizePosterUrl(item.poster))}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />` : `<div class="search-result-poster placeholder"></div>`}
               </div>
               <div class="search-result-name">${item.name || "Untitled"}</div>
               <div class="search-result-date">${formatReleaseYear(item)}</div>
