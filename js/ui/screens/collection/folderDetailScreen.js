@@ -23,6 +23,7 @@ import {
   renderContinueWatchingSection
 } from "../home/homeScreen.js";
 import { renderModernHomeLayout } from "../home/modernHomeLayout.js";
+import { optimizePosterUrl } from "../home/posterLoader.js";
 import {
   buildWatchedTitleIdSet,
   isTitleItemWatched,
@@ -1084,7 +1085,7 @@ export const FolderDetailScreen = {
                    data-item-index="${index}">
             <div class="seeall-card-poster-wrap">
               ${item.poster
-                ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
+                ? `<img class="seeall-card-poster-image" src="${escapeHtml(optimizePosterUrl(item.poster))}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
                 : `<div class="seeall-card-poster placeholder"></div>`}
               ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge() : ""}
             </div>
@@ -1114,7 +1115,7 @@ export const FolderDetailScreen = {
                  data-item-index="${itemIndex}">
           <div class="seeall-card-poster-wrap">
             ${item.poster
-              ? `<img class="seeall-card-poster-image" src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
+              ? `<img class="seeall-card-poster-image" src="${escapeHtml(optimizePosterUrl(item.poster))}" alt="${escapeHtml(item.name || "content")}" loading="lazy" decoding="async" />`
               : `<div class="seeall-card-poster placeholder"></div>`}
             ${isTitleItemWatched(item, this.watchedTitleIds) ? renderTitleWatchedBadge() : ""}
           </div>

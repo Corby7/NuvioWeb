@@ -10,6 +10,7 @@ import { watchedItemsRepository } from "../../../data/repository/watchedItemsRep
 import { libraryRepository } from "../../../data/repository/libraryRepository.js";
 import { detailWatchedEnrichmentService } from "../../../data/repository/detailWatchedEnrichmentService.js";
 import { normalizeEpisodes } from "../../../data/repository/episodeUtils.js";
+import { optimizeCardBackdropUrl, optimizePosterUrl } from "../home/posterLoader.js";
 import { TmdbService } from "../../../core/tmdb/tmdbService.js";
 import { TmdbMetadataService } from "../../../core/tmdb/tmdbMetadataService.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
@@ -3923,8 +3924,8 @@ export const MetaDetailsScreen = {
     const cards = items.map((rawItem) => {
       const item = normalizePreviewItem(rawItem, fallbackType);
       const year = extractPreviewYear(item.releaseInfo);
-      const primaryImage = item.landscapePoster || item.poster || "";
-      const fallbackImage = item.poster && item.poster !== primaryImage ? item.poster : "";
+      const primaryImage = optimizeCardBackdropUrl(item.landscapePoster) || optimizePosterUrl(item.poster) || "";
+      const fallbackImage = item.poster && item.poster !== (item.landscapePoster || item.poster) ? optimizePosterUrl(item.poster) : "";
       return `
       <article class="detail-morelike-card focusable"
            data-action="openMoreLikeDetail"
