@@ -7127,7 +7127,15 @@ export const HomeScreen = {
     const activeProfileId = String(ProfileManager.getActiveProfileId() || "");
     const profileChanged = activeProfileId !== String(this.loadedProfileId || "");
     const watchProgressSourceChanged = watchProgressRepository.getContinueWatchingSourceKey() !== String(this.loadedWatchProgressSourceKey || "");
-    const forceReload = Boolean(params?.forceReload);
+    // params.forceReload (set once, by profile switch) rides along in
+    // Router.currentParams and gets captured onto the nav stack the next time
+    // home is left for another screen — so every later Router.back() into
+    // home replays it forever, forcing a full reload (and the unconditional
+    // Continue Watching refocus that comes with a fresh load) on every single
+    // detail/search/etc. -> home back-navigation for the rest of the session.
+    // It's a one-shot "start fresh" directive, never valid on a route that's
+    // being *restored*, so ignore it on back-navigation.
+    const forceReload = Boolean(params?.forceReload) && !navigationContext?.isBackNavigation;
     if (profileChanged || watchProgressSourceChanged || forceReload) {
       this.hasLoadedOnce = false;
       this.hasAppliedInitialContinueWatchingFocus = false;
