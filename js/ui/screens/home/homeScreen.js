@@ -4782,46 +4782,59 @@ export const HomeScreen = {
         }
       }
 
-      // The copy (title/logo/description/meta) commits right now — it never
-      // waits on image decode or the backdrop crossfade.
-      this.heroItem = shouldEnrichModernHero(hero) ? { ...heroSeed, heroMetaEnriching: true } : heroSeed;
-      const matchedIndex = this.heroCandidates.findIndex((item) => String(item?.id || "") === String(hero.id || ""));
-      if (matchedIndex >= 0) {
-        this.heroIndex = matchedIndex;
-      }
-      this.applyHeroToDom({ skipBackdrop: true });
-      // New copy is in place — lift the press-time clear so it fades back in
-      // (the base 200ms opacity transition applies on class removal).
-      heroNode?.classList?.remove("is-hero-copy-clearing");
-      if (shouldEnrichModernHero(hero)) {
-        const heroId = String(hero.id);
-        setTimeout(() => {
-          if (String(this.heroItem?.id || "") === heroId) {
-            this.enrichCurrentHeroAsync(this.heroItem || hero);
-          } else {
-            console.warn("[hero] enrich skipped — hero already changed to", this.heroItem?.id, "from", heroId);
-          }
-        }, 0);
-      }
-      this._prefetchAdjacentCards(node);
+      // Commits the copy (title/logo/description/meta) and lifts the
+      // press-time clear so it fades back in.
+      const commitCopy = () => {
+        this.heroItem = shouldEnrichModernHero(hero) ? { ...heroSeed, heroMetaEnriching: true } : heroSeed;
+        const matchedIndex = this.heroCandidates.findIndex((item) => String(item?.id || "") === String(hero.id || ""));
+        if (matchedIndex >= 0) {
+          this.heroIndex = matchedIndex;
+        }
+        this.applyHeroToDom({ skipBackdrop: true });
+        heroNode?.classList?.remove("is-hero-copy-clearing");
+        if (shouldEnrichModernHero(hero)) {
+          const heroId = String(hero.id);
+          setTimeout(() => {
+            if (String(this.heroItem?.id || "") === heroId) {
+              this.enrichCurrentHeroAsync(this.heroItem || hero);
+            } else {
+              console.warn("[hero] enrich skipped — hero already changed to", this.heroItem?.id, "from", heroId);
+            }
+          }, 0);
+        }
+        this._prefetchAdjacentCards(node);
+      };
 
       if (!earlyOverlay) {
-        // Backdrop unchanged, absent, or clearing — the two-layer swap no-ops
-        // on identical src and handles the clear-to-placeholder case.
+        // No backdrop crossfade to sync with — commit the copy immediately.
+        // The two-layer swap no-ops on identical src and handles the
+        // clear-to-placeholder case.
+        commitCopy();
         if (heroChanged && mainBackdrop instanceof HTMLImageElement) {
           animateModernHeroBackdropSwap(mainBackdrop, heroDisplay?.backdrop || "", heroDisplay?.title || "featured");
         }
         return;
       }
-      // Cap the decode wait so a dead CDN can't stall the crossfade forever;
-      // on timeout the overlay fades in anyway and the src flip below is
-      // decode-gated as the floor.
+      // Cap the decode wait so a dead CDN can't stall the swap forever; on
+      // timeout everything commits anyway and the src flip below stays
+      // decode-gated as the floor. The pre-warm covers backdrop AND logo, so
+      // waiting it out lets copy and backdrop appear in the same frame.
       Promise.race([
         Promise.allSettled(preWarm),
         new Promise((resolve) => setTimeout(resolve, MODERN_HOME_CONSTANTS.heroSwapDecodeTimeoutMs))
       ]).then(() => {
-        if (this._lastScheduledHeroId !== scheduledHeroId || !earlyOverlay.isConnected) {
+        if (this._lastScheduledHeroId !== scheduledHeroId) {
           earlyOverlay.remove();
+          return;
+        }
+        if (!earlyOverlay.isConnected) {
+          // The hero DOM was re-rendered while assets decoded — commit the
+          // copy and let the two-layer swap bring the fresh backdrop node up.
+          commitCopy();
+          const freshBackdrop = this.container?.querySelector(".home-hero-card .home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
+          if (freshBackdrop instanceof HTMLImageElement && heroDisplay) {
+            animateModernHeroBackdropSwap(freshBackdrop, heroDisplay.backdrop || "", heroDisplay.title || "featured");
+          }
           return;
         }
         // Double rAF: a cache-hit decode can resolve in the append task, and
@@ -4833,6 +4846,10 @@ export const HomeScreen = {
               earlyOverlay.remove();
               return;
             }
+            // Copy commit and crossfade start land in the same frame: new
+            // title/logo/text fade in exactly as the new backdrop starts
+            // fading in.
+            commitCopy();
             earlyOverlay.classList.add("is-visible");
             const backdropTokenAtStart = Number(mainBackdrop?.heroBackdropTransitionToken || 0);
             this.heroCrossfadeCommitTimer = setTimeout(() => {
