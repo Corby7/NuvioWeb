@@ -15,7 +15,7 @@ import {
   setLegacySidebarExpanded
 } from "../../components/sidebarNavigation.js";
 import { RootSidebarController } from "../../components/rootSidebarController.js";
-import { observeLazyPosterImages } from "../../components/lazyPosterImages.js";
+import { observeLazyPosterImages, buildPosterFallbackAttr, posterImageErrorHandler } from "../../components/lazyPosterImages.js";
 
 const POSTER_HOLD_DELAY_MS = 650;
 const PICKER_MENU_EXIT_MS = 160;
@@ -427,7 +427,7 @@ export const DiscoverScreen = {
                         data-item-index="${index}">
                  <div class="library-grid-poster${item.poster ? "" : " placeholder"}">
                    ${item.poster
-      ? `<img class="library-grid-poster-image" data-lazy-src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" decoding="async" onerror="this.hidden = true" />`
+      ? `<img class="library-grid-poster-image" data-lazy-src="${escapeHtml(item.poster)}" alt="${escapeHtml(item.name || "content")}" decoding="async"${buildPosterFallbackAttr([item.background || item.backdrop])} onerror="${posterImageErrorHandler()}" />`
       : ""}
                  </div>
                  ${this.layoutPrefs?.posterLabelsEnabled !== false ? `

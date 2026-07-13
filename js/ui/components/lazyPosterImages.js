@@ -12,6 +12,29 @@
 
 const LAZY_POSTER_ROOT_MARGIN = "2000px 600px";
 
+// Some third-party poster proxies (e.g. poster.aio.minitwit.app) are
+// intermittently or permanently unreachable while the underlying source
+// (thetvdb, metahub, tmdb) is fine — grid posters had no fallback and just
+// hid on error, leaving a blank card. Reusing the backdrop as a fallback
+// source (same '|'-joined encodeURIComponent queue convention as
+// homeScreen's getImageFallbackErrorHandler) means a dead poster proxy
+// degrades to the backdrop image instead of nothing.
+export function buildPosterFallbackAttr(fallbackSources = []) {
+  const queue = fallbackSources
+    .map((source) => String(source || "").trim())
+    .filter(Boolean)
+    .map((source) => encodeURIComponent(source))
+    .join("|");
+  return queue ? ` data-fallback-srcs="${queue}"` : "";
+}
+
+export function posterImageErrorHandler() {
+  // removeAttribute('data-lazy-src') matters here even though hydration already
+  // ran: img[data-lazy-src] is opacity:0 in CSS so the fallback would load
+  // successfully but stay invisible if the attribute were left in place.
+  return "var q=(this.dataset.fallbackSrcs||'').split('|').filter(Boolean);var next=q.shift();if(next){this.dataset.fallbackSrcs=q.join('|');this.removeAttribute('data-lazy-src');this.src=decodeURIComponent(next);return;}this.hidden=true;";
+}
+
 // rootMargin only expands the observer root's own rect — it does not loosen
 // clipping by intermediate scroll containers. These grids all live inside an
 // inner scroller (e.g. .library-main, height:100vh + overflow-y:auto), so with

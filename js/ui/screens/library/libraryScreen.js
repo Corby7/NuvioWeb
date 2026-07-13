@@ -21,7 +21,7 @@ import {
   setLegacySidebarExpanded
 } from "../../components/sidebarNavigation.js";
 import { RootSidebarController } from "../../components/rootSidebarController.js";
-import { observeLazyPosterImages } from "../../components/lazyPosterImages.js";
+import { observeLazyPosterImages, buildPosterFallbackAttr, posterImageErrorHandler } from "../../components/lazyPosterImages.js";
 
 const POSTER_HOLD_DELAY_MS = 650;
 const PICKER_MENU_EXIT_MS = 160;
@@ -628,7 +628,7 @@ export const LibraryScreen = {
                        data-backdrop-src="${escapeHtml(item.background || "")}"
                        data-focus-key="${escapeHtml(focusKey)}">
                 <div class="library-grid-poster${item.poster ? "" : " placeholder"}">
-                  ${item.poster ? `<img class="library-grid-poster-image" data-lazy-src="${escapeHtml(item.poster)}" alt="" decoding="async" onerror="this.hidden = true" />` : ""}
+                  ${item.poster ? `<img class="library-grid-poster-image" data-lazy-src="${escapeHtml(item.poster)}" alt="" decoding="async"${buildPosterFallbackAttr([item.background])} onerror="${posterImageErrorHandler()}" />` : ""}
                   ${isWatched ? `<span class="library-watched-badge" aria-label="${escapeHtml(t("episodes_cd_watched", {}, "Watched"))}">${renderWatchedBadgeGlyph()}</span>` : ""}
                 </div>
                 <div class="library-grid-title">${escapeHtml(item.name || item.id || "Untitled")}</div>
