@@ -252,6 +252,7 @@ const TRACK_WINDOW_UPDATE_DELAY_MS = 80;
 const TRACK_LAYER_DEMOTE_DELAY_MS = 6000;
 const TRACK_WINDOW_MIN_CARDS = 7;
 const DETAIL_PREFETCH_DWELL_MS = 300;
+const ROW_IMAGE_PREDECODE_DWELL_MS = 350;
 const HOME_SNAPSHOT_KEY_PREFIX = "nuvio.homeSnapshot.";
 const HOME_SNAPSHOT_VERSION = 1;
 const HOME_SNAPSHOT_MAX_ROWS = 30;
@@ -6537,14 +6538,81 @@ export const HomeScreen = {
       }
       this.scheduleFocusedPosterFlow(target);
       this.scheduleDetailMetaPrefetch(target);
+      this.scheduleRowImagePredecode(target);
     } else {
       this.cancelDetailMetaPrefetch();
+      this.cancelRowImagePredecode();
       this.cancelPendingHeroFocus();
       this.cancelFocusedPosterFlow();
       this.clearFocusedPosterFlowState();
       this.collapseFocusedPoster();
     }
     return true;
+  },
+
+  // Only fires once d-pad navigation has genuinely paused (mirrors
+  // scheduleDetailMetaPrefetch's dwell pattern) — a held-key scroll burst
+  // keeps resetting this timer and never runs the decode work, so it can't
+  // add decode volume on top of an already-busy scroll gesture. An earlier
+  // viewport-margin-triggered version measured strictly worse on-device (see
+  // cdp-perf-debug-rig memory, 2026-07-14) because it fired mid-scroll and
+  // requestIdleCallback rarely got real idle time to run in.
+  scheduleRowImagePredecode(target) {
+    this.cancelRowImagePredecode();
+    if (!(target instanceof HTMLElement) || !target.classList.contains("home-poster-card")) {
+      return;
+    }
+    const rowIdx = Number(target.dataset.navRow ?? -1);
+    if (!Number.isFinite(rowIdx) || rowIdx < 0) {
+      return;
+    }
+    this.rowImagePredecodeTimer = setTimeout(() => {
+      this.rowImagePredecodeTimer = null;
+      this.runRowImagePredecode(rowIdx);
+    }, ROW_IMAGE_PREDECODE_DWELL_MS);
+  },
+
+  cancelRowImagePredecode() {
+    if (this.rowImagePredecodeTimer) {
+      clearTimeout(this.rowImagePredecodeTimer);
+      this.rowImagePredecodeTimer = null;
+    }
+  },
+
+  runRowImagePredecode(rowIdx) {
+    const rows = this.navModel?.rows;
+    if (!rows) {
+      return;
+    }
+    const candidateRows = [rows[rowIdx + 1], rows[rowIdx - 1]].filter(Boolean);
+    const images = [];
+    candidateRows.forEach((rowNodes) => {
+      rowNodes.forEach((card) => {
+        const img = card?.querySelector?.("img.content-poster");
+        // img.complete only reflects network fetch completion (posters load
+        // eager), not whether content-visibility has decoded it for paint —
+        // don't gate on it, or this never finds anything worth decoding.
+        if (img instanceof HTMLImageElement && !img.dataset.rowPredecoded && (img.currentSrc || img.src)) {
+          img.dataset.rowPredecoded = "1";
+          images.push(img);
+        }
+      });
+    });
+    if (!images.length) {
+      return;
+    }
+    const run = () => {
+      images.forEach((img) => {
+        if (img.isConnected && typeof img.decode === "function") {
+          img.decode().catch(() => {});
+        }
+      });
+    };
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: 500 });
+    } else {
+      setTimeout(run, 0);
+    }
   },
 
   scheduleDetailMetaPrefetch(target) {
@@ -7072,12 +7140,22 @@ export const HomeScreen = {
     }
     if (!this.boundHomeViewportScrollHandler) {
       let viewportScrollRaf = null;
+      // mountVisiblePendingRows() is the legacy (no-IntersectionObserver) fallback for
+      // progressive row mounting — see initVirtualRows(), which already mounts pending
+      // rows via IntersectionObserver on modern engines. Calling it here unconditionally
+      // meant every scroll-driven animation frame paid an O(pending rows) querySelectorAll
+      // + a forced-layout offsetTop read per row (up to ~140 pending rows on a large home
+      // screen) for work the observer had already done — measured as the dominant
+      // per-frame main-thread cost (20-47ms/frame) during vertical scroll on the C3.
+      const needsPendingRowScrollFallback = this.isLegacyTvRuntime() || typeof IntersectionObserver === "undefined";
       this.boundHomeViewportScrollHandler = () => {
         if (viewportScrollRaf) return;
         viewportScrollRaf = requestAnimationFrame(() => {
           viewportScrollRaf = null;
           this.scheduleHomeViewportFocusSync();
-          this.mountVisiblePendingRows();
+          if (needsPendingRowScrollFallback) {
+            this.mountVisiblePendingRows();
+          }
         });
       };
     }
@@ -8959,6 +9037,7 @@ export const HomeScreen = {
     this.cancelScheduledRender();
     this.endModernVerticalFastScroll({ land: false });
     this.cancelDetailMetaPrefetch();
+    this.cancelRowImagePredecode();
     this.stopHeroRotation();
     this.cancelPendingHeroFocus();
     if (this.heroEnrichAbortController) {
