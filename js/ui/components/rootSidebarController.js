@@ -13,8 +13,10 @@ import {
 import { LayoutPreferences } from "../../data/local/layoutPreferences.js";
 import { Router } from "../navigation/router.js";
 
-// Routes with no sidebar at all
-const NO_SIDEBAR_ROUTES = new Set(["account", "profileSelection", "stream", "player"]);
+// Routes with no sidebar at all. "" is the pre-boot state before the router's
+// first navigate() — treating it as unmanaged prevents the sidebar from
+// flashing visible over the still-blank screen shell during startup.
+const NO_SIDEBAR_ROUTES = new Set(["", "account", "profileSelection", "stream", "player"]);
 
 export const RootSidebarController = {
   el: null,            // #root-nav-sidebar — persistent, never re-injected
