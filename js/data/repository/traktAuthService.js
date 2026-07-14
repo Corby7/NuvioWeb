@@ -412,15 +412,39 @@ export const TraktAuthService = {
 
   async removeFromWatchlist(item) {
     return sendWatchlistRequest("/sync/watchlist/remove", item);
+  },
+
+  async rateItem(item, rating) {
+    return sendRatingRequest("/sync/ratings", item, rating);
+  },
+
+  async removeRating(item) {
+    return sendRatingRequest("/sync/ratings/remove", item, null);
+  },
+
+  async fetchRatings(contentType = "movie") {
+    const token = await this.getValidAccessToken();
+    if (!token) return [];
+    const key = contentType === "series" || contentType === "show" ? "shows" : "movies";
+    const { response, payload } = await requestJson(`/sync/ratings/${key}`, {
+      authorization: `Bearer ${token}`
+    });
+    if (!response.ok || !Array.isArray(payload)) return [];
+    return payload.map((entry) => normalizeRatingItem(entry, key)).filter(Boolean);
   }
 };
 
-function buildWatchlistPayload(item = {}) {
+function buildItemIds(item = {}) {
   const ids = {};
   if (item.imdbId) ids.imdb = item.imdbId;
   if (item.tmdbId) ids.tmdb = item.tmdbId;
   if (item.traktId) ids.trakt = item.traktId;
-  if (!Object.keys(ids).length) {
+  return Object.keys(ids).length ? ids : null;
+}
+
+function buildWatchlistPayload(item = {}) {
+  const ids = buildItemIds(item);
+  if (!ids) {
     return null;
   }
   const entry = { ids };
@@ -441,6 +465,43 @@ async function sendWatchlistRequest(path, item) {
     authorization: `Bearer ${token}`
   });
   return response.ok;
+}
+
+function buildRatingPayload(item = {}, rating = null) {
+  const ids = buildItemIds(item);
+  if (!ids) {
+    return null;
+  }
+  const entry = { ids };
+  if (rating != null) entry.rating = rating;
+  if (item.title) entry.title = item.title;
+  if (item.year) entry.year = item.year;
+  const key = item.type === "series" || item.type === "show" ? "shows" : "movies";
+  return { [key]: [entry] };
+}
+
+async function sendRatingRequest(path, item, rating) {
+  const body = buildRatingPayload(item, rating);
+  if (!body) return false;
+  const token = await TraktAuthService.getValidAccessToken();
+  if (!token) return false;
+  const { response } = await requestJson(path, {
+    method: "POST",
+    body,
+    authorization: `Bearer ${token}`
+  });
+  return response.ok;
+}
+
+function normalizeRatingItem(entry, key) {
+  const media = key === "shows" ? entry?.show : entry?.movie;
+  if (!media?.ids) return null;
+  return {
+    imdbId: media.ids.imdb || null,
+    tmdbId: media.ids.tmdb || null,
+    traktId: media.ids.trakt || null,
+    rating: Number(entry.rating || 0)
+  };
 }
 
 function normalizeHistoryItem(entry) {

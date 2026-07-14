@@ -460,6 +460,12 @@ function renderCalendarGlyph(isInCalendar = false) {
     : `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_calendar_add.svg');" aria-hidden="true"></span>`;
 }
 
+function renderRatingGlyph(isRated = false) {
+  return isRated
+    ? `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_rate_filled.svg');" aria-hidden="true"></span>`
+    : `<span class="series-btn-svg" style="--series-icon:url('../assets/icons/ic_detail_rate.svg');--series-icon-focused:url('../assets/icons/ic_detail_rate_filled.svg');" aria-hidden="true"></span>`;
+}
+
 // A show belongs on the airing calendar only while new episodes can still
 // arrive. Metadata status is authoritative when present ("Continuing" /
 // "Returning Series" vs "Ended" / "Canceled"); when addons omit it, any
@@ -959,6 +965,7 @@ export const MetaDetailsScreen = {
       meta: this.meta ? { ...this.meta } : null,
       isSavedInLibrary: Boolean(this.isSavedInLibrary),
       libraryUsesTrakt: Boolean(this.libraryUsesTrakt),
+      currentTraktRating: this.currentTraktRating == null ? null : Number(this.currentTraktRating),
       isMarkedWatched: Boolean(this.isMarkedWatched),
       episodes: Array.isArray(this.episodes) ? [...this.episodes] : [],
       castItems: Array.isArray(this.castItems) ? [...this.castItems] : [],
@@ -996,6 +1003,7 @@ export const MetaDetailsScreen = {
     this.meta = { ...snapshot.meta };
     this.isSavedInLibrary = Boolean(snapshot.isSavedInLibrary);
     this.libraryUsesTrakt = Boolean(snapshot.libraryUsesTrakt);
+    this.currentTraktRating = snapshot.currentTraktRating == null ? null : Number(snapshot.currentTraktRating);
     this.isMarkedWatched = Boolean(snapshot.isMarkedWatched);
     this.episodes = Array.isArray(snapshot.episodes) ? [...snapshot.episodes] : [];
     this.castItems = Array.isArray(snapshot.castItems) ? [...snapshot.castItems] : [];
@@ -1147,6 +1155,7 @@ export const MetaDetailsScreen = {
     this.seasonHoldMenu = null;
     this.heroPlayMenu = null;
     this.libraryListMenu = null;
+    this.ratingMenu = null;
     this.detailHoldDialog = null;
     this.posterOptionsController = null;
     this.posterOptionsFocusRestore = null;
@@ -1317,6 +1326,7 @@ export const MetaDetailsScreen = {
       return;
     }
     this.isSavedInLibrary = isSaved;
+    this.currentTraktRating = null;
     this.isMarkedWatched = Boolean(
       watchedItem
       || (progress && Number(progress.durationMs || 0) > 0 && Number(progress.positionMs || 0) >= Number(progress.durationMs || 0))
@@ -2228,6 +2238,10 @@ export const MetaDetailsScreen = {
     const calendarButton = calendarImdbId
       ? `<button class="series-circle-btn focusable${isInCalendar ? " is-selected" : ""}" data-action="toggleCalendar" aria-label="${escapeAttribute(isInCalendar ? t("detail.removeFromCalendar", {}, "Remove from Calendar") : t("detail.addToCalendar", {}, "Add to Calendar"))}">${renderCalendarGlyph(isInCalendar)}</button>`
       : "";
+    const isRated = Number.isFinite(this.currentTraktRating) && this.currentTraktRating > 0;
+    const rateButton = TraktAuthService.isAuthenticated()
+      ? `<button class="series-circle-btn focusable${isRated ? " is-selected" : ""}" data-action="rateItem" aria-label="${escapeAttribute(isRated ? t("detail.ratedOnTrakt", { rating: this.currentTraktRating }, "Rated {{rating}}/10 on Trakt") : t("detail.rateOnTrakt", {}, "Rate on Trakt"))}">${renderRatingGlyph(isRated)}</button>`
+      : "";
     return `
       <section class="detail-hero-section">
         <div class="detail-hero-brand">
@@ -2244,6 +2258,7 @@ export const MetaDetailsScreen = {
           </button>
           ${showWatchedButton ? `<button class="series-circle-btn focusable${this.isMarkedWatched ? " is-selected" : ""}" data-action="toggleWatched" aria-label="${escapeAttribute(this.isMarkedWatched ? t("common.markUnwatched", {}, "Mark Unwatched") : t("common.markWatched", {}, "Mark Watched"))}">${renderWatchedGlyph(this.isMarkedWatched)}</button>` : ""}
           ${calendarButton}
+          ${rateButton}
           ${trailerButton}
         </div>
         ${creditLine ? `<p class="series-detail-support">${escapeHtml(creditPrefix)}: ${escapeHtml(creditLine)}</p>` : ""}
@@ -3298,6 +3313,123 @@ export const MetaDetailsScreen = {
     return this.mountLibraryListDialog();
   },
 
+  async openRatingMenu() {
+    const imdbId = resolveMetaImdbId(this.meta, this.params);
+    if (!imdbId) {
+      return false;
+    }
+    const contentType = isSeriesDetailMeta(this.meta, this.episodes) ? "series" : "movie";
+    const ratings = await TraktAuthService.fetchRatings(contentType).catch((error) => {
+      console.warn("Failed to fetch Trakt ratings", error);
+      return [];
+    });
+    const existing = ratings.find((entry) => entry.imdbId === imdbId);
+    this.ratingMenu = {
+      imdbId,
+      contentType,
+      currentRating: existing ? existing.rating : null
+    };
+    this.currentTraktRating = this.ratingMenu.currentRating;
+    this.heroPlayMenu = null;
+    this.libraryListMenu = null;
+    return this.mountRatingDialog();
+  },
+
+  getRatingMenuOptions() {
+    if (!this.ratingMenu) {
+      return [];
+    }
+    const current = this.ratingMenu.currentRating;
+    const options = [];
+    for (let value = 1; value <= 10; value += 1) {
+      options.push({
+        action: `setRating:${value}`,
+        label: String(value),
+        className: "rating-picker-button",
+        selected: value === current
+      });
+    }
+    if (this.ratingMenu.currentRating != null) {
+      options.push({
+        action: "removeRating",
+        label: t("detail_rating_remove", {}, "Remove rating"),
+        className: "rating-picker-remove-button",
+        danger: true,
+        icon: DIALOG_ICONS.starFilled
+      });
+    }
+    return options;
+  },
+
+  mountRatingDialog() {
+    if (!this.ratingMenu) {
+      return false;
+    }
+    const focusRestore = { selector: ".series-detail-actions [data-action='rateItem']" };
+    const currentRating = this.ratingMenu.currentRating;
+    this.destroyDetailHoldDialog();
+    this.detailHoldDialog = new NuvioDialog({
+      title: this.meta?.name || this.params?.fallbackTitle || "Untitled",
+      subtitle: currentRating != null
+        ? t("detail_rating_subtitle_rated", { rating: currentRating }, "Currently rated {{rating}}/10 on Trakt")
+        : t("detail_rating_subtitle", {}, "Rate this on Trakt (1-10)"),
+      widthVw: 52,
+      suppressEnterUntilKeyUp: true,
+      buttons: this.getRatingMenuOptions().map((option) => ({
+        label: option.label,
+        key: option.action,
+        className: option.className,
+        danger: option.danger,
+        icon: option.icon,
+        selected: option.selected,
+        onAction: () => {
+          void this.activateRatingMenuOption(option.action);
+        }
+      })),
+      panelClassName: "rating-picker-dialog-panel",
+      actionsClassName: "rating-picker-actions",
+      onDismiss: () => {
+        this.detailHoldDialog = null;
+        this.ratingMenu = null;
+        this.focusDetailDescriptor(focusRestore);
+      }
+    }).mount(document.body);
+    return true;
+  },
+
+  async activateRatingMenuOption(action) {
+    if (!this.ratingMenu) {
+      return false;
+    }
+    const item = {
+      type: this.ratingMenu.contentType,
+      imdbId: this.ratingMenu.imdbId,
+      title: this.meta?.name || this.params?.fallbackTitle || ""
+    };
+    if (action === "removeRating") {
+      await TraktAuthService.removeRating(item).catch((error) => console.warn("Failed to remove Trakt rating", error));
+      this.currentTraktRating = null;
+      this.closeRatingMenu();
+      return true;
+    }
+    const match = /^setRating:(\d+)$/.exec(action);
+    if (match) {
+      const rating = Number(match[1]);
+      await TraktAuthService.rateItem(item, rating).catch((error) => console.warn("Failed to rate on Trakt", error));
+      this.currentTraktRating = rating;
+      this.closeRatingMenu();
+      return true;
+    }
+    return false;
+  },
+
+  closeRatingMenu() {
+    this.ratingMenu = null;
+    this.destroyDetailHoldDialog();
+    this.syncDetailActionButtons();
+    this.focusDetailDescriptor({ selector: ".series-detail-actions [data-action='rateItem']" });
+  },
+
   async playDefaultFromHero() {
     if (isSeriesDetailMeta(this.meta, this.episodes)) {
       const targetEpisode = this.nextEpisodeToWatch
@@ -4208,6 +4340,20 @@ export const MetaDetailsScreen = {
           : t("detail.addToCalendar", {}, "Add to Calendar")
       );
     });
+    const isRated = Number.isFinite(this.currentTraktRating) && this.currentTraktRating > 0;
+    Array.from(this.container.querySelectorAll('[data-action="rateItem"]')).forEach((node) => {
+      if (!(node instanceof HTMLElement)) {
+        return;
+      }
+      node.classList.toggle("is-selected", isRated);
+      node.innerHTML = renderRatingGlyph(isRated);
+      node.setAttribute(
+        "aria-label",
+        isRated
+          ? t("detail.ratedOnTrakt", { rating: this.currentTraktRating }, "Rated {{rating}}/10 on Trakt")
+          : t("detail.rateOnTrakt", {}, "Rate on Trakt")
+      );
+    });
     Router.captureCurrentRouteState();
   },
 
@@ -4223,6 +4369,9 @@ export const MetaDetailsScreen = {
     }
     if (this.libraryListMenu) {
       return { selector: ".series-detail-actions [data-action='toggleLibrary']" };
+    }
+    if (this.ratingMenu) {
+      return { selector: ".series-detail-actions [data-action='rateItem']" };
     }
     if (this.heroPlayMenu) {
       return { selector: ".series-detail-actions [data-action='playDefault']" };
@@ -5170,6 +5319,10 @@ export const MetaDetailsScreen = {
     }
     if (this.heroPlayMenu || this.libraryListMenu) {
       this.closeHeroMenus();
+      return true;
+    }
+    if (this.ratingMenu) {
+      this.closeRatingMenu();
       return true;
     }
     if (this.isTrailerPlaying) {
@@ -6504,6 +6657,10 @@ export const MetaDetailsScreen = {
       this.toggleCalendarFromHero();
       return true;
     }
+    if (action === "rateItem") {
+      void this.openRatingMenu();
+      return true;
+    }
     if (action === "toggleWatched") {
       const focusRestore = this.captureDetailFocus();
       const isSeries = isSeriesDetailMeta(this.meta, this.episodes);
@@ -6898,6 +7055,11 @@ export const MetaDetailsScreen = {
       return;
     }
 
+    if (action === "rateItem") {
+      void this.openRatingMenu();
+      return;
+    }
+
     if (action === "toggleWatched") {
       const focusRestore = this.captureDetailFocus();
       const isSeries = isSeriesDetailMeta(this.meta, this.episodes);
@@ -7005,6 +7167,7 @@ export const MetaDetailsScreen = {
     this.seasonPickerOpen = false;
     this.heroPlayMenu = null;
     this.libraryListMenu = null;
+    this.ratingMenu = null;
     this.stopTrailerPlayback({ keepDom: false, restartAutoplay: false });
     if (this.detailScrollHandler && this.container) {
       const content = this.container.querySelector(".series-detail-content");

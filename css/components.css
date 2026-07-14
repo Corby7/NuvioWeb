@@ -1653,6 +1653,53 @@ button:focus-visible {
   transform: none;
 }
 
+.rating-picker-dialog-panel {
+  max-height: min(86vh, 900px);
+}
+
+.rating-picker-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
+.nuvio-dialog-button.rating-picker-button {
+  width: 84px;
+  height: 84px;
+  min-width: 84px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+  text-align: center;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.nuvio-dialog-button.rating-picker-button .nuvio-dialog-button-check {
+  display: none;
+}
+
+.nuvio-dialog-button.rating-picker-button.selected {
+  background: rgb(var(--secondary-color-rgb) / 0.34);
+  color: #ffffff;
+  border-color: rgb(var(--secondary-color-rgb) / 0.7);
+}
+
+.nuvio-dialog-button.rating-picker-button.selected.focused,
+.nuvio-dialog-button.rating-picker-button.focused {
+  transform: scale(1.12);
+}
+
+.nuvio-dialog-button.rating-picker-remove-button {
+  flex-basis: 100%;
+  width: 92%;
+  margin: 12px auto 0;
+  justify-content: center;
+  text-align: center;
+}
+
 /* ─── Legacy profile-specific dialog aliases (kept for compat) ─── */
 .profile-dialog {
   width: min(92vw, 500px);
