@@ -4395,7 +4395,10 @@ img[data-lazy-src] {
 }
 
 .calendar-episode-card {
-  width: 410px;
+  /* 410px only fit 3 per row in the 1648px-wide calendar column (1920 viewport
+     minus the 144px sidebar and 64px*2 body padding) on webOS, leaving a wide
+     unused gap on the right. 390px fits 4 with the same 24px gap. */
+  width: 390px;
   max-width: 100%;
   display: flex;
   align-items: center;
@@ -14007,7 +14010,6 @@ img[data-lazy-src] {
   overflow-y: visible;
   width: 100%;
   gap: 18px;
-  padding: 16px 48px 32px 48px;
   scrollbar-width: none;
 }
 
@@ -18159,7 +18161,7 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 .movie-cast-track,
 .series-cast-track {
   gap: 32px;
-  padding: 16px 48px 48px 16px;
+  padding: 16px 48px 48px 64px;
 }
 
 .movie-cast-avatar {
