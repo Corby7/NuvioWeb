@@ -433,11 +433,14 @@ function buildEnrichedTmdbItem(baseItem = {}, enriched = {}, settings = {}) {
     ...baseItem,
     name: useBasicInfo ? firstNonEmpty(enriched.localizedTitle, baseItem.name) : baseItem.name,
     description: useBasicInfo ? firstNonEmpty(enriched.description, baseItem.description) : baseItem.description,
-    background: useArtwork ? firstNonEmpty(enriched.backdrop, baseItem.background) : baseItem.background,
-    backdrop: useArtwork ? firstNonEmpty(enriched.backdrop, baseItem.backdrop) : baseItem.backdrop,
-    landscapePoster: useArtwork ? firstNonEmpty(enriched.backdrop, baseItem.landscapePoster) : baseItem.landscapePoster,
-    poster: useArtwork ? firstNonEmpty(enriched.poster, baseItem.poster) : baseItem.poster,
-    logo: useArtwork ? enriched.logo : baseItem.logo,
+    // Fill gaps only — the base item's own art (from the folder's catalog
+    // listing) wins when present, so a later per-title TMDB fetch can't
+    // swap in different-looking art moments after the hero first rendered.
+    background: useArtwork ? firstNonEmpty(baseItem.background, enriched.backdrop) : baseItem.background,
+    backdrop: useArtwork ? firstNonEmpty(baseItem.backdrop, enriched.backdrop) : baseItem.backdrop,
+    landscapePoster: useArtwork ? firstNonEmpty(baseItem.landscapePoster, enriched.backdrop) : baseItem.landscapePoster,
+    poster: useArtwork ? firstNonEmpty(baseItem.poster, enriched.poster) : baseItem.poster,
+    logo: useArtwork ? firstNonEmpty(baseItem.logo, enriched.logo) : baseItem.logo,
     genres: useBasicInfo && Array.isArray(enriched.genres) && enriched.genres.length ? enriched.genres : baseItem.genres,
     releaseInfo: useBasicInfo ? firstNonEmpty(enriched.releaseInfo, baseItem.releaseInfo) : baseItem.releaseInfo,
     released: useBasicInfo ? firstNonEmpty(enriched.released, baseItem.released) : baseItem.released,

@@ -5067,8 +5067,13 @@ export const HomeScreen = {
         ...(meta.releaseInfo ? { releaseInfo: meta.releaseInfo } : {}),
         ...(Array.isArray(meta.genres) && meta.genres.length ? { genres: meta.genres } : {}),
         ...(meta.description ? { description: meta.description } : {}),
-        ...(meta.logo ? { logo: meta.logo } : {}),
-        ...(meta.background ? { background: meta.background } : {})
+        // Fill gaps only — never replace art the catalog already supplied.
+        // getMetaFromAllAddons can resolve a different addon than the one
+        // that populated the row, so an unconditional overwrite here used to
+        // swap in mismatched backdrop/logo art moments after the hero first
+        // rendered.
+        ...(meta.logo && !this.heroItem?.logo ? { logo: meta.logo } : {}),
+        ...(meta.background && !this.heroItem?.background ? { background: meta.background } : {})
       };
       this.heroItem = mergedHero;
       this.mergeHeroIntoCatalogState(itemId, mergedHero);
