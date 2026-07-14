@@ -6759,6 +6759,38 @@ export const HomeScreen = {
     this._virtualRowObserver = null;
     this._rowVisibilityObserver?.disconnect();
     this._rowVisibilityObserver = null;
+    if (this._pendingRowMountRaf) {
+      cancelAnimationFrame(this._pendingRowMountRaf);
+      this._pendingRowMountRaf = null;
+    }
+    this._pendingRowMountQueue = null;
+  },
+
+  // Fast vertical scrolling can cross several rows' worth of the observer's
+  // 2160px rootMargin in one jump, so a single callback can be asked to mount
+  // many rows at once — measured at 60-90ms in one IntersectionObserver
+  // callback on the C3 (each mount does a full innerHTML build for up to 15
+  // cards). Spread the work across frames instead of doing it all in one task.
+  scheduleIncrementalRowMount(sections) {
+    this._pendingRowMountQueue = (this._pendingRowMountQueue || []).concat(sections);
+    if (this._pendingRowMountRaf) {
+      return;
+    }
+    const MOUNT_BUDGET_MS = 8;
+    const step = () => {
+      this._pendingRowMountRaf = null;
+      const start = performance.now();
+      while (this._pendingRowMountQueue.length && (performance.now() - start) < MOUNT_BUDGET_MS) {
+        const section = this._pendingRowMountQueue.shift();
+        if (section?.isConnected) {
+          this.mountPendingRow(section);
+        }
+      }
+      if (this._pendingRowMountQueue.length) {
+        this._pendingRowMountRaf = requestAnimationFrame(step);
+      }
+    };
+    this._pendingRowMountRaf = requestAnimationFrame(step);
   },
 
   // Keeps every on-screen row exempt from content-visibility's paint
@@ -6854,12 +6886,16 @@ export const HomeScreen = {
     }
     const observer = new IntersectionObserver(
       (entries) => {
+        const toMount = [];
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             observer.unobserve(entry.target);
-            this.mountPendingRow(entry.target);
+            toMount.push(entry.target);
           }
         });
+        if (toMount.length) {
+          this.scheduleIncrementalRowMount(toMount);
+        }
       },
       {
         root: viewport,
@@ -8872,6 +8908,23 @@ export const HomeScreen = {
         if (this._trackPaginationInFlight?.has(rowKey)) {
           return;
         }
+        // Cheap, DOM-measurement-free gate first: most rows are either fully
+        // loaded (hasMore false) or the row data isn't ready, and skipping
+        // straight to the geometry checks below on every scroll tick forced a
+        // layout flush (offsetWidth/getTrackMaxScrollPx) each time — fine in
+        // isolation, but under held-key navigation the accumulated style
+        // invalidation from back-to-back presses made that flush cost
+        // 40-60ms instead of a few ms (measured on the C3). Checking hasMore
+        // first means fully-loaded rows (the common case) never touch the DOM.
+        const rowData = (this.rows || []).find((row) => buildModernRowKey(row) === rowKey);
+        const rowResult = rowData?.result;
+        if (!rowResult || rowResult.status !== "success") {
+          return;
+        }
+        const rowPayload = rowResult.data;
+        if (!rowPayload?.hasMore) {
+          return;
+        }
         const cards = track.querySelectorAll(".home-content-card:not(.home-poster-card-loading)");
         const totalVisible = cards.length;
         if (!totalVisible) {
@@ -8887,16 +8940,6 @@ export const HomeScreen = {
         const nearEndThreshold = (cardWidth + gapApprox) * 8;
         const distanceFromEnd = getTrackMaxScrollPx(track) - getTrackScrollLeftPx(track);
         if (distanceFromEnd > nearEndThreshold) {
-          return;
-        }
-        // Find row data with hasMore
-        const rowData = (this.rows || []).find((row) => buildModernRowKey(row) === rowKey);
-        const rowResult = rowData?.result;
-        if (!rowResult || rowResult.status !== "success") {
-          return;
-        }
-        const rowPayload = rowResult.data;
-        if (!rowPayload?.hasMore) {
           return;
         }
         const currentItems = Array.isArray(rowPayload.items) ? rowPayload.items : [];
