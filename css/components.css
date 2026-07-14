@@ -4150,7 +4150,7 @@ img[data-lazy-src] {
   border-radius: 999px;
   background: var(--card-bg);
   color: var(--text-color);
-  font-size: 28 px;
+  font-size: 24px;
   font-weight: 500;
   transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease, transform 120ms ease;
 }

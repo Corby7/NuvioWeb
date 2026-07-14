@@ -131,6 +131,27 @@ CDP_HOST=192.168.1.100 CDP_PORT=9998 CDP_MATCH=nuvio node cdp.mjs eval "document
   `node cdp.mjs eval "location.reload()"` for a genuinely clean JS context
   when a test needs one (e.g. verifying a bug isn't an artifact of earlier
   instrumentation).
+- **`location.reload()` does NOT clear `Page.addScriptToEvaluateOnNewDocument`
+  scripts** — those are tied to the target/frame, not the document, and
+  survive navigations AND WebSocket disconnects/reconnects to the same
+  target. If you're A/B-testing a live monkeypatch (e.g. wrapping
+  `IntersectionObserver` to force a different value for one call site — see
+  cdp-perf-debug-rig memory for a worked example) and need a genuinely clean
+  slate between conditions, `location.reload()` is not enough — use
+  `ares-launch -d <device> -c <appId>` (close) then `ares-launch -d <device>
+  <appId>` (relaunch) to get a brand new target with zero injected scripts.
+  Stacking a second patch on top of a still-active first one to "undo" it is
+  fragile (execution order between multiple registered scripts means the
+  second patch's `NativeIO` reference may actually be the first patch's
+  wrapper, not the true native) — don't bother, just do the clean relaunch.
+- **A trace comparison is only trustworthy from a clean, controlled
+  baseline.** A "before" number pulled from a long-running, already-poked-at
+  session (leftover observers/instrumentation, warm image caches, arbitrary
+  GC timing) is not a valid baseline for a "does this change regress perf"
+  question — it can look dramatically worse (or better) than reality purely
+  from session noise. Always re-run BOTH conditions with the identical
+  sequence from a fresh app relaunch (same descent/setup steps, same
+  `trace`/`keySpec` args) before trusting a before/after delta.
 - **Screenshot-based verification can lag reality** — `Page.captureScreenshot`
   can return a stale/mid-transition frame right after a navigation; a
   `waitFor` on a real DOM condition is more reliable than "sleep then

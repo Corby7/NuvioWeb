@@ -4707,13 +4707,38 @@ export const HomeScreen = {
     this.openContinueWatchingFromItem(item);
   },
 
+  // Call after any this.rows mutation (initial/deferred/batch row merges in
+  // loadData, and per-row mounts) so a hero that failed to resolve earlier
+  // (see scheduleModernHeroUpdate) gets a chance to resolve now that its
+  // row's data has landed. No-ops if nothing is pending, if focus moved on,
+  // or if the node left the document.
+  retryPendingHeroUpdate() {
+    const node = this._heroUpdatePendingNode;
+    if (!node || !node.isConnected || !node.classList.contains("focused")) {
+      return;
+    }
+    this.scheduleModernHeroUpdate(node);
+  },
+
   scheduleModernHeroUpdate(node) {
     if (this.layoutMode !== "modern") {
       return;
     }
     const hero = this.getNodeHeroSource(node);
     if (!hero || !hero.id) {
+      // getNodeHeroSource resolves via this.rows[rowIndex]/items[itemIndex] —
+      // during the cold-boot progressive load this.rows can still be a
+      // smaller (initial-batch-only) array than the DOM's data-row-index
+      // values suggest, so this legitimately misses for a focused node whose
+      // row hasn't landed yet. Remember it so retryPendingHeroUpdate (called
+      // from loadData's row-merge points) can resolve it once data arrives —
+      // nothing else re-checks an already-focused, already-failed node, so
+      // without this the hero stays stuck on stale/empty copy forever.
+      this._heroUpdatePendingNode = node;
       return;
+    }
+    if (this._heroUpdatePendingNode === node) {
+      this._heroUpdatePendingNode = null;
     }
     if (this._lastScheduledHeroId === String(hero.id)) {
       return;
@@ -6798,6 +6823,15 @@ export const HomeScreen = {
   // card's scale/shadow isn't clipped once focus moves elsewhere (e.g. to the
   // sidebar). Separate from the one-shot mount observer above: this one stays
   // alive for the life of the screen and keeps toggling as rows scroll by.
+  // rootMargin was 200px — measured live (CDP trace on the C3) that a held
+  // ArrowDown's spring-scroll advances scrollTop by ~850-900px between
+  // IntersectionObserver callback batches, so 200px was routinely blown
+  // through: a row's content-visibility was only lifted (first real
+  // layout/paint) after it was already 200px+ *inside* the viewport, i.e.
+  // visibly on screen already — that first layout/paint was the "row loads
+  // in" pop the user saw while scrolling. 900px comfortably covers the
+  // observed worst-case jump while staying well under the row-mount
+  // observer's 2160px (so distant rows still skip full rendering).
   initRowVisibilityObserver() {
     const viewport = this.container?.querySelector(".home-modern-rows-viewport");
     const rows = Array.from(this.container?.querySelectorAll(".home-modern-row") || []);
@@ -6812,7 +6846,7 @@ export const HomeScreen = {
       },
       {
         root: viewport,
-        rootMargin: "200px 0px 200px 0px"
+        rootMargin: "900px 0px 900px 0px"
       }
     );
     rows.forEach((section) => observer.observe(section));
@@ -6826,10 +6860,24 @@ export const HomeScreen = {
     const rowIndex = Number(section.dataset.rowIndex);
     const rowData = this.rows?.[rowIndex];
     const opts = this._rowRenderOpts;
-    if (!rowData || !opts?.createPosterCardMarkup) {
+    if (!rowData) {
+      // this.rows grows incrementally during the cold-boot load (initial
+      // batch, then deferred rows merged in by key/batch) — a row's DOM
+      // section can be mounted (via the IntersectionObserver in
+      // initVirtualRows) before this.rows has grown to include its index
+      // yet. Giving up here permanently (removing data-row-pending) left the
+      // row empty forever, since nothing else ever retries it. Keep it
+      // pending and queue a retry instead — retryPendingRowMounts is called
+      // from every loadData row-merge point once this.rows actually grows.
+      this._pendingRowRemounts = this._pendingRowRemounts || new Set();
+      this._pendingRowRemounts.add(section);
+      return;
+    }
+    if (!opts?.createPosterCardMarkup) {
       section.removeAttribute("data-row-pending");
       return;
     }
+    this._pendingRowRemounts?.delete(section);
     const track = section.querySelector(".home-track");
     if (track) {
       const isCollectionRow = rowData?.rowKind === "collection";
@@ -6854,6 +6902,20 @@ export const HomeScreen = {
     this.appendMountedRowToNavigationModel(section);
     if (track) {
       scheduleTrackVirtualWindowUpdate(track);
+    }
+  },
+
+  // Companion to the this.rows-missing branch in mountPendingRow above —
+  // called from every loadData row-merge point so sections that couldn't
+  // mount yet get a real attempt once this.rows actually has their index.
+  retryPendingRowMounts() {
+    if (!this._pendingRowRemounts?.size) {
+      return;
+    }
+    const sections = Array.from(this._pendingRowRemounts).filter((section) => section?.isConnected);
+    this._pendingRowRemounts.clear();
+    if (sections.length) {
+      this.scheduleIncrementalRowMount(sections);
     }
   },
 
@@ -7050,7 +7112,28 @@ export const HomeScreen = {
     }
 
     if (direction === "up" || direction === "down") {
-      if (this.layoutMode === "modern" && event?.repeat && this.startModernVerticalFastScroll(direction === "down" ? 1 : -1)) {
+      // The fast-scroll path (direct scrollTop stepping, lands on the nearest
+      // row once input stops) was gated on event.repeat, i.e. only a held key
+      // with OS-level auto-repeat. A user rapidly TAPPING (discrete press/
+      // release, never repeat:true) got the per-press spring-scroll-to-row
+      // animation every time instead — and since each new tap just re-targets
+      // the still-settling spring rather than replacing it, a fast tapping
+      // burst kept one continuous spring sweeping across many rows, paying
+      // per-tick content-visibility/intersection cost the whole time (traced
+      // at 5-14ms/tick, sustained over hundreds of ms, on the C3). Treat
+      // presses arriving in quick succession as rapid too, so quick tapping
+      // gets the same cheap path as holding the key. Reuses
+      // heroRapidNavThresholdMs (450ms), the constant this codebase already
+      // tuned for "was the previous press recent enough to count as rapid
+      // navigation" — verticalFastScrollEndTimeoutMs (160ms) measures a
+      // different thing (how long to keep an ACTIVE fast-scroll alive
+      // between repeat ticks) and is tighter than real dispatch/processing
+      // overhead allows for detecting a fresh press as part of a burst.
+      const now = Date.now();
+      const isRapidVerticalTap = Number(this.lastVerticalNavKeyAt || 0) > 0
+        && (now - Number(this.lastVerticalNavKeyAt || 0)) < MODERN_HOME_CONSTANTS.heroRapidNavThresholdMs;
+      this.lastVerticalNavKeyAt = now;
+      if (this.layoutMode === "modern" && (event?.repeat || isRapidVerticalTap) && this.startModernVerticalFastScroll(direction === "down" ? 1 : -1)) {
         return true;
       }
       const delta = direction === "up" ? -1 : 1;
@@ -7558,6 +7641,8 @@ export const HomeScreen = {
     this.isInitialHomeLoading = false;
     this.hasLoadedOnce = true;
     this.render();
+    this.retryPendingHeroUpdate();
+    this.retryPendingRowMounts();
     if (deferredDescriptors.length) {
       if (!background && this.layoutMode === "modern") {
         const loadingCount = this.getLoadingRowItemCount();
@@ -7579,8 +7664,10 @@ export const HomeScreen = {
         });
         this.rows = this.sortAndFilterRows(Array.from(skeletonByKey.values()), this.collections);
         this.requestBackgroundRender();
+        this.retryPendingHeroUpdate();
+        this.retryPendingRowMounts();
       }
-      const progressiveDeferredRows = this.shouldProgressivelyRenderDeferredRows();
+  const progressiveDeferredRows = this.shouldProgressivelyRenderDeferredRows();
       this.fetchCatalogRows(deferredDescriptors, {
         allowLoading: true,
         batchSize: this.getDeferredCatalogBatchSize(),
@@ -7599,6 +7686,8 @@ export const HomeScreen = {
               this.heroItem = this.pickInitialHero();
             }
             this.requestBackgroundRender();
+            this.retryPendingHeroUpdate();
+            this.retryPendingRowMounts();
           }
           : null
       }).then((extraRows) => {
@@ -7617,6 +7706,8 @@ export const HomeScreen = {
         }
         this.requestBackgroundRender();
         this.retryPendingCatalogRows();
+        this.retryPendingHeroUpdate();
+        this.retryPendingRowMounts();
         this.persistHomeSnapshot();
       }).catch((error) => {
         console.warn("Deferred home rows load failed", error);
@@ -9010,7 +9101,16 @@ export const HomeScreen = {
             // tiles when held-key scrolling outran the network. Returning the
             // chain keeps .finally (in-flight release + recheck) ordered
             // after the append.
-            const posterWarmups = newItems.slice(0, 8).map((item) => {
+            //
+            // This only warmed the first 8 of newItems, but a fetched page is
+            // typically ~20 items (TMDB) or more (many Stremio addons) — items
+            // 9+ got appended with zero pre-warming, so continuing to scroll
+            // past the 8th card of a batch showed a poster pop-in exactly like
+            // the one this comment describes, just for later cards in the
+            // same batch. Warm the whole page instead: the fetches run in
+            // parallel via allSettled, so covering ~20 costs roughly the same
+            // wall-clock time as 8, still bounded by the same 1500ms cap.
+            const posterWarmups = newItems.map((item) => {
               const posterUrl = String(item?.poster || "").trim();
               return posterUrl ? preloadImageSource(optimizePosterUrl(posterUrl)) : Promise.resolve(false);
             });
