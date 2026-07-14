@@ -16151,6 +16151,18 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   animation-iteration-count: infinite !important;
 }
 
+/* Library/calendar and search spinners live outside .home-screen-shell, so the
+   rescue above never reached them — they fell through to the catch-all
+   `animation-iteration-count: 1`, ran once in 0.01ms, and froze on the last
+   frame. Same steps() treatment as the other rescued spinners. */
+.performance-constrained .library-loading-spinner,
+.performance-constrained .search-inline-spinner,
+.performance-constrained .discover-loading-spinner {
+  animation-duration: 720ms !important;
+  animation-timing-function: steps(12, end) !important;
+  animation-iteration-count: infinite !important;
+}
+
 .performance-constrained .nuvio-route-slide-enter,
 .performance-constrained .home-route-content-enter,
 .performance-constrained .addons-route-enter,
