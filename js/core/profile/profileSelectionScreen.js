@@ -2142,12 +2142,14 @@ export const ProfileSelectionScreen = {
       await ProfileManager.setActiveProfile(profileId);
       StartupSyncService.enableProfileScopedSync();
       detailWatchedEnrichmentService.invalidateAllCache();
-      await ProfileSettingsSyncService.pull(profileId);
-      await TraktCredentialSyncService.pullFromRemote(profileId);
-      await CollectionSyncService.pull(profileId);
-      await HomeCatalogSettingsSyncService.pull(profileId);
-      await WatchedItemsSyncService.pull();
-      await WatchProgressSyncService.pull();
+      await Promise.all([
+        ProfileSettingsSyncService.pull(profileId),
+        TraktCredentialSyncService.pullFromRemote(profileId),
+        CollectionSyncService.pull(profileId),
+        HomeCatalogSettingsSyncService.pull(profileId),
+        WatchedItemsSyncService.pull(),
+        WatchProgressSyncService.pull()
+      ]);
       await I18n.init();
       ThemeManager.apply();
       I18n.apply();

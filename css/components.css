@@ -532,6 +532,32 @@ button:focus-visible {
   border-color: var(--focus-color);
 }
 
+.profile-card.is-activating {
+  pointer-events: none;
+}
+
+.profile-card.is-activating .profile-avatar,
+.profile-card.is-activating .profile-name,
+.profile-card.is-activating .profile-badge,
+.profile-card.is-activating .profile-badge-slot {
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+
+.profile-card.is-activating .profile-avatar-ring::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  border: 4px solid rgba(158, 158, 158, 0.22);
+  border-top-color: var(--focus-color, #9e9e9e);
+  animation: homeLoadingSpin 820ms linear infinite;
+}
+
 .profile-avatar {
   width: 192px;
   height: 192px;
