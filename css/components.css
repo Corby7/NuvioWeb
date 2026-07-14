@@ -1365,8 +1365,11 @@ button:focus-visible {
   bottom: 0;
   left: 0;
   background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* No backdrop-filter here: this scrim sits directly behind
+     .nuvio-dialog-panel, and a blurred ancestor pre-flattens the detail the
+     panel's own backdrop-filter needs to sample — nesting both washes out
+     into one uniform blur with no visible glass/panel distinction. Dim only;
+     let the panel do the only blurring. */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1400,10 +1403,6 @@ button:focus-visible {
 .nuvio-dialog-panel {
   width: 100%;
   box-sizing: border-box;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%) top / 100% 100px no-repeat, rgba(8, 12, 24, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
-  -webkit-backdrop-filter: blur(52px) saturate(160%) brightness(0.85);
   border-radius: 64px;
   padding: 12px;
   display: flex;
@@ -1412,6 +1411,21 @@ button:focus-visible {
   overflow: visible;
   transform: scale(0.9);
   opacity: 0;
+  /* lighter, more translucent base */
+  background: rgba(255, 255, 255, 0.08);
+
+  /* stronger blur + saturation boost = that "glass distorts what's behind it" feel */
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+
+  /* thin bright edge — this is the key ingredient for "glass" vs "frosted panel" */
+  border: 1px solid rgba(255, 255, 255, 0.18);
+
+  /* layered shadow: soft ambient drop + inner highlight for a lit rim */
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.15);
 }
 
 .nuvio-dialog-panel.nuvio-dialog-panel-enter {
@@ -3975,9 +3989,27 @@ img[data-lazy-src] {
   justify-content: space-between;
   gap: 24px;
   background: var(--card-bg);
-  padding: 24px 36px;
+  padding: 16px 36px;
   border-radius: 999px;
   margin: 16px 0 32px 0;
+    /* lighter, more translucent base */
+  background: rgba(255, 255, 255, 0.08);
+
+  /* stronger blur + saturation boost = that "glass distorts what's behind it" feel.
+     position: sticky over a scrollable list costs real fps on webOS (measured
+     19fps vs 30fps clean) — stripped via .performance-constrained below,
+     same as .nuvio-dialog-panel and every other glass surface in the app. */
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+
+  /* thin bright edge — this is the key ingredient for "glass" vs "frosted panel" */
+  border: 1px solid rgba(255, 255, 255, 0.18);
+
+  /* layered shadow: soft ambient drop + inner highlight for a lit rim */
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.15);
 }
 
 .calendar-manage-button {
@@ -4026,7 +4058,7 @@ img[data-lazy-src] {
   white-space: nowrap;
   color: rgba(255, 255, 255, 0.92);
   padding: 7px 16px;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: bold;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
   line-height: 1;
@@ -4326,7 +4358,7 @@ img[data-lazy-src] {
 }
 
 .calendar-episode-card {
-  width: 420px;
+  width: 410px;
   max-width: 100%;
   display: flex;
   align-items: center;
@@ -13937,7 +13969,7 @@ img[data-lazy-src] {
   overflow-y: visible;
   width: 100%;
   gap: 18px;
-  padding: 16px 48px 32px 16px;
+  padding: 16px 48px 32px 48px;
   scrollbar-width: none;
 }
 
@@ -16129,11 +16161,10 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 .performance-constrained .series-episode-card,
 .performance-constrained .series-stream-panel,
 .performance-constrained .stream-route-panel-shell,
-.performance-constrained .nuvio-dialog-backdrop,
-.performance-constrained .nuvio-dialog-panel,
 .performance-constrained .settings-dialog-backdrop,
 .performance-constrained .settings-dialog,
-.performance-constrained .qr-card {
+.performance-constrained .qr-card,
+.performance-constrained .calendar-week-nav {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
