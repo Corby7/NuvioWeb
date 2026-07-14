@@ -578,8 +578,16 @@ export const SearchScreen = {
     }
     const selectionSnapshot = getInputSelectionSnapshot(input);
 
-    while (header.nextSibling) {
-      header.nextSibling.remove();
+    // Keep the spinner node across renders — its visibility is driven purely by
+    // the "search-is-loading" class on .search-content. Removing it here meant it
+    // only ever existed for the very first search of a mount and never came back.
+    let node = header.nextSibling;
+    while (node) {
+      const next = node.nextSibling;
+      if (!node.classList?.contains("search-inline-spinner")) {
+        node.remove();
+      }
+      node = next;
     }
     content.insertAdjacentHTML("beforeend", this.renderRows());
     ScreenUtils.indexFocusables(this.container);
