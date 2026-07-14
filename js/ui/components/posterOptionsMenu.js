@@ -105,7 +105,10 @@ export function getPosterOptions(state, options = {}) {
           : state.isSaved
             ? t("detail.removeFromLibrary", {}, "Remove from Library")
             : t("detail.addToLibrary", {}, "Add to Library"),
-      icon: state.isSaved ? DIALOG_ICONS.removeFromLibrary : DIALOG_ICONS.toggleLibrary
+      icon:
+        state.sourceMode === LibrarySourceMode.TRAKT
+          ? DIALOG_ICONS.manageLists
+          : (state.isSaved ? DIALOG_ICONS.removeFromLibrary : DIALOG_ICONS.toggleLibrary)
     });
   }
   if (includeWatched) {

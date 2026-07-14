@@ -3900,7 +3900,9 @@ export const HomeScreen = {
           : (this.posterHoldMenu?.isSaved
           ? t("hero_remove_from_library", {}, "Remove from library")
           : t("hero_add_to_library", {}, "Add to library")),
-        icon: isTraktLibrary ? undefined : (this.posterHoldMenu?.isSaved ? DIALOG_ICONS.removeFromLibrary : DIALOG_ICONS.toggleLibrary)
+        icon: isTraktLibrary
+          ? DIALOG_ICONS.manageLists
+          : (this.posterHoldMenu?.isSaved ? DIALOG_ICONS.removeFromLibrary : DIALOG_ICONS.toggleLibrary)
       }
     ];
     if (isMovie) {
