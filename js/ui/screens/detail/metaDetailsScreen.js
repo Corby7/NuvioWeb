@@ -280,6 +280,27 @@ function extractCast(meta = {}) {
   return [];
 }
 
+const CAST_AVATAR_PALETTE = ["#3b4a63", "#4a3b63", "#3b6350", "#63503b", "#5a3b63", "#3b5a63"];
+
+function castInitials(name = "") {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) {
+    return "?";
+  }
+  const first = parts[0][0] || "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase();
+}
+
+function castAvatarColor(name = "") {
+  let hash = 0;
+  const str = String(name || "");
+  for (let i = 0; i < str.length; i += 1) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  return CAST_AVATAR_PALETTE[Math.abs(hash) % CAST_AVATAR_PALETTE.length];
+}
+
 function isBackEvent(event) {
   return Environment.isBackEvent(event);
 }
@@ -2620,7 +2641,12 @@ export const MetaDetailsScreen = {
       return `<div class="series-insight-empty">No cast information.</div>`;
     }
     const className = kind === "movie" ? "movie-cast-track" : "series-cast-track";
-    const cards = this.castItems.slice(0, 18).map((person) => `
+    const cards = this.castItems.slice(0, 18).map((person) => {
+      const hasPhoto = Boolean(person.photo);
+      const avatarStyle = hasPhoto
+        ? `background-image:url('${String(person.photo).replace(/'/g, "%27")}')`
+        : `background-color:${castAvatarColor(person.name)}`;
+      return `
       <article class="movie-cast-card focusable series-cast-card"
                data-action="openCastDetail"
                data-cast-id="${person.tmdbId || ""}"
@@ -2628,11 +2654,12 @@ export const MetaDetailsScreen = {
                data-cast-name="${escapeHtml(person.name || "")}"
                data-cast-role="${escapeHtml(person.character || "")}"
                data-cast-photo="${escapeHtml(person.photo || "")}">
-        <div class="movie-cast-avatar"${person.photo ? ` style="background-image:url('${String(person.photo).replace(/'/g, "%27")}')"` : ""}></div>
+        <div class="movie-cast-avatar${hasPhoto ? "" : " movie-cast-avatar-placeholder"}" style="${avatarStyle}">${hasPhoto ? "" : escapeHtml(castInitials(person.name))}</div>
         <div class="movie-cast-name">${escapeHtml(person.name || "")}</div>
-        <div class="movie-cast-role">${escapeHtml(person.character || "")}</div>
+        ${person.character ? `<div class="movie-cast-role">${escapeHtml(person.character)}</div>` : ""}
       </article>
-    `).join("");
+    `;
+    }).join("");
     return `<div class="${className}" data-scroll-key="cast:${kind}">${cards}</div>`;
   },
 
