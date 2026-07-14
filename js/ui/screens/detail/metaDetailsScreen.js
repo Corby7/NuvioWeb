@@ -7,7 +7,7 @@ import { catalogRepository } from "../../../data/repository/catalogRepository.js
 import { watchProgressRepository } from "../../../data/repository/watchProgressRepository.js";
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
 import { watchedItemsRepository } from "../../../data/repository/watchedItemsRepository.js";
-import { libraryRepository } from "../../../data/repository/libraryRepository.js";
+import { libraryRepository, LibrarySourceMode, LibraryListType } from "../../../data/repository/libraryRepository.js";
 import { detailWatchedEnrichmentService } from "../../../data/repository/detailWatchedEnrichmentService.js";
 import { normalizeEpisodes } from "../../../data/repository/episodeUtils.js";
 import { optimizeCardBackdropUrl, optimizePosterUrl } from "../home/posterLoader.js";
@@ -25,6 +25,7 @@ import { Platform } from "../../../platform/index.js";
 import { TRAKT_API_URL, TRAKT_CLIENT_ID, YOUTUBE_PROXY_URL } from "../../../config.js";
 import { I18n } from "../../../i18n/index.js";
 import { NuvioDialog } from "../../components/nuvioDialog.js";
+import { DIALOG_ICONS } from "../../components/dialogIcons.js";
 import {
   posterItemFromNode,
   PosterOptionsDialogController
@@ -102,6 +103,18 @@ function resolveMetaImdbId(meta = {}, params = {}) {
   return candidates
     .map((value) => String(value || "").trim().split(":")[0])
     .find((value) => /^tt\d+$/i.test(value)) || null;
+}
+
+function libraryActionLabels(usesTraktWatchlist) {
+  return usesTraktWatchlist
+    ? {
+        add: t("detail.addToWatchlist", {}, "Add to Watchlist"),
+        remove: t("detail.removeFromWatchlist", {}, "Remove from Watchlist")
+      }
+    : {
+        add: t("detail.addToLibrary", {}, "Add to Library"),
+        remove: t("detail.removeFromLibrary", {}, "Remove from Library")
+      };
 }
 
 // Addon metas (Cinemeta) ship /t/p/original image URLs; a 4K backdrop decode
@@ -945,6 +958,7 @@ export const MetaDetailsScreen = {
       params: this.params ? { ...this.params } : {},
       meta: this.meta ? { ...this.meta } : null,
       isSavedInLibrary: Boolean(this.isSavedInLibrary),
+      libraryUsesTrakt: Boolean(this.libraryUsesTrakt),
       isMarkedWatched: Boolean(this.isMarkedWatched),
       episodes: Array.isArray(this.episodes) ? [...this.episodes] : [],
       castItems: Array.isArray(this.castItems) ? [...this.castItems] : [],
@@ -981,6 +995,7 @@ export const MetaDetailsScreen = {
     this.params = params || {};
     this.meta = { ...snapshot.meta };
     this.isSavedInLibrary = Boolean(snapshot.isSavedInLibrary);
+    this.libraryUsesTrakt = Boolean(snapshot.libraryUsesTrakt);
     this.isMarkedWatched = Boolean(snapshot.isMarkedWatched);
     this.episodes = Array.isArray(snapshot.episodes) ? [...snapshot.episodes] : [];
     this.castItems = Array.isArray(snapshot.castItems) ? [...snapshot.castItems] : [];
@@ -1260,7 +1275,19 @@ export const MetaDetailsScreen = {
       4500,
       { status: "error", message: "timeout" }
     );
-    const isSavedPromise = savedLibraryRepository.isSaved(itemId);
+    const sourceMode = await libraryRepository.getSourceMode();
+    if (token !== this.detailLoadToken) {
+      return;
+    }
+    this.libraryUsesTrakt = sourceMode === LibrarySourceMode.TRAKT;
+    if (this.libraryUsesTrakt) {
+      void libraryRepository.ensureFresh().catch(() => false);
+    }
+    const isSavedPromise = this.libraryUsesTrakt
+      ? libraryRepository
+          .getMembershipSnapshot({ itemId, itemType })
+          .then((snapshot) => Boolean(snapshot?.listMembership?.[LibraryListType.WATCHLIST]))
+      : savedLibraryRepository.isSaved(itemId);
     const progressPromise = watchProgressRepository.getProgressByContentId(itemId);
     const watchedItemPromise = watchedItemsRepository.isWatched(itemId);
     const allProgressPromise = watchProgressRepository.getAll();
@@ -2212,7 +2239,7 @@ export const MetaDetailsScreen = {
             <span class="series-btn-icon">${renderPlayGlyph()}</span>
             <span>${escapeHtml(playLabel)}</span>
           </button>
-          <button class="series-circle-btn focusable${this.isSavedInLibrary ? " is-library-selected" : ""}" data-action="toggleLibrary" aria-label="${escapeAttribute(this.isSavedInLibrary ? t("detail.removeFromLibrary", {}, "Remove from Library") : t("detail.addToLibrary", {}, "Add to Library"))}">
+          <button class="series-circle-btn focusable${this.isSavedInLibrary ? " is-library-selected" : ""}" data-action="toggleLibrary" aria-label="${escapeAttribute(this.isSavedInLibrary ? libraryActionLabels(this.libraryUsesTrakt).remove : libraryActionLabels(this.libraryUsesTrakt).add)}">
             ${renderLibraryGlyph(this.isSavedInLibrary)}
           </button>
           ${showWatchedButton ? `<button class="series-circle-btn focusable${this.isMarkedWatched ? " is-selected" : ""}" data-action="toggleWatched" aria-label="${escapeAttribute(this.isMarkedWatched ? t("common.markUnwatched", {}, "Mark Unwatched") : t("common.markWatched", {}, "Mark Watched"))}">${renderWatchedGlyph(this.isMarkedWatched)}</button>` : ""}
@@ -2914,13 +2941,21 @@ export const MetaDetailsScreen = {
     const watched = this.isEpisodeMarkedWatched(episode);
     const seasonFullyWatched = this.isSeasonFullyWatched(episode.season);
     const options = [
-      { action: "toggleWatched", label: watched ? t("episodes_mark_unwatched", {}, "Mark as unwatched") : t("episodes_mark_watched", {}, "Mark as watched") },
-      { action: seasonFullyWatched ? "markSeasonUnwatched" : "markSeasonWatched", label: seasonFullyWatched ? t("episodes_mark_season_unwatched", {}, "Mark season as unwatched") : t("episodes_mark_season_watched", {}, "Mark season as watched") }
+      {
+        action: "toggleWatched",
+        label: watched ? t("episodes_mark_unwatched", {}, "Mark as unwatched") : t("episodes_mark_watched", {}, "Mark as watched"),
+        icon: watched ? DIALOG_ICONS.markUnwatched : DIALOG_ICONS.markWatched
+      },
+      {
+        action: seasonFullyWatched ? "markSeasonUnwatched" : "markSeasonWatched",
+        label: seasonFullyWatched ? t("episodes_mark_season_unwatched", {}, "Mark season as unwatched") : t("episodes_mark_season_watched", {}, "Mark season as watched"),
+        icon: seasonFullyWatched ? DIALOG_ICONS.markSeasonUnwatched : DIALOG_ICONS.markSeasonWatched
+      }
     ];
     if (this.getPreviousEpisodes(episode).length > 0) {
-      options.push({ action: "markPreviousWatched", label: t("episodes_mark_previous_watched", {}, "Mark previous episodes as watched") });
+      options.push({ action: "markPreviousWatched", label: t("episodes_mark_previous_watched", {}, "Mark previous episodes as watched"), icon: DIALOG_ICONS.markPreviousWatched });
     }
-    options.push({ action: "play", label: t("episodes_play", {}, "Play") });
+    options.push({ action: "play", label: t("episodes_play", {}, "Play"), icon: DIALOG_ICONS.play });
     return options;
   },
 
@@ -2940,7 +2975,8 @@ export const MetaDetailsScreen = {
         action: fullyWatched ? "markSeasonUnwatched" : "markSeasonWatched",
         label: fullyWatched
           ? t("episodes_mark_season_unwatched", {}, "Mark season as unwatched")
-          : t("episodes_mark_season_watched", {}, "Mark season as watched")
+          : t("episodes_mark_season_watched", {}, "Mark season as watched"),
+        icon: fullyWatched ? DIALOG_ICONS.markSeasonUnwatched : DIALOG_ICONS.markSeasonWatched
       }
     ];
   },
@@ -2970,9 +3006,10 @@ export const MetaDetailsScreen = {
         action: `toggleLibraryList:${tab.key}`,
         label: tab.title || tab.key,
         selected: membership[tab.key] === true,
-        className: "poster-list-picker-list-button"
+        className: "poster-list-picker-list-button",
+        icon: DIALOG_ICONS.bookmarkSimple
       })),
-      { action: "saveLibraryLists", label: t("action_save", {}, "Save"), className: "poster-list-picker-save-button" }
+      { action: "saveLibraryLists", label: t("action_save", {}, "Save"), className: "poster-list-picker-save-button", icon: DIALOG_ICONS.floppyDisk }
     ];
   },
 
@@ -3013,6 +3050,7 @@ export const MetaDetailsScreen = {
       buttons: options.map((option, index) => ({
         label: option.label,
         key: option.action,
+        icon: option.icon,
         onAction: () => {
           this.episodeHoldMenu = {
             ...(this.episodeHoldMenu || {}),
@@ -3045,6 +3083,7 @@ export const MetaDetailsScreen = {
       buttons: this.getSeasonHoldMenuOptions().map((option, index) => ({
         label: option.label,
         key: option.action,
+        icon: option.icon,
         onAction: () => {
           this.seasonHoldMenu = {
             ...(this.seasonHoldMenu || {}),
@@ -3072,6 +3111,7 @@ export const MetaDetailsScreen = {
       buttons: [{
         label: t("play_manually", {}, "Play manually"),
         key: "playManually",
+        icon: DIALOG_ICONS.playManually,
         onAction: () => {
           void this.activateHeroOptionsMenu();
         }
@@ -3102,6 +3142,7 @@ export const MetaDetailsScreen = {
         key: option.action,
         selected: option.selected,
         className: option.className,
+        icon: option.icon,
         onAction: () => {
           void this.activateHeroOptionsMenu(option.action);
         }
@@ -3272,6 +3313,20 @@ export const MetaDetailsScreen = {
   },
 
   async toggleLibraryFromHero() {
+    if (this.libraryUsesTrakt) {
+      const item = this.getCurrentLibraryItem();
+      if (item.itemId) {
+        const wasSaved = this.isSavedInLibrary;
+        await libraryRepository
+          .applyMembershipChanges(item, {
+            desiredMembership: { [LibraryListType.WATCHLIST]: !wasSaved }
+          })
+          .catch((error) => console.warn("toggleLibraryFromHero trakt watchlist toggle failed", error));
+        this.isSavedInLibrary = !wasSaved;
+        this.syncDetailActionButtons();
+        return;
+      }
+    }
     await savedLibraryRepository.toggle({
       contentId: this.params?.itemId,
       contentType: this.params?.itemType || "movie",
@@ -4103,6 +4158,7 @@ export const MetaDetailsScreen = {
     if (!this.container) {
       return;
     }
+    const libraryLabels = libraryActionLabels(this.libraryUsesTrakt);
     Array.from(this.container.querySelectorAll('[data-action="toggleLibrary"]')).forEach((node) => {
       if (!(node instanceof HTMLElement)) {
         return;
@@ -4112,14 +4168,10 @@ export const MetaDetailsScreen = {
         node.innerHTML = renderLibraryGlyph(this.isSavedInLibrary);
         node.setAttribute(
           "aria-label",
-          this.isSavedInLibrary
-            ? t("detail.removeFromLibrary", {}, "Remove from Library")
-            : t("detail.addToLibrary", {}, "Add to Library")
+          this.isSavedInLibrary ? libraryLabels.remove : libraryLabels.add
         );
       } else {
-        node.textContent = this.isSavedInLibrary
-          ? t("detail.removeFromLibrary", {}, "Remove from Library")
-          : t("detail.addToLibrary", {}, "Add to Library");
+        node.textContent = this.isSavedInLibrary ? libraryLabels.remove : libraryLabels.add;
       }
     });
     Array.from(this.container.querySelectorAll('[data-action="toggleWatched"]')).forEach((node) => {

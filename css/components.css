@@ -2729,6 +2729,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .search-header {
   display: flex;
+  flex-shrink: 0;
   gap: 24px;
   align-items: center;
   margin-bottom: 64px;
@@ -3298,6 +3299,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 
 .search-results-row {
+  flex-shrink: 0;
   margin-bottom: 32px;
   scroll-margin-top: 18px;
   scroll-margin-bottom: 28px;
@@ -3500,6 +3502,7 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 
 .library-page-header {
   display: flex;
+  flex-shrink: 0;
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 32px;

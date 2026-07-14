@@ -134,12 +134,15 @@ async function resolveRemoteStoreKey() {
   return `${REMOTE_STORE_KEY}:${ownerId}:${profileId}`;
 }
 
+const WATCHLIST_STALE_MS = 2 * 60 * 1000;
+
 function createEmptyRemoteState() {
   return {
     nextListId: 1,
     watchlist: [],
     lists: [],
-    listItems: {}
+    listItems: {},
+    lastRefreshedAt: 0
   };
 }
 
@@ -155,7 +158,8 @@ function cloneState(state) {
         key,
         Array.isArray(value) ? value.map((item) => ({ ...item })) : []
       ])
-    )
+    ),
+    lastRefreshedAt: Number(state?.lastRefreshedAt || 0)
   };
 }
 
@@ -243,6 +247,32 @@ function getLibraryItemContentType(item) {
 
 function getLibraryItemContentId(item) {
   return String(item.contentId || item.itemId || item.id || "");
+}
+
+function extractImdbId(rawId) {
+  const candidate = String(rawId || "").trim().split(":")[0];
+  return /^tt\d+$/i.test(candidate) ? candidate : null;
+}
+
+async function syncWatchlistToTrakt(item, isAdding) {
+  const imdbId = extractImdbId(getLibraryItemContentId(item));
+  if (!imdbId) {
+    return;
+  }
+  const traktItem = {
+    type: getLibraryItemContentType(item),
+    imdbId,
+    title: item.title || item.name || ""
+  };
+  try {
+    if (isAdding) {
+      await TraktAuthService.addToWatchlist(traktItem);
+    } else {
+      await TraktAuthService.removeFromWatchlist(traktItem);
+    }
+  } catch (error) {
+    console.warn("LibraryRepository watchlist trakt sync failed", error);
+  }
 }
 
 async function batchEnrichLibraryItems(items) {
@@ -527,6 +557,7 @@ class LibraryRepository {
         continue;
       }
       if (listKey === WATCHLIST_KEY) {
+        await syncWatchlistToTrakt(item, after);
         remoteState.watchlist = after
           ? [
               toRemoteListItem(item, { listedAt: Date.now() }),
@@ -646,8 +677,9 @@ class LibraryRepository {
         });
         const rawItems = watchlistItems.map(toSavedItemFromTraktWatchlist).filter(Boolean);
         const enrichedItems = await batchEnrichLibraryItems(rawItems);
-        const state = createEmptyRemoteState();
+        const state = await readRemoteState();
         state.watchlist = enrichedItems;
+        state.lastRefreshedAt = Date.now();
         await writeRemoteState(state);
         return true;
       } catch (error) {
@@ -667,6 +699,18 @@ class LibraryRepository {
       }
       return false;
     }
+  }
+
+  async ensureFresh() {
+    const sourceMode = await this.getSourceMode();
+    if (sourceMode !== LibrarySourceMode.TRAKT) {
+      return false;
+    }
+    const state = await readRemoteState();
+    if (Date.now() - Number(state.lastRefreshedAt || 0) < WATCHLIST_STALE_MS) {
+      return false;
+    }
+    return this.refreshNow();
   }
 }
 

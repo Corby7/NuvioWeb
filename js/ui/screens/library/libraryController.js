@@ -433,6 +433,7 @@ export class LibraryController {
     }
 
     try {
+    await libraryRepository.ensureFresh().catch(() => false);
     const [sourceMode, listTabs, allItems, watchedItems] = await Promise.all([
       libraryRepository.getSourceMode(),
       libraryRepository.getListTabs(),

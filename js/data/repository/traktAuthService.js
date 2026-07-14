@@ -404,8 +404,44 @@ export const TraktAuthService = {
     if (!response.ok || !payload) return null;
 
     return normalizeWatchedProgress(payload);
+  },
+
+  async addToWatchlist(item) {
+    return sendWatchlistRequest("/sync/watchlist", item);
+  },
+
+  async removeFromWatchlist(item) {
+    return sendWatchlistRequest("/sync/watchlist/remove", item);
   }
 };
+
+function buildWatchlistPayload(item = {}) {
+  const ids = {};
+  if (item.imdbId) ids.imdb = item.imdbId;
+  if (item.tmdbId) ids.tmdb = item.tmdbId;
+  if (item.traktId) ids.trakt = item.traktId;
+  if (!Object.keys(ids).length) {
+    return null;
+  }
+  const entry = { ids };
+  if (item.title) entry.title = item.title;
+  if (item.year) entry.year = item.year;
+  const key = item.type === "series" || item.type === "show" ? "shows" : "movies";
+  return { [key]: [entry] };
+}
+
+async function sendWatchlistRequest(path, item) {
+  const body = buildWatchlistPayload(item);
+  if (!body) return false;
+  const token = await TraktAuthService.getValidAccessToken();
+  if (!token) return false;
+  const { response } = await requestJson(path, {
+    method: "POST",
+    body,
+    authorization: `Bearer ${token}`
+  });
+  return response.ok;
+}
 
 function normalizeHistoryItem(entry) {
   if (!entry || !entry.watched_at) return null;
