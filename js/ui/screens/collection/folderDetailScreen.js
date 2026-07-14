@@ -792,6 +792,24 @@ export const FolderDetailScreen = {
     };
   },
 
+  // Follow-layout rows are only shown once they have items (renderModernHomeLayout
+  // skips empty rows), so the "loading:true" flip has nothing to paint — rendering
+  // it anyway tore down and rebuilt the whole hero+rows DOM (fresh backdrop/logo
+  // images, scrollTop reset to 0) once per tab, and again per tab once its fetch
+  // resolved. With several source tabs firing via Promise.all that was ~10+ full
+  // re-renders in under a second: hero backdrop/logo desync and scroll resets
+  // while browsing a collection. Skip the no-op pre-fetch render and coalesce the
+  // post-fetch renders that land close together into one.
+  scheduleFollowLayoutRender() {
+    if (this._followLayoutRenderTimer) {
+      return;
+    }
+    this._followLayoutRenderTimer = setTimeout(() => {
+      this._followLayoutRenderTimer = null;
+      this.render();
+    }, 80);
+  },
+
   async loadTab(tabIndex, { append = false } = {}) {
     const tab = this.tabs[tabIndex];
     if (!tab || tab.isAllTab || tab.loading) {
@@ -799,7 +817,9 @@ export const FolderDetailScreen = {
     }
     this.tabs[tabIndex] = { ...tab, loading: true, error: "" };
     this.rebuildAllTab();
-    this.render();
+    if (!this.useHomeFollowLayout) {
+      this.render();
+    }
     try {
       const nextPage = append ? Math.max(1, Number(tab.page || 1) + 1) : 1;
       const result = await fetchSourceItems(tab.source, nextPage);
@@ -832,7 +852,11 @@ export const FolderDetailScreen = {
       };
     }
     this.rebuildAllTab();
-    this.render();
+    if (this.useHomeFollowLayout) {
+      this.scheduleFollowLayoutRender();
+    } else {
+      this.render();
+    }
   },
 
   getSelectedTab() {
