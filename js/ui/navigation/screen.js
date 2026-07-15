@@ -38,8 +38,18 @@ export const ScreenUtils = {
     if (!first) {
       return;
     }
-    first.classList.add("focused");
+    // A freshly-mounted node re-focused across a re-render (e.g. home's
+    // stale-snapshot-then-fresh-data double render, or a screen re-entered
+    // from cache) can pick up a genuine CSS transition on its ring/highlight
+    // if any layout read happens between insert and focus — suppress it for
+    // this one paint so the ring appears instantly instead of re-animating.
+    first.classList.add("focused", "focus-instant");
     first.focus();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        first.classList.remove("focus-instant");
+      });
+    });
   },
 
   moveFocus(container, direction, selector = ".focusable") {

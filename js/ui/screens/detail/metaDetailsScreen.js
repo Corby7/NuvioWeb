@@ -5741,6 +5741,21 @@ export const MetaDetailsScreen = {
     }
     const previous = this.container.querySelector(".focusable.focused");
     this.container.querySelectorAll(".focusable").forEach((node) => node.classList.remove("focused"));
+    if (!animated) {
+      // A non-animated restore (e.g. reapplying focus after
+      // updateRenderedDetailSections rebuilds the hero section) can land on a
+      // brand-new node with a forced layout read (scroll-position restore)
+      // sitting between insert and refocus — that's enough for the browser to
+      // treat the focus-ring CSS transition as a real change and animate it.
+      // Suppress it for this one paint; real d-pad navigation (animated:true)
+      // keeps the normal transition.
+      target.classList.add("focus-instant");
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          target.classList.remove("focus-instant");
+        });
+      });
+    }
     target.classList.add("focused");
     target.focus({ preventScroll: true });
     this.rememberEpisodeFocus(target, list);

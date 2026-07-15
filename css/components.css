@@ -18014,6 +18014,24 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .cast-detail-shell::be
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
+/* Suppresses the focus-ring transition for exactly one paint when JS reapplies
+   .focused to a node it just (re)built — e.g. home's stale-snapshot-then-
+   fresh-data double render, or the detail screen restoring focus after a hero
+   rebuild. Without this, a forced layout read sitting between the DOM
+   insert and the refocus lets the ring's transition register as a genuine
+   change and replay, reading as a flicker. Scoped to single-element
+   selectors only — no `*`/`:has()` — see cdp-perf-debug-rig project notes on
+   broad-selector recalc cost. */
+.focus-instant,
+.focus-instant::before,
+.focus-instant::after {
+  transition: none !important;
+}
+
+.focus-instant .home-poster-frame {
+  transition: none !important;
+}
+
 .detail-hero-section {
   min-height: 100vh;
   height: 100vh;
