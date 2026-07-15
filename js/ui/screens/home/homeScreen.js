@@ -4815,13 +4815,22 @@ export const HomeScreen = {
             }
           }
           if (heroDisplay?.logo) {
-            preWarm.push(preloadImageSource(heroDisplay.logo));
+          // Kick off the logo fetch in parallel but don't gate the copy
+            // commit on it — text should render as soon as it's ready; the
+            // logo pops in independently whenever its own <img> load
+            // resolves (applyHeroToDom's direct src-set below already
+            // handles a blank-then-load transition for it).
+            preloadImageSource(heroDisplay.logo);
           }
         }
       }
 
       // Commits the copy (title/logo/description/meta) and lifts the
-      // press-time clear so it fades back in.
+      // press-time clear so it fades back in. Runs immediately, before the
+      // backdrop crossfade below — text must never wait on backdrop image
+      // decode/network latency (a slow CDN round-trip on TV shouldn't hold
+      // the title/logo hostage). The backdrop crossfades in on its own
+      // timeline, independently.
       const commitCopy = () => {
         this.heroItem = shouldEnrichModernHero(hero) ? { ...heroSeed, heroMetaEnriching: true } : heroSeed;
         const matchedIndex = this.heroCandidates.findIndex((item) => String(item?.id || "") === String(hero.id || ""));
@@ -4842,21 +4851,20 @@ export const HomeScreen = {
         }
         this._prefetchAdjacentCards(node);
       };
+      commitCopy();
 
       if (!earlyOverlay) {
-        // No backdrop crossfade to sync with — commit the copy immediately.
-        // The two-layer swap no-ops on identical src and handles the
-        // clear-to-placeholder case.
-        commitCopy();
+        // No backdrop crossfade needed — the two-layer swap no-ops on
+        // identical src and handles the clear-to-placeholder case.
         if (heroChanged && mainBackdrop instanceof HTMLImageElement) {
           animateModernHeroBackdropSwap(mainBackdrop, heroDisplay?.backdrop || "", heroDisplay?.title || "featured");
         }
         return;
       }
       // Cap the decode wait so a dead CDN can't stall the swap forever; on
-      // timeout everything commits anyway and the src flip below stays
-      // decode-gated as the floor. The pre-warm covers backdrop AND logo, so
-      // waiting it out lets copy and backdrop appear in the same frame.
+      // timeout the overlay fades in anyway and the src flip below stays
+      // decode-gated as the floor. Copy already committed above — this only
+      // orchestrates the backdrop crossfade.
       Promise.race([
         Promise.allSettled(preWarm),
         new Promise((resolve) => setTimeout(resolve, MODERN_HOME_CONSTANTS.heroSwapDecodeTimeoutMs))
@@ -4866,9 +4874,8 @@ export const HomeScreen = {
           return;
         }
         if (!earlyOverlay.isConnected) {
-          // The hero DOM was re-rendered while assets decoded — commit the
-          // copy and let the two-layer swap bring the fresh backdrop node up.
-          commitCopy();
+          // The hero DOM was re-rendered while assets decoded — let the
+          // two-layer swap bring the fresh backdrop node up.
           const freshBackdrop = this.container?.querySelector(".home-hero-card .home-hero-backdrop:not(.home-hero-backdrop-transition-overlay)");
           if (freshBackdrop instanceof HTMLImageElement && heroDisplay) {
             animateModernHeroBackdropSwap(freshBackdrop, heroDisplay.backdrop || "", heroDisplay.title || "featured");
@@ -4884,10 +4891,6 @@ export const HomeScreen = {
               earlyOverlay.remove();
               return;
             }
-            // Copy commit and crossfade start land in the same frame: new
-            // title/logo/text fade in exactly as the new backdrop starts
-            // fading in.
-            commitCopy();
             earlyOverlay.classList.add("is-visible");
             const backdropTokenAtStart = Number(mainBackdrop?.heroBackdropTransitionToken || 0);
             this.heroCrossfadeCommitTimer = setTimeout(() => {

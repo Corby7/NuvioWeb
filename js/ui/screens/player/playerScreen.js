@@ -12224,6 +12224,7 @@ export const PlayerScreen = {
     this.streamCandidatesLoadPromises?.clear?.();
     this.failedPlaybackUrls?.clear?.();
     this.failedPlaybackStreamIds?.clear?.();
+    this.hlsManifestSubtitlePromotionUrls?.clear?.();
     this.skipIntroSuppressedKey = "";
     this.skipIntervalsRequestToken = Number(this.skipIntervalsRequestToken || 0) + 1;
     this.subtitleLoadToken = (this.subtitleLoadToken || 0) + 1;
