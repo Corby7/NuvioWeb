@@ -6,6 +6,7 @@ import { Environment } from "../../../platform/environment.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { I18n } from "../../../i18n/index.js";
 import { focusWithoutAutoScroll } from "../../components/sidebarNavigation.js";
+import { RootSidebarController } from "../../components/rootSidebarController.js";
 import {
   posterItemFromNode,
   PosterOptionsDialogController
@@ -377,6 +378,10 @@ export const CatalogSeeAllScreen = {
     const rowNodes = nav.rows[row] || [];
 
     if (direction === "left") {
+      if (col === 0) {
+        RootSidebarController.expand();
+        return true;
+      }
       return this.focusNode(rowNodes[col - 1] || current) || true;
     }
 
@@ -658,6 +663,9 @@ export const CatalogSeeAllScreen = {
         return;
       }
       Router.back();
+      return;
+    }
+    if (RootSidebarController.hasFocus) {
       return;
     }
     const code = Number(event?.keyCode || 0);

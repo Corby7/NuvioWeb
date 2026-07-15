@@ -1,5 +1,6 @@
 import { Router } from "../../navigation/router.js";
 import { ScreenUtils } from "../../navigation/screen.js";
+import { RootSidebarController } from "../../components/rootSidebarController.js";
 import { TmdbSettingsStore } from "../../../data/local/tmdbSettingsStore.js";
 import { Environment } from "../../../platform/environment.js";
 import { TMDB_API_KEY } from "../../../config.js";
@@ -365,6 +366,19 @@ export const CastDetailScreen = {
     }
   },
 
+  shouldTransferToSidebar(node) {
+    if (!(node instanceof HTMLElement)) {
+      return false;
+    }
+    const body = this.container?.querySelector(".nav-screen-body");
+    if (!body || !body.contains(node)) {
+      return false;
+    }
+    const nodeRect = node.getBoundingClientRect();
+    const bodyRect = body.getBoundingClientRect();
+    return (nodeRect.left - bodyRect.left) <= 140;
+  },
+
   isPosterHoldTarget(node) {
     return (
       node instanceof HTMLElement &&
@@ -485,6 +499,14 @@ export const CastDetailScreen = {
     if (isBackEvent(event)) {
       event?.preventDefault?.();
       Router.back();
+      return;
+    }
+    if (RootSidebarController.hasFocus) {
+      return;
+    }
+    if (code === 37 && this.shouldTransferToSidebar(current)) {
+      event?.preventDefault?.();
+      RootSidebarController.expand();
       return;
     }
     if (ScreenUtils.handleDpadNavigation(event, this.container)) {
