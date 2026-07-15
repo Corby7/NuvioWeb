@@ -57,6 +57,39 @@ function toType(mediaType) {
   return "movie";
 }
 
+const CAST_AVATAR_PALETTE = ["#3b4a63", "#4a3b63", "#3b6350", "#63503b", "#5a3b63", "#3b5a63"];
+
+function castInitials(name = "") {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) {
+    return "?";
+  }
+  const first = parts[0][0] || "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase();
+}
+
+function castAvatarColor(name = "") {
+  let hash = 0;
+  const str = String(name || "");
+  for (let i = 0; i < str.length; i += 1) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  return CAST_AVATAR_PALETTE[Math.abs(hash) % CAST_AVATAR_PALETTE.length];
+}
+
+function formatPersonDate(isoDate = "") {
+  const value = String(isoDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return "";
+  }
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+}
+
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -141,6 +174,7 @@ export const CastDetailScreen = {
         name: person?.name || this.params?.castName || "Unknown",
         biography: person?.biography || "",
         birthday: person?.birthday || "",
+        deathday: person?.deathday || "",
         placeOfBirth: person?.place_of_birth || "",
         knownForDepartment: person?.known_for_department || "",
         profile: toImage(person?.profile_path || this.params?.castPhoto || "")
@@ -173,7 +207,7 @@ export const CastDetailScreen = {
     this.container.innerHTML = `
       <div class="nav-screen cast-detail-shell">
         <div class="nav-screen-body">
-          <div class="cast-detail-loading">Loading cast profile...</div>
+          <div class="cast-detail-loading">${escapeHtml(t("cast_detail_loading", {}, "Loading cast profile..."))}</div>
         </div>
       </div>
     `;
@@ -183,8 +217,7 @@ export const CastDetailScreen = {
     this.container.innerHTML = `
       <div class="nav-screen cast-detail-shell">
         <div class="nav-screen-body">
-          <div class="cast-detail-error">${message}</div>
-          <button class="cast-detail-back focusable" data-action="back">Back</button>
+          <div class="cast-detail-error">${escapeHtml(message)}</div>
         </div>
       </div>
     `;
@@ -246,25 +279,29 @@ export const CastDetailScreen = {
   render() {
     const person = this.person || {};
     const creditsHtml = this.renderCreditSections();
+    const hasPhoto = Boolean(person.profile);
+    const avatarStyle = hasPhoto
+      ? `background-image:url('${String(person.profile).replace(/'/g, "%27")}')`
+      : `background-color:${castAvatarColor(person.name)}`;
+    const birthday = formatPersonDate(person.birthday);
+    const deathday = formatPersonDate(person.deathday);
+    const facts = [
+      person.knownForDepartment,
+      deathday
+        ? t("cast_detail_lifespan", { born: birthday, died: deathday }, "{{born}} – {{died}}")
+        : (birthday ? t("cast_detail_born", { date: birthday }, "Born {{date}}") : ""),
+      person.placeOfBirth
+    ].filter(Boolean);
 
     this.container.innerHTML = `
       <div class="nav-screen cast-detail-shell">
         <div class="nav-screen-body">
-        <button class="cast-detail-back focusable" data-action="back" aria-label="${escapeAttribute(t("common.back", {}, "Back"))}">
-          <span class="material-icons" aria-hidden="true">arrow_back</span>
-        </button>
         <section class="cast-detail-hero">
-          <div class="cast-detail-hero-content">
-            <div class="cast-detail-avatar"${person.profile ? ` style="background-image:url('${escapeAttribute(person.profile)}')"` : ""}></div>
-            <div class="cast-detail-meta">
-              <h2 class="cast-detail-name">${escapeHtml(person.name || "Unknown")}</h2>
-              <div class="cast-detail-facts">
-                ${person.knownForDepartment ? `<span>${escapeHtml(person.knownForDepartment)}</span>` : ""}
-                ${person.birthday ? `<span>${escapeHtml(person.birthday)}</span>` : ""}
-                ${person.placeOfBirth ? `<span>${escapeHtml(person.placeOfBirth)}</span>` : ""}
-              </div>
-              <p class="cast-detail-bio">${escapeHtml(person.biography || "No biography available.")}</p>
-            </div>
+          <div class="cast-detail-avatar${hasPhoto ? "" : " cast-detail-avatar-placeholder"}" style="${avatarStyle}">${hasPhoto ? "" : escapeHtml(castInitials(person.name))}</div>
+          <div class="cast-detail-meta">
+            <h1 class="cast-detail-name">${escapeHtml(person.name || "Unknown")}</h1>
+            ${facts.length ? `<div class="cast-detail-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join("")}</div>` : ""}
+            <p class="cast-detail-bio">${escapeHtml(person.biography || t("cast_detail_no_bio", {}, "No biography available."))}</p>
           </div>
         </section>
         <section class="cast-detail-credits">
@@ -281,7 +318,7 @@ export const CastDetailScreen = {
   },
 
   syncFocusedCardScroll({ instant = false } = {}) {
-    const shell = this.container?.querySelector(".cast-detail-shell");
+    const shell = this.container?.querySelector(".nav-screen-body");
     const focused = this.container?.querySelector(".cast-credit-card.focusable.focused");
     if (!(shell instanceof HTMLElement) || !(focused instanceof HTMLElement)) {
       return;
@@ -468,10 +505,6 @@ export const CastDetailScreen = {
       return;
     }
     const action = String(current.dataset.action || "");
-    if (action === "back") {
-      Router.back();
-      return;
-    }
     if (action === "openDetail") {
       this.openDetailFromNode(current);
     }
