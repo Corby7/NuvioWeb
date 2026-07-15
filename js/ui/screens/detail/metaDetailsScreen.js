@@ -525,6 +525,30 @@ function ratingToneClass(value) {
   return "normal";
 }
 
+function formatCommentAge(value) {
+  const ts = Date.parse(String(value || ""));
+  if (!Number.isFinite(ts)) {
+    return "";
+  }
+  const diffMs = Date.now() - ts;
+  if (diffMs < 0) {
+    return "";
+  }
+  const minute = 60000;
+  const hour = minute * 60;
+  const day = hour * 24;
+  const week = day * 7;
+  const month = day * 30;
+  const year = day * 365;
+  if (diffMs < minute) return t("time_just_now", {}, "Just now");
+  if (diffMs < hour) return t("time_minutes_ago", { count: Math.floor(diffMs / minute) }, "{{count}}m ago");
+  if (diffMs < day) return t("time_hours_ago", { count: Math.floor(diffMs / hour) }, "{{count}}h ago");
+  if (diffMs < week) return t("time_days_ago", { count: Math.floor(diffMs / day) }, "{{count}}d ago");
+  if (diffMs < month) return t("time_weeks_ago", { count: Math.floor(diffMs / week) }, "{{count}}w ago");
+  if (diffMs < year) return t("time_months_ago", { count: Math.floor(diffMs / month) }, "{{count}}mo ago");
+  return t("time_years_ago", { count: Math.floor(diffMs / year) }, "{{count}}y ago");
+}
+
 function getAddonIconPath(addonName = "") {
   const value = String(addonName || "").toLowerCase();
   if (!value) {
@@ -4073,8 +4097,9 @@ export const MetaDetailsScreen = {
   },
 
   renderCommentsSection() {
+    const loadingSkeleton = () => `<article class="detail-comment-card is-loading"><span></span><span></span><span></span></article>`;
     if (this.commentsLoading) {
-      const cards = Array.from({ length: 3 }).map(() => `<article class="detail-comment-card is-loading"><span></span><span></span><span></span></article>`).join("");
+      const cards = Array.from({ length: 3 }).map(loadingSkeleton).join("");
       return `<div class="detail-comments-track" data-scroll-key="comments:loading">${cards}</div>`;
     }
     if (this.commentsError) {
@@ -4085,6 +4110,12 @@ export const MetaDetailsScreen = {
         </div>
       `;
     }
+    const heading = `
+      <div class="detail-comments-heading">
+        <img src="assets/icons/trakt_tv_glyph.svg" alt="" aria-hidden="true" />
+        <span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span>
+      </div>
+    `;
     const modeButtons = isSeriesDetailMeta(this.meta, this.episodes)
       ? `<div class="detail-comments-modes">
           <button class="detail-comments-mode focusable${this.commentsMode !== "episode" ? " selected" : ""}" data-action="setCommentsMode" data-comments-mode="title">${escapeHtml(t("detail_comments_mode_show", {}, "Show"))}</button>
@@ -4094,10 +4125,12 @@ export const MetaDetailsScreen = {
     const subtitle = this.commentsMode === "episode" && this.commentsEpisodeTarget
       ? t("detail_comments_subtitle_episode", { season: this.commentsEpisodeTarget.season, episode: this.commentsEpisodeTarget.episode }, "Reviews for S{{season}}E{{episode}}")
       : t("detail_comments_subtitle", {}, "Top Trakt reviews");
+    const subtitleMarkup = `<p class="detail-comments-subtitle">${escapeHtml(subtitle)}</p>`;
     if (!this.commentsItems.length) {
       return `
         <div class="detail-comments-section">
-          <div class="detail-comments-heading"><span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span></div>
+          ${heading}
+          ${subtitleMarkup}
           ${modeButtons}
           <p class="series-insight-empty">${escapeHtml(t("detail_comments_empty", {}, "No Trakt comments yet."))}</p>
         </div>
@@ -4108,23 +4141,32 @@ export const MetaDetailsScreen = {
         ? t("detail_comments_spoiler_hidden", {}, "Spoiler review. Press OK to reveal.")
         : review.comment;
       const chips = [
-        review.review ? t("detail_comments_badge_review", {}, "Review") : "",
-        (review.spoiler || review.containsInlineSpoilers) ? t("detail_comments_badge_spoiler", {}, "Spoiler") : "",
-        review.rating != null ? t("detail_comments_badge_rating", { rating: formatRatingValue(review.rating, { digits: 0, stripTrailingZero: true }) }, "{{rating}}/10") : ""
-      ].filter(Boolean).map((chip) => `<span>${escapeHtml(chip)}</span>`).join("");
+        review.review ? { type: "review", label: t("detail_comments_badge_review", {}, "Review") } : null,
+        (review.spoiler || review.containsInlineSpoilers) ? { type: "spoiler", label: t("detail_comments_badge_spoiler", {}, "Spoiler") } : null
+      ].filter(Boolean).map((chip) => `<span class="detail-comment-chip-${chip.type}">${escapeHtml(chip.label)}</span>`).join("");
+      const displayName = review.authorDisplayName || "Trakt user";
+      const ratingBadge = review.rating != null
+        ? `<div class="detail-comment-rating ${ratingToneClass(review.rating)}">${escapeHtml(formatRatingValue(review.rating, { digits: 0, stripTrailingZero: true }))}</div>`
+        : "";
+      const age = formatCommentAge(review.createdAt);
       return `
         <article class="detail-comment-card focusable" data-action="openComment" data-comment-index="${index}">
-          <h4>${escapeHtml(review.authorDisplayName || "Trakt user")}</h4>
+          ${ratingBadge}
+          <h4>${escapeHtml(displayName)}</h4>
           ${chips ? `<div class="detail-comment-chips">${chips}</div>` : ""}
           <p>${escapeHtml(body)}</p>
-          <small>${escapeHtml(t("detail_comments_likes", { likes: review.likes || 0 }, "{{likes}} likes"))}</small>
+          <div class="detail-comment-meta">
+            <small>${escapeHtml(t("detail_comments_likes", { likes: review.likes || 0 }, "{{likes}} likes"))}</small>
+            ${age ? `<small class="detail-comment-age">${escapeHtml(age)}</small>` : ""}
+          </div>
         </article>
       `;
     }).join("");
-    const loadingMore = this.commentsLoadingMore ? `<article class="detail-comment-card is-loading"><span></span><span></span><span></span></article>` : "";
+    const loadingMore = this.commentsLoadingMore ? loadingSkeleton() : "";
     return `
       <div class="detail-comments-section">
-        <div class="detail-comments-heading"><span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span></div>
+        ${heading}
+        ${subtitleMarkup}
         ${modeButtons}
         <div class="detail-comments-track" data-scroll-key="comments:${escapeHtml(this.commentsMode)}">${cards}${loadingMore}</div>
       </div>
