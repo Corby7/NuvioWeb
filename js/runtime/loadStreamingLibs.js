@@ -1,10 +1,20 @@
+// The bundled copies are the primary source: the app is packaged to run from
+// file:// on TV, where a CDN round-trip is the slowest and least reliable part
+// of starting an HLS/DASH stream. The CDN stays as a fallback for the browser
+// build and for any packaging path that skipped the copy step in build.mjs.
 const STREAMING_LIBS = [
   {
-    src: "https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js",
+    sources: [
+      "assets/libs/hls.min.js",
+      "https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js"
+    ],
     isLoaded: () => Boolean(globalThis.Hls)
   },
   {
-    src: "https://cdn.jsdelivr.net/npm/dashjs@4.7.4/dist/dash.all.min.js",
+    sources: [
+      "assets/libs/dash.all.min.js",
+      "https://cdn.jsdelivr.net/npm/dashjs@4.7.4/dist/dash.all.min.js"
+    ],
     isLoaded: () => Boolean(globalThis.dashjs)
   }
 ];
@@ -18,9 +28,28 @@ function loadScript(src) {
     script.src = src;
     script.async = true;
     script.onload = resolve;
-    script.onerror = reject;
+    script.onerror = (error) => {
+      // Drop the failed tag so a retry from another source starts clean.
+      script.remove();
+      reject(error);
+    };
     document.head.appendChild(script);
   });
+}
+
+async function loadStreamingLibrary(entry) {
+  let lastError = null;
+  for (const src of entry.sources) {
+    try {
+      await loadScript(src);
+      if (entry.isLoaded()) {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Streaming library failed to initialize");
 }
 
 export async function loadStreamingLibs() {
@@ -36,9 +65,9 @@ export async function loadStreamingLibs() {
         continue;
       }
       try {
-        await loadScript(entry.src);
+        await loadStreamingLibrary(entry);
       } catch (error) {
-        console.warn("Streaming library failed to load", entry.src, error);
+        console.warn("Streaming library failed to load", entry.sources, error);
       }
     }
   })();

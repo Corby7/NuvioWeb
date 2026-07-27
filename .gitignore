@@ -12,6 +12,10 @@ dist/
 .pm2/
 logs/
 app.bundle.js
+assets/libs/hls.min.js
+assets/libs/hls.js.LICENSE
+assets/libs/dash.all.min.js
+assets/libs/dashjs.LICENSE.md
 ecosystem.config.cjs
 scripts/commit-build-poller.mjs
 .DS_Store

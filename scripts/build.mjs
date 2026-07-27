@@ -144,6 +144,32 @@ async function runBuild() {
     await syncVersionFiles();
     await buildCSS();
 
+    // hls.js / dash.js ship inside the package so file:// builds never depend
+    // on a CDN reach to start an adaptive stream; loadStreamingLibs.js falls
+    // back to jsDelivr if they are missing. These land in the source assets dir
+    // (gitignored, like app.bundle.js) so the root-serving dev server sees them
+    // too, then ride along with the assets copy below into dist.
+    console.log("vendoring streaming libraries...");
+    const libsDir = path.join(rootDir, "assets", "libs");
+    await Promise.all([
+      cp(
+        path.join(rootDir, "node_modules", "hls.js", "dist", "hls.min.js"),
+        path.join(libsDir, "hls.min.js")
+      ),
+      cp(
+        path.join(rootDir, "node_modules", "hls.js", "LICENSE"),
+        path.join(libsDir, "hls.js.LICENSE")
+      ),
+      cp(
+        path.join(rootDir, "node_modules", "dashjs", "dist", "dash.all.min.js"),
+        path.join(libsDir, "dash.all.min.js")
+      ),
+      cp(
+        path.join(rootDir, "node_modules", "dashjs", "LICENSE.md"),
+        path.join(libsDir, "dashjs.LICENSE.md")
+      )
+    ]);
+
     console.log("copying static assets...");
     const copiedAppInfoSource = await copyOptionalRootFile("appinfo.json");
     await Promise.all([
