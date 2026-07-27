@@ -56,6 +56,9 @@ export const StartupSyncService = {
   profileScopedSyncEnabled: false,
   addonPushTimer: null,
   unsubscribeAddonChanges: null,
+  // Set once a pull has actually landed remote state in the local stores.
+  // Until then no push may run — the local stores are still seeded defaults.
+  hasPulledSuccessfully: false,
 
   async start({ profileScopedSyncEnabled = false } = {}) {
     if (this.started) {
@@ -66,21 +69,31 @@ export const StartupSyncService = {
     }
     this.started = true;
     this.profileScopedSyncEnabled = Boolean(profileScopedSyncEnabled);
+    this.hasPulledSuccessfully = false;
 
     this.unsubscribeAddonChanges = addonRepository.onInstalledAddonsChanged(() => {
       this.scheduleAddonPush();
     });
 
-    await this.syncPull({ includeProfileScoped: this.profileScopedSyncEnabled });
-
+    // Install the periodic cycle before awaiting the first pull. A slow first
+    // pull must not leave the session with no sync timer at all, and syncCycle
+    // is already re-entrancy guarded by inFlight.
     this.intervalId = setInterval(() => {
       this.syncCycle();
     }, SYNC_INTERVAL_MS);
+
+    this.inFlight = true;
+    try {
+      await this.syncPull({ includeProfileScoped: this.profileScopedSyncEnabled });
+    } finally {
+      this.inFlight = false;
+    }
   },
 
   stop() {
     this.started = false;
     this.profileScopedSyncEnabled = false;
+    this.hasPulledSuccessfully = false;
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -99,9 +112,16 @@ export const StartupSyncService = {
     this.profileScopedSyncEnabled = true;
   },
 
+  // Returns { ok, didApplyProfileSettings }. `ok` is the authoritative
+  // "remote state was successfully read into the local stores" signal — the
+  // push half of a cycle MUST be gated on it. Reporting only
+  // didApplyProfileSettings (as this used to) made a total pull failure
+  // indistinguishable from a clean pull that changed no settings, so the
+  // following push shipped whatever the local stores happened to hold —
+  // defaults on a fresh device — straight over good remote data.
   async syncPull({ includeProfileScoped = this.profileScopedSyncEnabled } = {}) {
     if (!AuthManager.isAuthenticated) {
-      return false;
+      return { ok: false, didApplyProfileSettings: false };
     }
     let didApplyProfileSettings = false;
     for (let attempt = 1; attempt <= MAX_PULL_ATTEMPTS; attempt += 1) {
@@ -119,7 +139,8 @@ export const StartupSyncService = {
         }
         await TraktCredentialSyncService.pullFromRemote(ProfileManager.getActiveProfileId());
         if (!includeProfileScoped) {
-          return didApplyProfileSettings;
+          this.hasPulledSuccessfully = true;
+          return { ok: true, didApplyProfileSettings };
         }
         await CollectionSyncService.pull();
         await HomeCatalogSettingsSyncService.pull();
@@ -128,7 +149,8 @@ export const StartupSyncService = {
         await SavedLibrarySyncService.pull();
         await WatchedItemsSyncService.pull();
         await WatchProgressSyncService.pull();
-        return didApplyProfileSettings;
+        this.hasPulledSuccessfully = true;
+        return { ok: true, didApplyProfileSettings };
       } catch (error) {
         console.warn(`Startup sync pull failed (attempt ${attempt}/${MAX_PULL_ATTEMPTS})`, error);
         if (attempt < MAX_PULL_ATTEMPTS) {
@@ -136,7 +158,7 @@ export const StartupSyncService = {
         }
       }
     }
-    return didApplyProfileSettings;
+    return { ok: false, didApplyProfileSettings };
   },
 
   async syncPush() {
@@ -166,7 +188,14 @@ export const StartupSyncService = {
     this.inFlight = true;
     try {
       const includeProfileScoped = this.profileScopedSyncEnabled;
-      await this.syncPull({ includeProfileScoped });
+      const { ok } = await this.syncPull({ includeProfileScoped });
+      if (!ok) {
+        // Never push on top of a failed pull: the local stores may still hold
+        // pre-sync defaults, and the push services overwrite remote state
+        // wholesale. Skip this cycle and retry the pull in SYNC_INTERVAL_MS.
+        console.warn("Startup sync: skipping push because the pull did not succeed");
+        return;
+      }
       if (includeProfileScoped) {
         await this.syncPush();
       }
@@ -185,6 +214,13 @@ export const StartupSyncService = {
     this.addonPushTimer = setTimeout(async () => {
       this.addonPushTimer = null;
       if (!AuthManager.isAuthenticated) {
+        return;
+      }
+      if (!this.hasPulledSuccessfully) {
+        // The local addon list has never been reconciled with the server this
+        // session, so it may still be the seeded defaults. Pushing it would
+        // overwrite the real remote list with them.
+        console.warn("Addon auto push skipped: no successful pull yet this session");
         return;
       }
       try {

@@ -2,6 +2,29 @@ import { AuthState } from "./authState.js";
 import { SessionStore } from "../storage/sessionStore.js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../config.js";
 import { fetchWithTimeout } from "../network/fetchWithTimeout.js";
+import { fetchViaWebOsSupabaseProxy } from "../../platform/webos/webosSupabaseProxy.js";
+
+// AuthManager cannot route through httpClient (httpClient imports AuthManager),
+// so it mirrors httpClient's dispatch here: try the webOS native proxy first —
+// on TV the app runs from file:// and direct Supabase fetches may not complete —
+// then fall back to a *bounded* fetch. These calls were previously bare fetch(),
+// which meant an unbounded hang on the boot path (getEffectiveUserId is awaited
+// by ProfileSyncService/LibrarySyncService) and no proxy on the target platform.
+const AUTH_REQUEST_TIMEOUT_MS = 20000;
+
+async function dispatchSupabaseRequest(url, init = {}, timeoutMs = AUTH_REQUEST_TIMEOUT_MS) {
+  const budget = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
+  const startedAt = Date.now();
+  const proxied = await fetchViaWebOsSupabaseProxy(url, init, budget);
+  if (proxied) {
+    return proxied;
+  }
+  if (!budget) {
+    return fetchWithTimeout(url, init, 0);
+  }
+  const remaining = Math.max(budget - (Date.now() - startedAt), 1000);
+  return fetchWithTimeout(url, init, remaining);
+}
 
 function isJwtLike(token) {
   const value = String(token || "").trim();
@@ -27,12 +50,29 @@ function isJwtExpired(token, leewaySeconds = 30) {
     return true;
   }
   const payload = decodeJwtPayload(token);
-  const exp = Number(payload?.exp || 0);
+  if (!payload) {
+    // Three segments but an undecodable payload means the stored token is
+    // corrupt. Treating that as "not expired" (the old behaviour) short-
+    // circuited refreshSessionIfNeeded into returning true, so bootstrap went
+    // AUTHENTICATED with a token every API call would 401 on, and nothing ever
+    // triggered a refresh to recover. Report it expired so it gets replaced.
+    return true;
+  }
+  const exp = Number(payload.exp || 0);
   if (!Number.isFinite(exp) || exp <= 0) {
+    // Decoded cleanly but carries no expiry — nothing to check against.
     return false;
   }
   const nowSeconds = Math.floor(Date.now() / 1000);
   return exp <= nowSeconds + leewaySeconds;
+}
+
+// Subject (user id) the current access token was issued for, used to tie the
+// cached effective user id to the account it was resolved under.
+function currentTokenSubject() {
+  const payload = decodeJwtPayload(SessionStore.accessToken);
+  const sub = payload?.sub;
+  return sub == null ? null : String(sub);
 }
 
 function isTransientNetworkError(error) {
@@ -120,7 +160,7 @@ class AuthManagerClass {
   // EMAIL LOGIN
   // ------------------------------------
   async signInWithEmail(email, password) {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    const res = await dispatchSupabaseRequest(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -136,6 +176,9 @@ class AuthManagerClass {
     SessionStore.accessToken = data.access_token;
     SessionStore.refreshToken = data.refresh_token;
     SessionStore.isAnonymousSession = false;
+
+    this.cachedEffectiveUserId = null;
+    this.cachedEffectiveUserSourceUserId = null;
 
     this.setState(AuthState.AUTHENTICATED);
   }
@@ -222,7 +265,7 @@ class AuthManagerClass {
   // ------------------------------------
 
   async startTvLoginSession(deviceNonce, deviceName, redirectBaseUrl) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/start_tv_login_session`, {
+    const res = await dispatchSupabaseRequest(`${SUPABASE_URL}/rest/v1/rpc/start_tv_login_session`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -243,7 +286,7 @@ class AuthManagerClass {
   }
 
   async pollTvLoginSession(code, deviceNonce) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/poll_tv_login_session`, {
+    const res = await dispatchSupabaseRequest(`${SUPABASE_URL}/rest/v1/rpc/poll_tv_login_session`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -263,7 +306,7 @@ class AuthManagerClass {
   }
 
   async exchangeTvLoginSession(code, deviceNonce) {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/tv-logins-exchange`, {
+    const res = await dispatchSupabaseRequest(`${SUPABASE_URL}/functions/v1/tv-logins-exchange`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -283,6 +326,9 @@ class AuthManagerClass {
     SessionStore.accessToken = data.accessToken;
     SessionStore.refreshToken = data.refreshToken;
 
+    this.cachedEffectiveUserId = null;
+    this.cachedEffectiveUserSourceUserId = null;
+
     this.setState(AuthState.AUTHENTICATED);
   }
 
@@ -291,7 +337,17 @@ class AuthManagerClass {
   // ------------------------------------
 
   async getEffectiveUserId() {
-    if (this.cachedEffectiveUserId) return this.cachedEffectiveUserId;
+    // Only trust the cache while the token still belongs to the account it was
+    // resolved under. cachedEffectiveUserSourceUserId previously existed but was
+    // never written, so signing in as a different user without an intervening
+    // signOut() (which is the only thing that cleared the cache) kept serving
+    // the previous account's owner id to every profile-scoped store.
+    const tokenSubject = currentTokenSubject();
+    if (this.cachedEffectiveUserId && this.cachedEffectiveUserSourceUserId === tokenSubject) {
+      return this.cachedEffectiveUserId;
+    }
+    this.cachedEffectiveUserId = null;
+    this.cachedEffectiveUserSourceUserId = null;
 
     if (!SessionStore.accessToken) {
       const refreshed = await this.refreshSessionIfNeeded();
@@ -307,7 +363,7 @@ class AuthManagerClass {
       Authorization: `Bearer ${SessionStore.accessToken}`
     };
 
-    let res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`, {
+    let res = await dispatchSupabaseRequest(`${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`, {
       method: "POST",
       headers: authHeaders
     });
@@ -315,7 +371,7 @@ class AuthManagerClass {
     if (res.status === 401) {
       const refreshed = await this.refreshSessionIfNeeded();
       if (refreshed) {
-        res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`, {
+        res = await dispatchSupabaseRequest(`${SUPABASE_URL}/rest/v1/rpc/get_sync_owner`, {
           method: "POST",
           headers: {
             ...authHeaders,
@@ -336,6 +392,9 @@ class AuthManagerClass {
     const id = data;
 
     this.cachedEffectiveUserId = id;
+    // Re-read the subject rather than reusing the one from entry: the 401 retry
+    // path above may have swapped in a refreshed token.
+    this.cachedEffectiveUserSourceUserId = currentTokenSubject();
     return id;
   }
 }

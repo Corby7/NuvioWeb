@@ -21,12 +21,24 @@ function hasHeader(headers, name) {
   return Object.keys(headers || {}).some((key) => String(key).toLowerCase() === target);
 }
 
+// The proxy returns null both when it declines a request and when its own
+// attempt fails, so a direct fetch is still tried afterwards. Both legs must
+// therefore share one budget — giving each a full timeoutMs let a single
+// request run for the sum of the two before surfacing an error.
 async function dispatchRequest(url, fetchInit, timeoutMs) {
-  const proxied = await fetchViaWebOsSupabaseProxy(url, fetchInit);
+  const budget = Number(timeoutMs) > 0 ? Number(timeoutMs) : 0;
+  const startedAt = Date.now();
+  const proxied = await fetchViaWebOsSupabaseProxy(url, fetchInit, budget);
   if (proxied) {
     return proxied;
   }
-  return fetchWithTimeout(url, fetchInit, timeoutMs);
+  if (!budget) {
+    return fetchWithTimeout(url, fetchInit, 0);
+  }
+  // Leave a small floor so a nearly-exhausted budget still gets a real attempt
+  // rather than aborting instantly.
+  const remaining = Math.max(budget - (Date.now() - startedAt), 1000);
+  return fetchWithTimeout(url, fetchInit, remaining);
 }
 
 export async function httpRequest(url, options = {}) {

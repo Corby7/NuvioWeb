@@ -221,6 +221,16 @@ export const LibrarySyncService = {
       const profileId = await resolveAddonProfileId();
       const urls = addonRepository.getInstalledAddonUrls();
 
+      // An empty local list is never a legitimate thing to publish: every push
+      // path below replaces the remote list wholesale, so shipping [] deletes
+      // the user's addons everywhere. getInstalledAddonUrls() also falls back
+      // to DEFAULT_ADDON_URLS, so "empty" here really does mean "we have
+      // nothing", not "the user removed everything". Matches the guard in
+      // savedLibrarySyncService.push().
+      if (!urls.length) {
+        return true;
+      }
+
       try {
         await SupabaseApi.rpc(
           "sync_push_addons",
@@ -243,11 +253,8 @@ export const LibrarySyncService = {
 
       const ownerId = await AuthManager.getEffectiveUserId();
       try {
-        await SupabaseApi.delete(
-          ADDONS_TABLE,
-          `user_id=eq.${encodeURIComponent(ownerId)}&profile_id=eq.${profileId}`,
-          true
-        );
+        // Build the replacement rows before clearing the remote ones: the
+        // delete is only safe as the first half of a delete+upsert pair.
         const addonRows = urls.map((url, index) => {
           const name = addonRepository.getAddonDisplayNameOverride(url);
           return {
@@ -258,15 +265,21 @@ export const LibrarySyncService = {
             ...(name ? { name } : {})
           };
         });
-        if (addonRows.length) {
-          try {
-            await SupabaseApi.upsert(ADDONS_TABLE, addonRows, "user_id,profile_id,url", true);
-          } catch (upsertError) {
-            if (!isOnConflictConstraintError(upsertError)) {
-              throw upsertError;
-            }
-            await SupabaseApi.upsert(ADDONS_TABLE, addonRows, null, true);
+        if (!addonRows.length) {
+          return true;
+        }
+        await SupabaseApi.delete(
+          ADDONS_TABLE,
+          `user_id=eq.${encodeURIComponent(ownerId)}&profile_id=eq.${profileId}`,
+          true
+        );
+        try {
+          await SupabaseApi.upsert(ADDONS_TABLE, addonRows, "user_id,profile_id,url", true);
+        } catch (upsertError) {
+          if (!isOnConflictConstraintError(upsertError)) {
+            throw upsertError;
           }
+          await SupabaseApi.upsert(ADDONS_TABLE, addonRows, null, true);
         }
         return true;
       } catch (addonsTableError) {
@@ -285,11 +298,12 @@ export const LibrarySyncService = {
         base_url: baseUrl,
         position: index
       }));
+      if (!rows.length) {
+        return true;
+      }
       try {
         await SupabaseApi.delete(TABLE, `owner_id=eq.${encodeURIComponent(ownerId)}`, true);
-        if (rows.length) {
-          await SupabaseApi.upsert(TABLE, rows, "owner_id,base_url", true);
-        }
+        await SupabaseApi.upsert(TABLE, rows, "owner_id,base_url", true);
         return true;
       } catch (tvTableError) {
         console.warn("Addon sync push tv_addons fallback failed", tvTableError);

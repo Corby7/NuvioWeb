@@ -285,7 +285,17 @@ export const TraktAuthService = {
       return null;
     }
     const cacheKey = `traktCachedStats:${userId}`;
-    const cached = forceRefresh ? null : JSON.parse(localStorage.getItem(cacheKey) || "null");
+    // A corrupt cache entry must not throw here: the throw happened before the
+    // setItem below that would have overwritten it, so one bad write meant
+    // stats failed forever. Fall through to a fresh fetch and let it repair.
+    let cached = null;
+    if (!forceRefresh) {
+      try {
+        cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
+      } catch (_) {
+        cached = null;
+      }
+    }
     if (cached && Date.now() - Number(cached.cachedAt || 0) < 60 * 60 * 1000) {
       return cached.stats || null;
     }

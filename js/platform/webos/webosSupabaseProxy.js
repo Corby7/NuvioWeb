@@ -77,11 +77,21 @@ function buildResponseFromServicePayload(payload) {
     ok: status >= 200 && status < 300,
     async text() {
       return body || "";
+    },
+    // Callers that reach for .json() (e.g. AuthManager) must not blow up on
+    // engines without a global Response constructor.
+    async json() {
+      return body ? JSON.parse(body) : null;
     }
   };
 }
 
-export async function fetchViaWebOsSupabaseProxy(url, fetchOptions = {}) {
+// `timeoutMs` is the caller's remaining budget for the whole request. The proxy
+// leg is capped at the smaller of that and its own ceiling so that a caller
+// asking for e.g. 5s does not sit here for 22s, and so that a proxy timeout
+// followed by the direct-fetch fallback cannot exceed the caller's budget
+// twice over. A non-positive budget means "unbounded" and keeps the ceiling.
+export async function fetchViaWebOsSupabaseProxy(url, fetchOptions = {}, timeoutMs = 0) {
   if (!isProxyableSupabaseUrl(url)) {
     return null;
   }
@@ -93,6 +103,11 @@ export async function fetchViaWebOsSupabaseProxy(url, fetchOptions = {}) {
     return null;
   }
 
+  const budget = Number(timeoutMs);
+  const proxyBudget = budget > 0
+    ? Math.min(budget, WEBOS_SUPABASE_PROXY_REQUEST_TIMEOUT_MS)
+    : WEBOS_SUPABASE_PROXY_REQUEST_TIMEOUT_MS;
+
   const serviceResult = await withTimeout(
     requestWebOsCompanionService({
       method: "supabaseProxy",
@@ -103,7 +118,7 @@ export async function fetchViaWebOsSupabaseProxy(url, fetchOptions = {}) {
         body
       }
     }),
-    WEBOS_SUPABASE_PROXY_REQUEST_TIMEOUT_MS
+    proxyBudget
   ).catch(() => null);
   const serviceResponse = buildResponseFromServicePayload(serviceResult?.payload);
   if (serviceResponse) {

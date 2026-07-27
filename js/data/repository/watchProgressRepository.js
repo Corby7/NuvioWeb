@@ -465,9 +465,21 @@ async function fetchTraktProgressSnapshot() {
 const enrichedMetaCache = new Map();
 const ENRICHED_META_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// The TTL is only consulted on read, so without this sweep entries for titles
+// that stop appearing in Continue Watching are never reclaimed and the Map
+// grows for the lifetime of the page — which on a TV can be days.
+function pruneEnrichedMetaCache(now) {
+  for (const [key, entry] of enrichedMetaCache) {
+    if (now - entry.timestamp >= ENRICHED_META_CACHE_TTL_MS) {
+      enrichedMetaCache.delete(key);
+    }
+  }
+}
+
 async function batchEnrichProgressItems(items) {
   if (!items.length) return [];
   const now = Date.now();
+  pruneEnrichedMetaCache(now);
   return Promise.all(
     items.map(async (item) => {
       const lookupId = item.imdbId || item.contentId;
