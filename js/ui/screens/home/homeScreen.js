@@ -27,7 +27,7 @@ import {
   MODERN_HOME_CONSTANTS,
   renderModernHomeLayout
 } from "./modernHomeLayout.js";
-import { optimizePosterUrl, optimizeBackdropUrl, optimizeCardBackdropUrl, optimizeLogoUrl, setPosterLoadsPaused } from "./posterLoader.js";
+import { optimizePosterUrl, optimizeBackdropUrl, optimizeCardBackdropUrl, buildCardBackdropFallback, optimizeLogoUrl, setPosterLoadsPaused } from "./posterLoader.js";
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
@@ -2291,8 +2291,12 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
     ? landscapeVisualSrc
     : firstNonEmpty(normalized.poster, normalized.thumbnail, preferredLandscapePosterSrc, normalized.backdrop, normalized.backdropUrl);
   // Expanded reveal is ~620px wide — size the backdrop to it. Addon URLs come
-  // through raw and are frequently TMDB /original (multi-megapixel).
-  const expandedVisualSrc = optimizeCardBackdropUrl(firstNonEmpty(backdropSrc, posterSrc));
+  // through raw and are frequently TMDB /original or full-size TheTVDB art
+  // (multi-megapixel). TheTVDB has no guaranteed thumbnail for every asset, so
+  // the un-sized original rides along as an onerror fallback.
+  const expandedVisualRaw = firstNonEmpty(backdropSrc, posterSrc);
+  const expandedVisualSrc = optimizeCardBackdropUrl(expandedVisualRaw);
+  const expandedVisualFallback = buildCardBackdropFallback(expandedVisualRaw, expandedVisualSrc);
   const expandedClass = isExpanded ? " is-expanded" : "";
   const landscapeClass = useLandscapePoster ? " is-landscape" : "";
   const focusableClass = isLoading ? "" : " focusable";
@@ -2319,7 +2323,7 @@ export function createPosterCardMarkup(item, rowIndex, itemIndex, itemType, rowD
       ? `<img class="content-poster" src="${escapeAttribute(optimizePosterUrl(posterSrc))}" decoding="async" ${posterLoadAttr} alt="" aria-label="${escapeAttribute(normalized.name || "")}" />`
       : '<div class="content-poster placeholder"></div>'}
         ${(!isLoading && expandedVisualSrc)
-      ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}" decoding="async" loading="lazy" fetchpriority="low" alt="" aria-hidden="true" />`
+      ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}"${expandedVisualFallback ? ` data-fallback-srcs="${escapeAttribute(expandedVisualFallback)}"` : ""} decoding="async" loading="lazy" fetchpriority="low" alt="" aria-hidden="true" onerror="${getImageFallbackErrorHandler()}" />`
       : '<div class="home-poster-expanded-backdrop placeholder" aria-hidden="true"></div>'}
         <div class="home-poster-trailer-layer"></div>
         <div class="home-poster-expanded-gradient"></div>

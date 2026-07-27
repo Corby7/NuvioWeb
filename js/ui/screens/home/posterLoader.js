@@ -1,5 +1,6 @@
 const MAX_CONCURRENT = 6;
 const TMDB_POSTER_RE = /\/image\.tmdb\.org\/t\/p\/(?:original|w\d+)\//;
+const TVDB_ARTWORK_RE = /^(https?:\/\/artworks\.thetvdb\.com\/.+?)(?:_t)?(\.(?:jpe?g|png|webp))$/i;
 const MARGIN_X = 600;
 const MARGIN_Y = 200;
 // Unload margins are much larger than load margins so images only churn when the
@@ -186,7 +187,28 @@ export function optimizeCardBackdropUrl(url) {
   if (TMDB_POSTER_RE.test(url)) {
     return url.replace(TMDB_POSTER_RE, "/image.tmdb.org/t/p/w780/");
   }
+  const tvdb = TVDB_ARTWORK_RE.exec(url);
+  if (tvdb) {
+    // Already-thumbnailed URLs re-emit unchanged (the "_t" group is consumed
+    // and re-added), so this stays idempotent.
+    return `${tvdb[1]}_t${tvdb[2]}`;
+  }
   return url;
+}
+
+// TheTVDB is the other big source of multi-megapixel card art, and it ignores
+// the TMDB sizing scheme. It does serve a half-dimension thumbnail for any
+// artwork by inserting "_t" before the extension (measured on-device:
+// 1920x1080 -> 960x540, 1280x720 -> 640x360, 1.3MB -> 56KB). That is ample for
+// the card backdrop, which renders into a 236x360 CSS box and sits at
+// opacity 0 until the expanded reveal.
+// Do NOT reuse "_t" for posters: those render at 442x678 device px (dpr 2) and
+// go visibly soft at 340x500 — verified with 2x on-device captures.
+// Not every asset is guaranteed a "_t", so callers must keep the original URL
+// as an onerror fallback.
+export function buildCardBackdropFallback(originalUrl, optimizedUrl) {
+  if (!originalUrl || originalUrl === optimizedUrl) return "";
+  return encodeURIComponent(originalUrl);
 }
 
 export function optimizeLogoUrl(url) {
