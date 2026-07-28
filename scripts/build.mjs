@@ -167,6 +167,16 @@ async function runBuild() {
       cp(
         path.join(rootDir, "node_modules", "dashjs", "LICENSE.md"),
         path.join(libsDir, "dashjs.LICENSE.md")
+      ),
+      // Bitmap subtitle (VobSub/PGS) WASM decoder. bitmapSubtitleDecoder.js
+      // fetches this exact path at runtime.
+      cp(
+        path.join(rootDir, "node_modules", "libbitsub", "pkg", "libbitsub_bg.wasm"),
+        path.join(libsDir, "libbitsub_bg.wasm")
+      ),
+      cp(
+        path.join(rootDir, "node_modules", "libbitsub", "pkg", "LICENSE"),
+        path.join(libsDir, "libbitsub.LICENSE")
       )
     ]);
 

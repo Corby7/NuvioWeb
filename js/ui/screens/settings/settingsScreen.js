@@ -8,6 +8,7 @@ import { HomeCatalogStore } from "../../../data/local/homeCatalogStore.js";
 import { ThemeStore } from "../../../data/local/themeStore.js";
 import { ThemeManager } from "../../theme/themeManager.js";
 import { PlayerSettingsStore } from "../../../data/local/playerSettingsStore.js";
+import { WebOsAudioCompatibilityStore } from "../../../data/local/webOsAudioCompatibilityStore.js";
 import { TorrentSettingsStore } from "../../../data/local/torrentSettingsStore.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 import { MdbListSettingsStore } from "../../../data/local/mdbListSettingsStore.js";
@@ -1938,6 +1939,7 @@ function createDefaultExpandedState(sectionId) {
       general: false,
       stream: false,
       audio: false,
+      audioCompatibility: false,
       subtitles: false,
       p2p: false
     };
@@ -2163,6 +2165,13 @@ export const SettingsScreen = {
       pluginsEnabled: PluginManager.pluginsEnabled,
       theme: ThemeStore.get(),
       player: PlayerSettingsStore.get(),
+      // Reading here also performs the one-shot migration from the legacy
+      // combined DTS+TrueHD switch, so the toggle handlers can use a plain get().
+      webOsAudioCompatibility: Platform.isWebOS()
+        ? WebOsAudioCompatibilityStore.get({
+          legacyForceAll: Boolean(PlayerSettingsStore.get().forceDtsTrueHdAudio)
+        })
+        : null,
       torrent: TorrentSettingsStore.get(),
       layout: LayoutPreferences.get(),
       tmdb: TmdbSettingsStore.get(),
@@ -4769,6 +4778,9 @@ export const SettingsScreen = {
     this.actionMap.set("playback:toggle:audio", () => {
       this.toggleExpandedSection("playback", "audio");
     });
+    this.actionMap.set("playback:toggle:audioCompatibility", () => {
+      this.toggleExpandedSection("playback", "audioCompatibility");
+    });
     this.actionMap.set("playback:toggle:subtitles", () => {
       this.toggleExpandedSection("playback", "subtitles");
     });
@@ -4786,6 +4798,14 @@ export const SettingsScreen = {
     });
     this.actionMap.set("playback:skipIntro", () => {
       PlayerSettingsStore.set({ skipIntroEnabled: !PlayerSettingsStore.get().skipIntroEnabled });
+    });
+    this.actionMap.set("playback:forceDts", () => {
+      const current = WebOsAudioCompatibilityStore.get();
+      WebOsAudioCompatibilityStore.set({ forceDtsAudio: !current.forceDtsAudio });
+    });
+    this.actionMap.set("playback:forceTrueHd", () => {
+      const current = WebOsAudioCompatibilityStore.get();
+      WebOsAudioCompatibilityStore.set({ forceTrueHdAudio: !current.forceTrueHdAudio });
     });
     this.actionMap.set("playback:nextEpisodeThresholdMode", () => {
       this.openOptionDialog({
@@ -5192,6 +5212,23 @@ export const SettingsScreen = {
       </div>
     `;
 
+    const audioCompatibilityBody = `
+      <div class="settings-stack">
+        ${this.renderToggleRow({
+      focusKey: "playback:forceDts",
+      title: t("audio_force_dts", {}, "Force DTS audio"),
+      subtitle: t("audio_force_dts_desc", {}, "Keep DTS tracks selectable when automatic detection cannot see a working DTS restoration."),
+      checked: Boolean(model.webOsAudioCompatibility?.forceDtsAudio)
+    })}
+        ${this.renderToggleRow({
+      focusKey: "playback:forceTrueHd",
+      title: t("audio_force_truehd", {}, "Force TrueHD audio"),
+      subtitle: t("audio_force_truehd_desc", {}, "Keep TrueHD tracks selectable only when this TV can actually decode or pass through TrueHD."),
+      checked: Boolean(model.webOsAudioCompatibility?.forceTrueHdAudio)
+    })}
+      </div>
+    `;
+
     const subtitleBody = `
       <div class="settings-stack">
         ${this.renderToggleRow({
@@ -5296,6 +5333,13 @@ export const SettingsScreen = {
             expanded: Boolean(expanded.audio),
             bodyHtml: audioBody
           })}
+          ${Platform.isWebOS() ? this.renderCollapsibleRow({
+            focusKey: "playback:toggle:audioCompatibility",
+            title: t("audio_compatibility_advanced", {}, "Advanced audio compatibility"),
+            subtitle: t("audio_compatibility_advanced_desc", {}, "Automatic detection is used first. Override only when a rooted TV has a working decoder."),
+            expanded: Boolean(expanded.audioCompatibility),
+            bodyHtml: audioCompatibilityBody
+          }) : ""}
           ${this.renderCollapsibleRow({
             focusKey: "playback:toggle:subtitles",
             title: t("settings.playback.groups.subtitles.title"),

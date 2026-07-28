@@ -5,11 +5,31 @@ import {
   onWebOsImageProxyReady
 } from "../../../core/media/imageProxy.js";
 import { localMediaTracksRepository } from "../../../data/repository/localMediaTracksRepository.js";
+import { localMediaBitmapSubtitleRepository } from "../../../data/repository/localMediaBitmapSubtitleRepository.js";
+import {
+  BitmapSubtitleDecoder,
+  supportsBitmapSubtitleDecoding,
+  warmBitmapSubtitleDecoder
+} from "../../../core/player/bitmapSubtitleDecoder.js";
 import { subtitleRepository } from "../../../data/repository/subtitleRepository.js";
 import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { parentalGuideRepository } from "../../../data/repository/parentalGuideRepository.js";
 import { skipIntroRepository } from "../../../data/repository/skipIntroRepository.js";
 import { PlayerSettingsStore, DEFAULT_SUBTITLE_STYLE } from "../../../data/local/playerSettingsStore.js";
+import { WebOsAudioCompatibilityStore } from "../../../data/local/webOsAudioCompatibilityStore.js";
+import { TrackPreferencesStore } from "../../../data/local/trackPreferencesStore.js";
+import {
+  audioTrackLabelConflictsWithCodec,
+  formatAudioCodecName,
+  getAudioTrackCodecCompatibilityText,
+  getAudioTrackLabelPrefix,
+  getAuthoritativeAudioCodecValue,
+  mapAudioTrackNativeIndexes
+} from "../../../core/player/audioTrackCodecMetadata.js";
+import {
+  canReleasePlayingNativeStartupAudioGate,
+  selectStartupAudioFallbackOption
+} from "../../../core/player/startupAudioGatePolicy.js";
 import { SubtitleItemPreferencesStore } from "../../../data/local/subtitleItemPreferencesStore.js";
 import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSettingsStore.js";
 import { fetchSubtitleCues, decodeSubtitleBuffer } from "./subtitleEngine.js";
@@ -311,7 +331,27 @@ const PARENTAL_GUIDE_ROW_HEIGHT = 36;
 const PARENTAL_GUIDE_ROW_GAP = 4;
 const PAUSE_OVERLAY_DELAY_MS = 5000;
 const MAX_PAUSE_OVERLAY_CAST = 8;
-const UNSUPPORTED_EMBEDDED_SUBTITLE_CODECS = new Set(["HDMV/PGS", "VOBSUB"]);
+// Backstop for the play-but-muted gate: if webOS never finishes exposing the
+// audio track list, release anyway rather than hold the loading overlay.
+const WEBOS_REMOTE_MKV_AUDIO_GATE_MAX_WAIT_MS = 30000;
+// Image-based subtitle codecs the TV's own pipeline cannot present. We decode
+// these ourselves onto a canvas; anything here that is NOT in
+// DECODABLE_BITMAP_SUBTITLE_FORMATS stays hidden.
+const UNSUPPORTED_EMBEDDED_SUBTITLE_CODECS = new Set(["HDMV/PGS", "VOBSUB", "S_VOBSUB", "S_HDMV/PGS", "DVD_SUBTITLE", "DVDSUB"]);
+const UNSUPPORTED_EMBEDDED_SUBTITLE_CODEC_PATTERNS = [
+  /\b(hdmv[ /_-]*)?pgs\b/i,
+  /\bpresentation graphic stream\b/i,
+  /\bvob[ /_-]*sub\b/i,
+  /\bdvd[ /_-]*sub(?:title)?\b/i
+];
+const DECODABLE_BITMAP_SUBTITLE_FORMATS = new Set(["vobsub", "pgs"]);
+// Bitmap cues are fetched in bounded windows rather than all at once: a full
+// VOBSUB track is tens of MB and the TV cannot hold it comfortably.
+const BITMAP_SUBTITLE_WINDOW_SECONDS = 120;
+const BITMAP_SUBTITLE_PREFETCH_SECONDS = 20;
+// Bucketed so seeking within the same window reuses the loaded decoder; the
+// 30s overlap with WINDOW_SECONDS covers cues straddling a bucket boundary.
+const BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS = 90;
 const PARENTAL_GUIDE_CONTAINER_IN_MS = 300;
 const PARENTAL_GUIDE_LINE_IN_MS = 400;
 const PARENTAL_GUIDE_ITEM_STAGGER_MS = 80;
@@ -721,34 +761,72 @@ function getSubtitleEntryLanguageSource(entry = {}) {
   return entry.label || entry.title || "";
 }
 
-function formatAudioCodecName(value) {
-  const text = cleanDisplayText(value).toLowerCase();
-  if (!text) {
-    return "";
-  }
+// Prefer a structured codec field over the free-text metadata blob. A track
+// merely titled "DTS-HD 5.1 [remux]" but actually re-encoded to E-AC-3 must not
+// be judged by its label.
+function normalizeTrackCodecText(value) {
+  return String(value ?? "").replace(/[_\s]+/g, " ").trim().toUpperCase();
+}
 
-  if (text.includes("eac3-joc") || text.includes("ec-3-joc") || text.includes("atmos")) return "E-AC-3-JOC";
-  if (text.includes("truehd")) return "TrueHD";
-  if (text.includes("dts-hd")) return "DTS-HD";
-  if (text.includes("dts express")) return "DTS Express";
-  if (text.includes("dts")) return "DTS";
-  if (text.includes("ec-3") || text.includes("eac3") || text.includes("ddp") || text.includes("dolby digital plus")) return "E-AC-3";
-  if (text.includes("ac-3") || text.includes("ac3") || text.includes("dolby digital")) return "AC-3";
-  if (text.includes("ac-4") || text.includes("ac4")) return "AC-4";
-  if (text.includes("aac") || text.includes("mp4a")) return "AAC";
-  if (text.includes("mp3") || text.includes("mpeg audio")) return "MP3";
-  if (text.includes("mp2")) return "MP2";
-  if (text.includes("vorbis")) return "Vorbis";
-  if (text.includes("opus")) return "Opus";
-  if (text.includes("flac")) return "FLAC";
-  if (text.includes("alac")) return "ALAC";
-  if (text.includes("wav") || text.includes("pcm")) return "WAV";
-  if (text.includes("amr-wb")) return "AMR-WB";
-  if (text.includes("amr-nb")) return "AMR-NB";
-  if (text.includes("amr")) return "AMR";
-  if (text.includes("iamf")) return "IAMF";
-  if (text.includes("mpegh") || text.includes("mhm1") || text.includes("mha1")) return "MPEG-H";
+function isUnsupportedEmbeddedSubtitleTrack(track = {}) {
+  const codecText = normalizeTrackCodecText(
+    track?.codec || track?.subtitleCodec || track?.codec_name || track?.format || ""
+  );
+  if (codecText && UNSUPPORTED_EMBEDDED_SUBTITLE_CODECS.has(codecText)) {
+    return true;
+  }
+  const searchText = getTrackMetadataStrings(track).join(" ");
+  return UNSUPPORTED_EMBEDDED_SUBTITLE_CODEC_PATTERNS.some((pattern) => pattern.test(searchText));
+}
+
+// Which bitmap family a track is, or "" when it is not a bitmap track.
+function getBitmapSubtitleFormat(track = {}) {
+  const codecText = normalizeTrackCodecText(
+    track?.codec || track?.subtitleCodec || track?.codec_name || track?.format || ""
+  );
+  const searchText = `${codecText} ${getTrackMetadataStrings(track).join(" ")}`;
+  if (codecText === "VOBSUB" || codecText === "S VOBSUB" || codecText === "DVD SUBTITLE" || codecText === "DVDSUB") {
+    return "vobsub";
+  }
+  if (codecText === "HDMV/PGS" || codecText === "S HDMV/PGS" || codecText === "PGS") {
+    return "pgs";
+  }
+  if (/\bvob[ /_-]*sub\b|\bdvd[ /_-]*sub(?:title)?\b/i.test(searchText)) {
+    return "vobsub";
+  }
+  if (/\b(hdmv[ /_-]*)?pgs\b|\bpresentation graphic stream\b/i.test(searchText)) {
+    return "pgs";
+  }
   return "";
+}
+
+function isDecodableBitmapEmbeddedSubtitleTrack(track = {}) {
+  return DECODABLE_BITMAP_SUBTITLE_FORMATS.has(getBitmapSubtitleFormat(track));
+}
+
+function canUseWebOsBitmapSubtitles() {
+  return Environment.isWebOS() && supportsBitmapSubtitleDecoding();
+}
+
+function getWebOsAudioTrackCompatibilityText(track = {}) {
+  return getAudioTrackCodecCompatibilityText(track, getTrackMetadataStrings(track).join(" "));
+}
+
+function isUnsupportedWebOsAudioTrack(track = {}) {
+  if (!Environment.isWebOS()) {
+    return false;
+  }
+  if (typeof PlayerController.isLikelyUnsupportedWebOsAudioTrackDescription !== "function") {
+    return false;
+  }
+  return PlayerController.isLikelyUnsupportedWebOsAudioTrackDescription(
+    getWebOsAudioTrackCompatibilityText(track)
+  );
+}
+
+function getAudioTrackSupportState(track = {}) {
+  const supported = !isUnsupportedWebOsAudioTrack(track);
+  return { supported, unsupportedReason: supported ? null : "codec" };
 }
 
 function formatAudioChannelLayout(value) {
@@ -788,8 +866,10 @@ function formatAudioTrackDisplay(track = {}, index = 0) {
   const rawLabel = getMeaningfulTrackLabel(track);
   const rawLanguage = cleanDisplayText(getTrackLanguageValue(track));
   const languageLabel = getTrackLanguageLabel(track);
+  const authoritativeCodecValue = getAuthoritativeAudioCodecValue(track);
   const codecName = formatAudioCodecName(
-    track?.sampleMimeType
+    authoritativeCodecValue
+    || track?.sampleMimeType
     || track?.codec
     || track?.codecs
     || track?.audioCodec
@@ -797,7 +877,12 @@ function formatAudioTrackDisplay(track = {}, index = 0) {
   );
   const channelLayout = formatAudioChannelLayout(track?.channelCount || track?.channels);
   const sampleRate = Number(track?.sampleRate || track?.audioSampleRate || 0);
-  const baseName = rawLabel || languageLabel || rawLanguage || audioLabel(index);
+  // When the container label advertises a different codec family than the real
+  // one, drop the lying part and keep only any non-codec prefix.
+  const labelConflictsWithCodec = audioTrackLabelConflictsWithCodec(rawLabel, authoritativeCodecValue);
+  const labelPrefix = labelConflictsWithCodec ? getAudioTrackLabelPrefix(rawLabel) : "";
+  const resolvedLabel = labelPrefix || (labelConflictsWithCodec ? "" : rawLabel);
+  const baseName = resolvedLabel || languageLabel || rawLanguage || audioLabel(index);
   const suffix = [codecName, channelLayout].filter(Boolean).join(" ");
   const label = suffix ? `${baseName} (${suffix})` : baseName;
   const secondaryParts = [];
@@ -1537,6 +1622,14 @@ export const PlayerScreen = {
         this.renderControlButtons();
       });
       void ensureWebOsImageProxyReady();
+
+      // Read the user overrides before the first capability read, then kick the
+      // (memoized) probe so support states are ready by the time the container
+      // probe returns.
+      const legacyForceAll = Boolean(PlayerSettingsStore.get().forceDtsTrueHdAudio);
+      const audioCompatibility = WebOsAudioCompatibilityStore.get({ legacyForceAll });
+      PlayerController.setWebOsAudioCodecOverrides?.(audioCompatibility);
+      void PlayerController.refreshWebOsDeviceInfo?.();
     }
 
     this.aspectModes = [
@@ -1544,6 +1637,8 @@ export const PlayerScreen = {
       { objectFit: "cover", label: t("player_aspect_fill", {}, "Fill") },
       { objectFit: "fill", label: t("player_aspect_stretch", {}, "Stretch") }
     ];
+
+    this.rememberedAudioTrackPreference = TrackPreferencesStore.getAudio(this.getTrackPreferenceContentId());
 
     this.streamCandidates = this.normalizeStreamCandidates(Array.isArray(params.streamCandidates) ? params.streamCandidates : []);
     const initialStreamCandidate = this.selectBestStreamCandidate(this.streamCandidates);
@@ -1593,6 +1688,16 @@ export const PlayerScreen = {
     this.subtitleCueStyleBindings = new Map();
     this.subtitleCueOriginalState = new WeakMap();
 
+    this.bitmapSubtitleDecoder = null;
+    this.bitmapSubtitleTrack = null;
+    this.bitmapSubtitleLoadToken = 0;
+    this.bitmapSubtitleLoading = false;
+    this.bitmapSubtitleWindowStart = 0;
+    this.bitmapSubtitleWindowEnd = 0;
+    this.bitmapSubtitleLastFrameKey = "";
+    this.bitmapSubtitleLastErrorAt = 0;
+    this.bitmapSubtitleScratchCanvas = null;
+
     this.audioDialogVisible = false;
     this.audioDialogIndex = 0;
     this.audioMixFocusIndex = 0;
@@ -1600,6 +1705,14 @@ export const PlayerScreen = {
     this.selectedAudioTrackIndex = -1;
     this.embeddedAudioTracks = [];
     this.selectedEmbeddedAudioTrackIndex = -1;
+    this.audioFallbackApplying = false;
+    this.failedAutomaticAudioFallbackEntryId = "";
+    this.pendingWebOsAudioSelection = null;
+    this.startupAudioGateAllowsNativePlayback = false;
+    this.startupAudioGateDeadline = 0;
+    this.startupAudioFallbackApplied = false;
+    this.startupAudioTrackSetSignature = "";
+    this.rememberedAudioTrackPreference = null;
 
     this.sourcesPanelVisible = false;
     this.sourcesLoading = false;
@@ -1797,7 +1910,21 @@ export const PlayerScreen = {
         this.startEngineFsKeepAlive(this.currentEngineFsStream);
       } else {
         this.engineFsPlaybackToken = "";
-        this.enableStartupAudioGate();
+        // A remote MKV on webOS will not expose its full audio track list until
+        // the pipeline is decoding, so the gate must mute rather than pause.
+        const prioritizeWebOsRemoteMkvPlayback = Environment.isWebOS()
+          && !this.currentEngineFsStream
+          && this.isCurrentSourceLikelyMkv();
+        if (prioritizeWebOsRemoteMkvPlayback) {
+          // Must be set before play() starts: otherwise the window between
+          // play-start and probe-start looks like "discovery finished" and the
+          // startup preference gives up early and falls back to track 0.
+          this.trackDiscoveryInProgress = true;
+        }
+        this.enableStartupAudioGate({
+          allowNativePlayback: prioritizeWebOsRemoteMkvPlayback,
+          maxWaitMs: prioritizeWebOsRemoteMkvPlayback ? WEBOS_REMOTE_MKV_AUDIO_GATE_MAX_WAIT_MS : 0
+        });
       }
       PlayerController.play(this.activePlaybackUrl, this.buildPlaybackContext(sourceCandidate));
       this.loadManifestTrackDataForCurrentStream(this.activePlaybackUrl);
@@ -2926,24 +3053,22 @@ export const PlayerScreen = {
   },
 
   normalizeEmbeddedSubtitleTracks(rawTracks = []) {
+    // Bitmap tracks are rendered by us on a canvas, not by the platform, so they
+    // never consume a native pipeline index (hence nativeTrackIndex: -1 and the
+    // counter only advancing for text tracks). Codecs we can decode are kept;
+    // anything still genuinely unsupported is dropped.
+    const canRenderBitmap = canUseWebOsBitmapSubtitles();
+    let nativeTrackIndex = 0;
     return rawTracks
       .filter((track) => {
         const type = String(track?.type || track?.track || track?.codecType || "").toLowerCase();
         return type === "text" || type === "subtitle";
       })
       .filter((track) => {
-        const codec = String(track?.codec || "").trim().toUpperCase();
-        if (UNSUPPORTED_EMBEDDED_SUBTITLE_CODECS.has(codec)) {
-          // TEMP bitmap-subs audit: surface how often bitmap subtitle tracks
-          // get hidden, to decide whether porting the VobSub decoder is worth it.
-          console.info("[bitmap-subs-audit] hiding embedded subtitle track", {
-            codec,
-            language: String(getTrackLanguageValue(track) || "").trim(),
-            label: getMeaningfulTrackLabel(track) || ""
-          });
-          return false;
+        if (!isUnsupportedEmbeddedSubtitleTrack(track)) {
+          return true;
         }
-        return true;
+        return canRenderBitmap && isDecodableBitmapEmbeddedSubtitleTrack(track);
       })
       .map((track, index) => {
         const sourceTrackId = Number(track?.id);
@@ -2954,11 +3079,14 @@ export const PlayerScreen = {
           ? subtitleLanguageLabel(languageKey)
           : subtitleLabel(index);
         const descriptors = getTrackDescriptorLabels(track);
+        const bitmapSubtitle = isDecodableBitmapEmbeddedSubtitleTrack(track);
         return {
           id: `embedded-subtitle-${index}`,
           embeddedTrackIndex: index,
           sourceTrackId: Number.isFinite(sourceTrackId) ? sourceTrackId : -1,
-          nativeTrackIndex: Number.isFinite(sourceTrackId) ? Math.max(0, sourceTrackId - 1) : -1,
+          nativeTrackIndex: bitmapSubtitle ? -1 : nativeTrackIndex++,
+          bitmapSubtitle,
+          bitmapFormat: bitmapSubtitle ? getBitmapSubtitleFormat(track) : "",
           label: getMeaningfulTrackLabel(track) || fallbackLabel,
           language: normalizedLanguage || String(rawLanguage || "").trim().toLowerCase(),
           secondary: descriptors.length ? descriptors.join(" · ") : String(normalizedLanguage || rawLanguage || "").trim().toUpperCase(),
@@ -2969,32 +3097,43 @@ export const PlayerScreen = {
   },
 
   normalizeEmbeddedAudioTracks(rawTracks = []) {
-    return rawTracks
-      .filter((track) => String(track?.type || "").toLowerCase() === "audio")
-      .filter((track) => !PlayerController.isLikelyUnsupportedWebOsAudioTrackDescription?.([
-        track?.label,
-        track?.codec,
-        track?.audioCodec,
-        track?.channels,
-        track?.channelCount
-      ].filter(Boolean).join(" ")))
-      .map((track, index) => {
-        const sourceTrackId = Number(track?.id);
-        return {
-          id: `embedded-audio-${index}`,
-          embeddedTrackIndex: index,
-          sourceTrackId: Number.isFinite(sourceTrackId) ? sourceTrackId : -1,
-          nativeTrackIndex: Number.isFinite(sourceTrackId) ? Math.max(0, sourceTrackId - 1) : -1,
-          label: cleanDisplayText(track?.label),
-          language: normalizeTrackLanguageCode(track?.lang) || String(track?.lang || "").trim().toLowerCase(),
-          lang: cleanDisplayText(track?.lang),
-          codec: cleanDisplayText(track?.codec || track?.audioCodec),
-          audioCodec: cleanDisplayText(track?.audioCodec || track?.codec),
-          channels: track?.channels || track?.channelCount || "",
-          channelCount: track?.channelCount || track?.channels || "",
-          sampleRate: Number(track?.sampleRate || track?.audioSampleRate || 0) || 0
-        };
-      });
+    const audioTracks = rawTracks.filter(
+      (track) => String(track?.type || "").toLowerCase() === "audio"
+    );
+    const supportStates = audioTracks.map((track) => getAudioTrackSupportState(track));
+    // The container probe enumerates every audio stream, but the webOS pipeline
+    // silently drops the ones it cannot decode, so its list is shorter. Passing a
+    // container index would select the wrong track whenever an undecodable track
+    // sits earlier in the file; this packs a dense index over supported tracks
+    // only. Off webOS the mapping is the identity.
+    const nativeTrackIndexes = mapAudioTrackNativeIndexes(
+      supportStates.map((support) => support.supported),
+      { filterUnsupported: Environment.isWebOS() }
+    );
+
+    return audioTracks.map((track, index) => {
+      const sourceTrackId = Number(track?.id);
+      const support = supportStates[index] || { supported: true, unsupportedReason: null };
+      return {
+        id: `embedded-audio-${index}`,
+        embeddedTrackIndex: index,
+        sourceTrackId: Number.isFinite(sourceTrackId) ? sourceTrackId : -1,
+        nativeTrackIndex: nativeTrackIndexes[index],
+        supported: support.supported,
+        unsupportedReason: support.unsupportedReason,
+        label: cleanDisplayText(track?.label),
+        name: cleanDisplayText(track?.name),
+        title: cleanDisplayText(track?.title),
+        language: normalizeTrackLanguageCode(track?.lang) || String(track?.lang || "").trim().toLowerCase(),
+        lang: cleanDisplayText(track?.lang),
+        codec: cleanDisplayText(track?.codec || track?.audioCodec),
+        audioCodec: cleanDisplayText(track?.audioCodec || track?.codec),
+        sampleMimeType: cleanDisplayText(track?.sampleMimeType || track?.sample_mime_type),
+        channels: track?.channels || track?.channelCount || "",
+        channelCount: track?.channelCount || track?.channels || "",
+        sampleRate: Number(track?.sampleRate || track?.audioSampleRate || 0) || 0
+      };
+    });
   },
 
   getUnavailableTrackMessage(kind = "audio") {
@@ -3682,6 +3821,7 @@ export const PlayerScreen = {
       const header = this.getPlayerHeaderData();
       const loadingMeta = this.getLoadingOverlayMeta();
       root.innerHTML = `
+        <canvas id="playerBitmapSubtitles" class="player-bitmap-subtitles hidden" aria-hidden="true"></canvas>
         <div id="playerLoadingOverlay" class="player-loading-overlay">
           <div class="player-loading-backdrop"${loadingMeta.backdropUrl ? ` style="background-image:url('${loadingMeta.backdropUrl}')"` : ""}></div>
           <div class="player-loading-gradient"></div>
@@ -3805,6 +3945,7 @@ export const PlayerScreen = {
       progressShell: uiRoot.querySelector("#playerProgressShell"),
       clock: uiRoot.querySelector("#playerClock"),
       endsAt: uiRoot.querySelector("#playerEndsAt"),
+      bitmapSubtitles: uiRoot.querySelector("#playerBitmapSubtitles"),
       progressBuffered: uiRoot.querySelector("#playerProgressBuffered"),
       progressFill: uiRoot.querySelector("#playerProgressFill"),
       controlButtons: uiRoot.querySelector("#playerControlButtons"),
@@ -5575,6 +5716,32 @@ export const PlayerScreen = {
       });
     };
 
+    // A Luna selectTrack round-trip is in flight between "pending" and its
+    // resolution. Unmuting during that window plays the old track for a beat and
+    // then hard-switches, which on some LG panels also drops the decoder.
+    const onWebOsAudioTrackSelectionChanged = (event) => {
+      const detail = event?.detail || {};
+      const status = String(detail.status || "");
+      if (status === "pending") {
+        this.pendingWebOsAudioSelection = detail;
+        return;
+      }
+      const wasAutomaticFallback = Boolean(this.pendingWebOsAudioSelection?.automaticFallback);
+      this.pendingWebOsAudioSelection = null;
+      if (status === "failed") {
+        // Don't let the automatic fallback retry the same entry forever.
+        if (wasAutomaticFallback) {
+          this.failedAutomaticAudioFallbackEntryId = this.getAudioEntries()
+            .find((entry) => entry?.supported !== false)?.id || "";
+        }
+      }
+      this.invalidateTrackDialogCaches();
+      this.scheduleLoadingCompletionCheck(0);
+      if (this.audioDialogVisible) {
+        this.renderAudioDialog();
+      }
+    };
+
     const bindings = [
       ["waiting", onWaiting],
       ["playing", onPlaying],
@@ -5585,6 +5752,7 @@ export const PlayerScreen = {
       ["loadedmetadata", onLoadedMetadata],
       ["loadeddata", onPlayable],
       ["canplay", onPlayable],
+      ["webosaudiotrackselectionchanged", onWebOsAudioTrackSelectionChanged],
       ["avplaytrackschanged", onTrackListChanged],
       ["hlstrackschanged", onTrackListChanged],
       ["dashtrackschanged", onTrackListChanged]
@@ -5849,9 +6017,16 @@ export const PlayerScreen = {
     }
   },
 
-  enableStartupAudioGate() {
+  // allowNativePlayback keeps the video decoding while muted. webOS does not
+  // expose a remote MKV's full audio track list until the pipeline is actually
+  // running, so pausing to wait for that list deadlocks; muting instead lets
+  // discovery finish without the user hearing the wrong track.
+  enableStartupAudioGate({ allowNativePlayback = false, maxWaitMs = 0 } = {}) {
     this.startupAudioGateActive = true;
-    PlayerController.setStartupAudioGate?.(true);
+    this.startupAudioGateAllowsNativePlayback = Boolean(allowNativePlayback);
+    const boundedWaitMs = Math.max(0, Number(maxWaitMs || 0));
+    this.startupAudioGateDeadline = boundedWaitMs > 0 ? Date.now() + boundedWaitMs : 0;
+    PlayerController.setStartupAudioGate?.(true, { pauseNativePlayback: !allowNativePlayback });
   },
 
   releaseStartupAudioGate({ resume = true } = {}) {
@@ -5859,7 +6034,88 @@ export const PlayerScreen = {
       return;
     }
     this.startupAudioGateActive = false;
+    this.startupAudioGateAllowsNativePlayback = false;
+    this.startupAudioGateDeadline = 0;
+    // Once playback leaves the startup gate, later webOS track-list churn must
+    // not reopen automatic language matching: a Luna selectTrack during normal
+    // playback can interrupt the native decoder on some LG panels.
+    this.startupAudioFallbackApplied = false;
+    this.startupAudioTrackSetSignature = "";
     PlayerController.setStartupAudioGate?.(false, { resume });
+  },
+
+  isStartupGateReleaseReady() {
+    if (!this.startupAudioGateActive) {
+      return false;
+    }
+    const readyState = typeof PlayerController.getPlaybackReadyState === "function"
+      ? Number(PlayerController.getPlaybackReadyState() || 0)
+      : Number(PlayerController.video?.readyState || 0);
+    const gateDeadlineExpired = Number(this.startupAudioGateDeadline || 0) > 0
+      && Date.now() >= Number(this.startupAudioGateDeadline || 0);
+
+    if (canReleasePlayingNativeStartupAudioGate({
+      allowNativePlayback: this.startupAudioGateAllowsNativePlayback,
+      hasPresentedPlaybackFrame: this.hasPresentedPlaybackFrame,
+      pendingAudioSelection: Boolean(this.pendingWebOsAudioSelection),
+      readyState
+    })) {
+      if (!this.startupAudioPreferenceApplied) {
+        this.applyStartupAudioFallback();
+      }
+      return Boolean(this.startupAudioPreferenceApplied) && !this.pendingWebOsAudioSelection;
+    }
+
+    // Backstop: discovery never converged. Release on a relaxed readyState
+    // rather than sit on the loading overlay forever.
+    if (gateDeadlineExpired && !this.pendingWebOsAudioSelection) {
+      if (!this.startupAudioPreferenceApplied) {
+        this.applyStartupAudioFallback();
+      }
+      return Boolean(this.startupAudioPreferenceApplied)
+        && Number.isFinite(readyState) && readyState >= 2;
+    }
+    return false;
+  },
+
+  // "Prefer the already-selected supported track (a no-op, avoiding a pointless
+  // Luna round-trip), else the first supported track, else nothing."
+  applyStartupAudioFallback() {
+    this.startupAudioPreferenceRetryCount = 0;
+    this.startupAudioFallbackApplied = true;
+    const fallbackOption = selectStartupAudioFallbackOption(this.collectAudioOptionItems());
+    if (!fallbackOption?.entry || !Number.isFinite(fallbackOption.entryIndex)) {
+      // Nothing playable at all — let the gate release rather than hang.
+      this.startupAudioPreferenceApplied = true;
+      return true;
+    }
+    if (!fallbackOption.selected) {
+      this.startupAudioPreferenceApplying = true;
+      try {
+        this.applyAudioTrack(fallbackOption.entryIndex, { automaticFallback: true });
+      } finally {
+        this.startupAudioPreferenceApplying = false;
+      }
+    }
+    if (Environment.isWebOS() && this.pendingWebOsAudioSelection) {
+      this.startupAudioPreferenceApplied = false;
+      return false;
+    }
+    this.startupAudioPreferenceApplied = true;
+    return true;
+  },
+
+  getStartupAudioTrackSetSignature() {
+    return this.getAudioEntries()
+      .map((entry) => [
+        entry?.id,
+        entry?.languageKey,
+        entry?.label,
+        entry?.secondary,
+        entry?.supported,
+        entry?.implicitAudioTrack
+      ].join("|"))
+      .join("~");
   },
 
   isPlaybackStartupSettled() {
@@ -5879,7 +6135,15 @@ export const PlayerScreen = {
       && typeof PlayerController.getPlaybackReadyState === "function"
       && Number(PlayerController.getPlaybackReadyState() || 0) >= 3
     );
+    // Under the play-but-muted gate the frame/readyState checks above are not
+    // the whole story: audio selection also has to settle before unmuting.
+    if (this.startupAudioGateActive && this.startupAudioGateAllowsNativePlayback) {
+      return this.isStartupGateReleaseReady();
+    }
     if ((!this.hasPresentedPlaybackFrame && !avplayReadyBehindGate && !nativeReadyBehindGate) || this.pendingPlaybackRestore) {
+      return false;
+    }
+    if (this.pendingWebOsAudioSelection) {
       return false;
     }
     // Hold the loading gate until the preferred audio language is actually
@@ -6235,6 +6499,7 @@ export const PlayerScreen = {
         uiState.progressWidth = nextWidth;
       }
     }
+    this.renderBitmapSubtitleAtCurrentTime();
     this.syncSkipIntroButtonProgress();
     this.renderSkipIntroButton();
 
@@ -7259,6 +7524,29 @@ export const PlayerScreen = {
   refreshTrackDialogs() {
     this.invalidateTrackDialogCaches();
     this.syncTrackState();
+
+    // webOS may expose only the default audio track before the complete
+    // multi-audio list arrives. Re-open matching while startup still owns
+    // playback; after the gate releases the bounded fallback stays authoritative
+    // (releaseStartupAudioGate clears the signature, so this cannot re-fire).
+    const audioTrackSetSignature = this.getStartupAudioTrackSetSignature();
+    if (
+      Environment.isWebOS()
+      && this.startupAudioGateActive
+      && this.startupAudioFallbackApplied
+      && this.startupAudioTrackSetSignature
+      && audioTrackSetSignature !== this.startupAudioTrackSetSignature
+    ) {
+      if (this.pendingWebOsAudioSelection?.automaticFallback) {
+        PlayerController.cancelWebOsAudioTrackSelection?.();
+        this.pendingWebOsAudioSelection = null;
+      }
+      this.startupAudioFallbackApplied = false;
+      this.startupAudioPreferenceApplied = false;
+    }
+    this.startupAudioTrackSetSignature = audioTrackSetSignature;
+
+    this.ensureSupportedAudioTrackSelected();
     if (this.startupTrackPreferenceReady) {
       this.applyStartupAudioPreference();
       this.applyStartupSubtitlePreference();
@@ -7271,6 +7559,41 @@ export const PlayerScreen = {
     if (this.audioDialogVisible) {
       this.renderAudioDialog();
     }
+  },
+
+  // If the pipeline landed on a track this device cannot decode, move to the
+  // first one it can. Guarded so a track that already failed selection is never
+  // retried in a loop, and a no-op when nothing is playable at all.
+  ensureSupportedAudioTrackSelected() {
+    if (this.audioFallbackApplying) {
+      return false;
+    }
+    const entries = this.getAudioEntries();
+    if (!entries.length) {
+      return false;
+    }
+    const supportedEntryIndex = entries.findIndex((entry) => entry?.supported !== false);
+    if (supportedEntryIndex < 0) {
+      return false;
+    }
+    const supportedEntry = entries[supportedEntryIndex];
+    if (supportedEntry?.id && supportedEntry.id === this.failedAutomaticAudioFallbackEntryId) {
+      return false;
+    }
+    const selectedEntry = entries.find((entry) => entry?.selected);
+    const shouldFallback = selectedEntry
+      ? selectedEntry.supported === false
+      : entries[0]?.supported === false;
+    if (!shouldFallback) {
+      return false;
+    }
+    this.audioFallbackApplying = true;
+    try {
+      this.applyAudioTrack(supportedEntryIndex, { automaticFallback: true });
+    } finally {
+      this.audioFallbackApplying = false;
+    }
+    return true;
   },
 
   invalidateTrackDialogCaches() {
@@ -7483,7 +7806,15 @@ export const PlayerScreen = {
         return;
       }
 
-      const tracks = await localMediaTracksRepository.getTracks(probeUrl);
+      // Await capabilities alongside the container probe so normalizeEmbedded-
+      // AudioTracks never computes support states against the conservative
+      // "everything unsupported" default. Both are time-boxed and memoized.
+      const [, tracks] = await Promise.all([
+        typeof PlayerController.refreshWebOsDeviceInfo === "function"
+          ? PlayerController.refreshWebOsDeviceInfo()
+          : Promise.resolve(null),
+        localMediaTracksRepository.getTracks(probeUrl)
+      ]);
       if (requestToken !== this.embeddedSubtitleLoadToken) {
         return;
       }
@@ -7491,6 +7822,9 @@ export const PlayerScreen = {
       this.lastEmbeddedTrackProbeUrl = probeUrl;
       this.embeddedSubtitleTracks = canLoadSubtitleTracks ? this.normalizeEmbeddedSubtitleTracks(tracks) : [];
       this.embeddedAudioTracks = canLoadAudioTracks ? this.normalizeEmbeddedAudioTracks(tracks) : [];
+      // Compiling the WASM decoder takes a moment; start it now so selecting a
+      // bitmap track does not stall on it.
+      this.warmBitmapSubtitleSharedResources();
       const selectedEmbeddedSubtitleTrack = typeof PlayerController.getSelectedWebOsEmbeddedSubtitleTrackIndex === "function"
         ? PlayerController.getSelectedWebOsEmbeddedSubtitleTrackIndex()
         : -1;
@@ -8182,9 +8516,14 @@ export const PlayerScreen = {
         : -1;
       this.selectedManifestSubtitleTrackId = null;
     } else if (this.shouldUseEmbeddedSubtitleTracks()) {
-      this.selectedEmbeddedSubtitleTrackIndex = Number.isFinite(selectedEmbeddedSubtitleTrack)
-        ? selectedEmbeddedSubtitleTrack
-        : -1;
+      // A bitmap track is rendered by us, never handed to Luna, so the Luna-side
+      // index does not know about it. Keep the app's own selection instead of
+      // reverting to whatever the native pipeline last had.
+      if (!this.bitmapSubtitleTrack) {
+        this.selectedEmbeddedSubtitleTrackIndex = Number.isFinite(selectedEmbeddedSubtitleTrack)
+          ? selectedEmbeddedSubtitleTrack
+          : -1;
+      }
       this.selectedSubtitleTrackIndex = -1;
     } else {
       this.selectedEmbeddedSubtitleTrackIndex = -1;
@@ -8968,6 +9307,7 @@ export const PlayerScreen = {
         label: cleanDisplayText(entry?.label || ""),
         secondary: cleanDisplayText(entry?.secondary || ""),
         selected: Boolean(entry?.selected),
+        supported: entry?.supported !== false,
         languageKey,
         languageLabel: getTrackLanguageLabel(track),
         entry,
@@ -9002,7 +9342,7 @@ export const PlayerScreen = {
     if (!normalizedTargets.length) {
       return null;
     }
-    const options = this.collectAudioOptionItems();
+    const options = this.collectAudioOptionItems().filter((option) => option.supported);
     for (const target of normalizedTargets) {
       const matchingOption = options.find((entry) => this.matchesStartupAudioTarget(entry, target));
       if (matchingOption) {
@@ -9012,8 +9352,98 @@ export const PlayerScreen = {
     return null;
   },
 
+  getTrackPreferenceContentId() {
+    const params = this.params || {};
+    return String(
+      params.itemId
+      || params.imdbId
+      || (params.tmdbId ? `tmdb:${params.contentType || "movie"}:${params.tmdbId}` : "")
+      || (params.traktId ? `trakt:${params.contentType || "movie"}:${params.traktId}` : "")
+      || ""
+    ).trim();
+  },
+
+  // Indexes are unstable across sources and episodes, so remember a fuzzy
+  // triple and match it back loosely.
+  getAudioTrackPreference(entry) {
+    const track = entry?.track || {};
+    const sourceTrackId = Number(track?.sourceTrackId);
+    const trackId = [
+      track?.trackId,
+      Number.isFinite(sourceTrackId) && sourceTrackId >= 0 ? String(sourceTrackId) : "",
+      track?.raw?.id,
+      track?.id,
+      entry?.manifestAudioTrackId
+    ].map((value) => String(value ?? "").trim()).find(Boolean) || null;
+    const name = [track?.name, track?.label, track?.title, entry?.label]
+      .map((value) => String(value ?? "").trim()).find(Boolean) || null;
+    const language = normalizeTrackLanguageCode(getTrackLanguageValue(track)) || null;
+    return (trackId || name || language) ? { trackId, name, language } : null;
+  },
+
+  rememberAudioTrackSelection(preference) {
+    const contentId = this.getTrackPreferenceContentId();
+    if (!contentId || !preference) {
+      return;
+    }
+    TrackPreferencesStore.setAudio(contentId, preference);
+    this.rememberedAudioTrackPreference = preference;
+  },
+
+  findRememberedAudioOption() {
+    const preference = this.rememberedAudioTrackPreference;
+    if (!preference) {
+      return null;
+    }
+    // Never restore a remembered track this device cannot decode.
+    const options = this.collectAudioOptionItems().filter((option) => option.supported);
+    if (!options.length) {
+      return null;
+    }
+    const matchesTrackId = (option) => Boolean(preference.trackId)
+      && String(this.getAudioTrackPreference(option.entry)?.trackId || "") === String(preference.trackId);
+    const matchesLanguage = (option) => Boolean(preference.language)
+      && String(option.languageKey || "") === String(preference.language);
+    const matchesName = (option) => Boolean(preference.name)
+      && normalizeComparableText(option.label) === normalizeComparableText(preference.name);
+
+    return options.find((option) => matchesTrackId(option) && matchesLanguage(option) && matchesName(option))
+      || options.find((option) => matchesTrackId(option) && matchesLanguage(option))
+      || options.find((option) => matchesTrackId(option))
+      || options.find((option) => matchesLanguage(option) && matchesName(option))
+      || options.find((option) => matchesLanguage(option))
+      || null;
+  },
+
   applyStartupAudioPreference() {
     if (this.startupAudioPreferenceApplied || this.startupAudioPreferenceApplying) {
+      return false;
+    }
+
+    const isStillLoading = this.isAudioPreferenceDiscoveryPending();
+
+    // An explicit past choice for this title beats the configured language list.
+    // While discovery is still running, ignore a match against the synthetic
+    // placeholder entry — it is not a real track yet.
+    const rememberedOption = this.findRememberedAudioOption();
+    const usableRememberedOption = isStillLoading && rememberedOption?.entry?.implicitAudioTrack
+      ? null
+      : rememberedOption;
+    if (usableRememberedOption?.entry && Number.isFinite(usableRememberedOption.entryIndex)) {
+      if (usableRememberedOption.selected) {
+        this.startupAudioPreferenceApplied = true;
+        return true;
+      }
+      this.startupAudioPreferenceApplying = true;
+      try {
+        this.applyAudioTrack(usableRememberedOption.entryIndex);
+      } finally {
+        this.startupAudioPreferenceApplying = false;
+      }
+      if (!(Environment.isWebOS() && this.pendingWebOsAudioSelection)) {
+        this.startupAudioPreferenceApplied = true;
+        return true;
+      }
       return false;
     }
 
@@ -9023,7 +9453,6 @@ export const PlayerScreen = {
       return true;
     }
 
-    const isStillLoading = this.isAudioPreferenceDiscoveryPending();
     const selectedOption = this.collectAudioOptionItems().find((entry) => entry.selected);
     if (selectedOption && preferredTargets.some((target) => this.matchesStartupAudioTarget(selectedOption, target))) {
       this.startupAudioPreferenceApplied = true;
@@ -9339,9 +9768,43 @@ export const PlayerScreen = {
     if (isEmbeddedEntry) {
       const targetTrackIndex = Number(entry.embeddedSubtitleTrackIndex);
       const embeddedTrack = this.getEmbeddedSubtitleTrackByEmbeddedIndex(targetTrackIndex);
+      if (embeddedTrack?.bitmapSubtitle) {
+        // We render this one ourselves: no native text track, and the text
+        // overlay must go quiet so the two renderers never both draw.
+        this.clearBitmapSubtitleOverlay({ dispose: true });
+        this.clearMountedExternalSubtitleTracks();
+        this.subtitleOverlay?.clear();
+        // Turn off any native embedded subtitle Luna still has active, or the
+        // pipeline would draw its own track underneath our canvas.
+        if (typeof PlayerController.setWebOsEmbeddedSubtitleTrack === "function") {
+          PlayerController.setWebOsEmbeddedSubtitleTrack(-1);
+        }
+        this.getTextTracks().forEach((textTrack) => {
+          try {
+            textTrack.mode = "disabled";
+          } catch (_) {
+            // Best effort: some webOS builds expose readonly mode.
+          }
+        });
+        this.bitmapSubtitleTrack = embeddedTrack;
+        this.selectedEmbeddedSubtitleTrackIndex = targetTrackIndex;
+        this.selectedSubtitleTrackIndex = -1;
+        this.selectedAddonSubtitleId = null;
+        this.selectedManifestSubtitleTrackId = null;
+        this.warmBitmapSubtitleSharedResources();
+        this.renderBitmapSubtitleAtCurrentTime({ force: true });
+        this.invalidateTrackDialogCaches();
+        this.renderControlButtons();
+        this.renderSubtitleDialog();
+        return;
+      }
+      this.clearBitmapSubtitleOverlay({ dispose: true });
       this.applyNativeEmbeddedSubtitleTrack(embeddedTrack, targetTrackIndex);
       return;
     }
+
+    // Any non-bitmap selection (including "off") tears the canvas down.
+    this.clearBitmapSubtitleOverlay({ dispose: true });
 
     if (!entry.fallbackAddonSubtitle) {
       if (this.externalTrackNodes.length) {
@@ -9490,6 +9953,204 @@ export const PlayerScreen = {
     this.refreshSubtitleCueStyles();
     this.renderControlButtons();
     this.renderSubtitleDialog();
+  },
+
+  warmBitmapSubtitleSharedResources() {
+    if (
+      this.bitmapSubtitleDecoderWarmed
+      || !canUseWebOsBitmapSubtitles()
+      || !this.embeddedSubtitleTracks.some((track) => track.bitmapSubtitle)
+    ) {
+      return;
+    }
+    this.bitmapSubtitleDecoderWarmed = true;
+    void warmBitmapSubtitleDecoder().catch(() => {
+      // Decoder warmup is best effort; the real load reports failures.
+      this.bitmapSubtitleDecoderWarmed = false;
+    });
+  },
+
+  clearBitmapSubtitleCanvas() {
+    const canvas = this.uiRefs?.bitmapSubtitles || document.getElementById("playerBitmapSubtitles");
+    if (canvas) {
+      try {
+        canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+      } catch (_) {
+        // A lost 2D context just means there is nothing to clear.
+      }
+      canvas.classList.add("hidden");
+      canvas.setAttribute("aria-hidden", "true");
+    }
+    this.bitmapSubtitleLastFrameKey = "";
+  },
+
+  clearBitmapSubtitleOverlay({ dispose = false } = {}) {
+    // Bumping the token invalidates any in-flight window load.
+    this.bitmapSubtitleLoadToken = Number(this.bitmapSubtitleLoadToken || 0) + 1;
+    this.bitmapSubtitleLoading = false;
+    this.bitmapSubtitleWindowStart = 0;
+    this.bitmapSubtitleWindowEnd = 0;
+    this.bitmapSubtitleLastErrorAt = 0;
+    this.clearBitmapSubtitleCanvas();
+    if (dispose) {
+      this.bitmapSubtitleDecoder?.dispose?.();
+      this.bitmapSubtitleDecoder = null;
+      this.bitmapSubtitleTrack = null;
+      this.bitmapSubtitleScratchCanvas = null;
+    }
+  },
+
+  async loadBitmapSubtitleWindow(timeSeconds) {
+    const track = this.bitmapSubtitleTrack;
+    const sourceUrl = this.getTrackProbeUrl();
+    if (!track || !sourceUrl || this.bitmapSubtitleLoading) {
+      return false;
+    }
+    const requestToken = Number(this.bitmapSubtitleLoadToken || 0) + 1;
+    this.bitmapSubtitleLoadToken = requestToken;
+    this.bitmapSubtitleLoading = true;
+    const subtitleTime = Math.max(0, Number(timeSeconds || 0));
+    const startSeconds = Math.floor(subtitleTime / BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS)
+      * BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS;
+    try {
+      const windowData = await localMediaBitmapSubtitleRepository.getWindow({
+        url: sourceUrl,
+        trackNumber: track.sourceTrackId,
+        startSeconds,
+        endSeconds: startSeconds + BITMAP_SUBTITLE_WINDOW_SECONDS
+      });
+      if (requestToken !== this.bitmapSubtitleLoadToken || this.bitmapSubtitleTrack !== track) {
+        return false;
+      }
+      const decoder = new BitmapSubtitleDecoder();
+      if (windowData.cueCount > 0) {
+        await decoder.load({
+          format: windowData.format || track.bitmapFormat || "vobsub",
+          idxContent: windowData.idxContent,
+          subData: windowData.subData
+        });
+      }
+      // Re-check after the await: the user may have switched tracks mid-decode.
+      if (requestToken !== this.bitmapSubtitleLoadToken || this.bitmapSubtitleTrack !== track) {
+        decoder.dispose();
+        return false;
+      }
+      const previousDecoder = this.bitmapSubtitleDecoder;
+      this.bitmapSubtitleDecoder = decoder;
+      previousDecoder?.dispose?.();
+      this.bitmapSubtitleWindowStart = windowData.windowStartSeconds;
+      this.bitmapSubtitleWindowEnd = windowData.windowEndSeconds;
+      this.bitmapSubtitleLastFrameKey = "";
+      this.renderBitmapSubtitleAtCurrentTime({ force: true });
+      return true;
+    } catch (error) {
+      if (requestToken === this.bitmapSubtitleLoadToken && this.bitmapSubtitleTrack === track) {
+        this.bitmapSubtitleLastErrorAt = Date.now();
+        this.clearBitmapSubtitleCanvas();
+        console.warn("Embedded bitmap subtitle rendering failed", {
+          trackNumber: track.sourceTrackId,
+          format: track.bitmapFormat || "",
+          error: error?.message || String(error || "")
+        });
+      }
+      return false;
+    } finally {
+      if (requestToken === this.bitmapSubtitleLoadToken) {
+        this.bitmapSubtitleLoading = false;
+      }
+    }
+  },
+
+  renderBitmapSubtitleAtCurrentTime({ force = false } = {}) {
+    const track = this.bitmapSubtitleTrack;
+    if (!track) {
+      return false;
+    }
+    const currentTime = Number(this.getPlaybackCurrentSeconds() || 0);
+    const subtitleTime = Math.max(0, currentTime - (Number(this.subtitleDelayMs || 0) / 1000));
+    const outsideWindow = subtitleTime < this.bitmapSubtitleWindowStart
+      || subtitleTime >= this.bitmapSubtitleWindowEnd;
+    const approachingWindowEnd = this.bitmapSubtitleWindowEnd > 0
+      && subtitleTime >= this.bitmapSubtitleWindowEnd - BITMAP_SUBTITLE_PREFETCH_SECONDS;
+    if ((outsideWindow || approachingWindowEnd) && !this.bitmapSubtitleLoading) {
+      const retryAllowed = !this.bitmapSubtitleLastErrorAt
+        || Date.now() - this.bitmapSubtitleLastErrorAt >= 5000;
+      if (retryAllowed) {
+        void this.loadBitmapSubtitleWindow(subtitleTime);
+      }
+    }
+
+    const frame = outsideWindow ? null : this.bitmapSubtitleDecoder?.renderAtSeconds(subtitleTime);
+    if (!frame) {
+      this.clearBitmapSubtitleCanvas();
+      return false;
+    }
+    const canvas = this.uiRefs?.bitmapSubtitles || document.getElementById("playerBitmapSubtitles");
+    if (!canvas || !frame.width || !frame.height || !frame.screenWidth || !frame.screenHeight) {
+      return false;
+    }
+    const viewport = typeof PlayerController.getPlayerViewportSize === "function"
+      ? PlayerController.getPlayerViewportSize()
+      : null;
+    const viewportWidth = Math.max(1, Number(viewport?.width || window.innerWidth || document.documentElement?.clientWidth || 1920));
+    const viewportHeight = Math.max(1, Number(viewport?.height || window.innerHeight || document.documentElement?.clientHeight || 1080));
+    const style = this.subtitleStyleSettings || {};
+    const sizeScale = normalizeSubtitleFontSize(style.fontSize) / 100;
+    const verticalOffsetPx = splitSubtitleVerticalOffset(style.verticalOffset).value * -0.02 * viewportHeight;
+    const mode = this.aspectModes[this.aspectModeIndex] || this.aspectModes[0];
+    const rect = this.calculateAspectRect(mode.objectFit, PlayerController.video);
+    // Repaint only when something that affects the output actually moved.
+    const renderKey = [
+      frame.key,
+      viewportWidth,
+      viewportHeight,
+      Math.round(rect.x),
+      Math.round(rect.y),
+      Math.round(rect.width),
+      Math.round(rect.height),
+      sizeScale,
+      verticalOffsetPx
+    ].join(":");
+    if (!force && renderKey === this.bitmapSubtitleLastFrameKey && !canvas.classList.contains("hidden")) {
+      return true;
+    }
+    canvas.width = viewportWidth;
+    canvas.height = viewportHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return false;
+    }
+    context.clearRect(0, 0, viewportWidth, viewportHeight);
+    const scratch = this.bitmapSubtitleScratchCanvas || document.createElement("canvas");
+    this.bitmapSubtitleScratchCanvas = scratch;
+    scratch.width = frame.width;
+    scratch.height = frame.height;
+    const scratchContext = scratch.getContext("2d");
+    if (!scratchContext || frame.rgba.length !== frame.width * frame.height * 4) {
+      return false;
+    }
+    const imageData = scratchContext.createImageData(frame.width, frame.height);
+    imageData.data.set(frame.rgba);
+    scratchContext.putImageData(imageData, 0, 0);
+    // Map the cue's position in the subtitle's own coordinate space onto the
+    // letterboxed video rect, then apply the user's size/offset preferences.
+    const scaleX = rect.width / frame.screenWidth;
+    const scaleY = rect.height / frame.screenHeight;
+    const targetWidth = frame.width * scaleX * sizeScale;
+    const targetHeight = frame.height * scaleY * sizeScale;
+    const targetCenterX = rect.x + ((frame.x + frame.width / 2) * scaleX);
+    const targetCenterY = rect.y + ((frame.y + frame.height / 2) * scaleY) + verticalOffsetPx;
+    context.drawImage(
+      scratch,
+      targetCenterX - targetWidth / 2,
+      targetCenterY - targetHeight / 2,
+      targetWidth,
+      targetHeight
+    );
+    canvas.classList.remove("hidden");
+    canvas.setAttribute("aria-hidden", "false");
+    this.bitmapSubtitleLastFrameKey = renderKey;
+    return true;
   },
 
   // In HTML render mode a selected built-in text track is kept "hidden" and
@@ -10011,6 +10672,23 @@ export const PlayerScreen = {
       }
     }
 
+    // Stamp codec support centrally so every backend branch above gets the same
+    // treatment. An entry may already carry `supported` from its normalized
+    // track (embedded probe); otherwise derive it from the track metadata.
+    entries = entries.map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return entry;
+      }
+      if (entry.implicitAudioTrack) {
+        return { ...entry, supported: true };
+      }
+      const trackSupported = entry.track?.supported;
+      const supported = typeof trackSupported === "boolean"
+        ? trackSupported
+        : getAudioTrackSupportState(entry.track || {}).supported;
+      return { ...entry, supported };
+    });
+
     this.trackDialogCache.audioEntries = entries;
     return entries;
   },
@@ -10088,7 +10766,7 @@ export const PlayerScreen = {
     this.resetControlsAutoHide();
   },
 
-  applyAudioTrack(index) {
+  applyAudioTrack(index, { automaticFallback = false } = {}) {
     // A real user pick (as opposed to applyStartupAudioPreference calling back
     // into this same method) must permanently win: refreshTrackDialogs() below
     // re-runs the startup preference check, which would otherwise silently
@@ -10096,7 +10774,7 @@ export const PlayerScreen = {
     // subsequent dialog refresh whenever its own match-verification doesn't
     // converge (e.g. the user picked a track that doesn't match that
     // preference by design).
-    if (!this.startupAudioPreferenceApplying) {
+    if (!this.startupAudioPreferenceApplying && !automaticFallback) {
       this.startupAudioPreferenceApplied = true;
     }
 
@@ -10104,6 +10782,20 @@ export const PlayerScreen = {
     const selectedEntry = entries[index] || null;
     if (!selectedEntry) {
       return;
+    }
+
+    // Never hand an undecodable track to the pipeline — on webOS that surfaces
+    // as a decode error rather than a silent no-op.
+    if (selectedEntry.supported === false || isUnsupportedWebOsAudioTrack(selectedEntry.track)) {
+      this.invalidateTrackDialogCaches();
+      this.renderAudioDialog();
+      return;
+    }
+
+    // Only a deliberate pick is remembered; automatic fallbacks are not the
+    // user's choice and must not overwrite one.
+    if (!automaticFallback && !this.startupAudioPreferenceApplying) {
+      this.rememberAudioTrackSelection(this.getAudioTrackPreference(selectedEntry));
     }
 
     if (Number.isFinite(selectedEntry.avplayAudioTrackIndex)) {
@@ -10284,17 +10976,27 @@ export const PlayerScreen = {
     }
 
     this.audioDialogIndex = clamp(this.audioDialogIndex, 0, entries.length - 1);
+    const hasSupportedEntries = entries.some((entry) => entry?.supported !== false);
     dialog.innerHTML = `
       <div class="player-dialog-title">${escapeHtml(t("audio_dialog_title", {}, "Audio"))}</div>
+      ${hasSupportedEntries ? "" : `<div class="player-audio-support-message">${escapeHtml(t("player.audio.noSupportedTracks", {}, "No supported audio tracks available"))}</div>`}
       <div class="player-audio-overlay-grid">
         <div class="player-dialog-list player-audio-track-list">
           ${entries.map((entry, index) => {
-            const selected = entry.selected;
+            const unsupported = entry?.supported === false;
+            const disabled = unsupported || Boolean(entry.unavailable);
+            const selected = entry.selected && !unsupported;
             const focused = this.audioFocusedColumn === "tracks" && index === this.audioDialogIndex;
+            const itemLabel = unsupported
+              ? [entry.label || "", t("player.audio.unsupported", {}, "Unsupported")].filter(Boolean).join(" · ")
+              : entry.label || "";
+            const itemSecondary = unsupported
+              ? [entry.secondary, t("player.audio.unsupportedCodec", {}, "Codec not supported by this device")].filter(Boolean).join(" · ")
+              : entry.secondary || "";
             return `
-              <div class="player-dialog-item focusable${selected ? " selected" : ""}${focused ? " focused" : ""}${entry.unavailable ? " disabled" : ""}" data-audio-column="tracks" data-audio-index="${index}">
-                <div class="player-dialog-item-main">${escapeHtml(entry.label || "")}</div>
-                <div class="player-dialog-item-sub">${escapeHtml(entry.secondary || "")}</div>
+              <div class="player-dialog-item focusable${selected ? " selected" : ""}${focused ? " focused" : ""}${disabled ? " disabled" : ""}" data-audio-column="tracks" data-audio-index="${index}" aria-disabled="${disabled ? "true" : "false"}">
+                <div class="player-dialog-item-main">${escapeHtml(itemLabel)}</div>
+                <div class="player-dialog-item-sub">${escapeHtml(itemSecondary)}</div>
                 <div class="player-dialog-item-check">${selected ? "&#10003;" : ""}</div>
               </div>
             `;
@@ -12249,6 +12951,8 @@ export const PlayerScreen = {
     this.clearSubtitleCueStyleBindings();
     this.clearMountedExternalSubtitleTracks();
     this.subtitleOverlay?.detach();
+    this.clearBitmapSubtitleOverlay({ dispose: true });
+    this.bitmapSubtitleDecoderWarmed = false;
 
     this.clearControlsAutoHide();
     this.skipIntroAutoHidden = false;

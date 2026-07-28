@@ -22,6 +22,16 @@
           "public": true
         },
         {
+          "name": "bitmapSubtitlePrepare",
+          "description": "Preload shared Matroska metadata for embedded bitmap subtitle tracks",
+          "public": true
+        },
+        {
+          "name": "bitmapSubtitleWindow",
+          "description": "Extract a bounded bitmap subtitle window from an embedded Matroska track",
+          "public": true
+        },
+        {
           "name": "torrentCreate",
           "description": "Create an EngineFS torrent stream on the local media runtime",
           "public": true

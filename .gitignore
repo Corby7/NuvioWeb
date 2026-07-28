@@ -16,6 +16,8 @@ assets/libs/hls.min.js
 assets/libs/hls.js.LICENSE
 assets/libs/dash.all.min.js
 assets/libs/dashjs.LICENSE.md
+assets/libs/libbitsub_bg.wasm
+assets/libs/libbitsub.LICENSE
 ecosystem.config.cjs
 scripts/commit-build-poller.mjs
 .DS_Store

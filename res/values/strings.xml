@@ -588,6 +588,13 @@
     <string name="audio_lang_original">Original language</string>
     <string name="audio_lang_original_hint">Requires TMDB enrichment to be enabled</string>
     <string name="audio_preferred_lang">Preferred Audio Language</string>
+    <string name="audio_compatibility_advanced">Advanced audio compatibility</string>
+    <string name="audio_compatibility_advanced_desc">Automatic detection is used first. Override only when a rooted TV has a working decoder.</string>
+    <string name="audio_force_dts">Force DTS audio</string>
+    <string name="audio_force_dts_desc">Keep DTS tracks selectable when automatic detection cannot see a working DTS restoration.</string>
+    <string name="audio_force_truehd">Force TrueHD audio</string>
+    <string name="audio_force_truehd_desc">Keep TrueHD tracks selectable only when this TV can actually decode or pass through TrueHD.</string>
+    <string name="audio_track_switch_unsupported">Not supported on this device</string>
     <string name="audio_skip_silence">Skip Silence</string>
     <string name="audio_skip_silence_sub">Skip silent portions of audio during playback</string>
     <string name="audio_remember_delay_per_device">Remember audio delay per device</string>

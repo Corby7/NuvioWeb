@@ -30,6 +30,10 @@ const DEFAULTS = {
   },
   audioAmplificationDb: 0,
   persistAudioAmplification: false,
+  // Legacy combined DTS+TrueHD override from upstream 0.3.14. This fork never
+  // shipped it, so it stays false; it exists only as migration input for
+  // WebOsAudioCompatibilityStore.get({ legacyForceAll }).
+  forceDtsTrueHdAudio: false,
   // Auto stream selection (matches the Android TV app). When the mode is not
   // MANUAL, pressing play auto-selects a stream and plays it after a countdown.
   streamAutoPlayMode: "MANUAL",
@@ -184,6 +188,7 @@ function normalizePlayerSettings(settings = {}) {
       DEFAULTS.nextEpisodeThresholdMinutesBeforeEnd
     ),
     stillWatchingEnabled: Boolean(settings.stillWatchingEnabled ?? DEFAULTS.stillWatchingEnabled),
+    forceDtsTrueHdAudio: Boolean(settings.forceDtsTrueHdAudio ?? DEFAULTS.forceDtsTrueHdAudio),
     stillWatchingEpisodeThreshold: normalizeStillWatchingThreshold(
       settings.stillWatchingEpisodeThreshold ?? DEFAULTS.stillWatchingEpisodeThreshold
     ),

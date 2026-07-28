@@ -7,6 +7,10 @@ import { hlsJsEngine } from "./engines/hlsJsEngine.js";
 import { dashJsEngine } from "./engines/dashJsEngine.js";
 import { resolvePlatformAvplayEngine } from "./engines/platformAvplayEngine.js";
 import { WebOsLunaService } from "../../platform/webos/webosLunaService.js";
+import {
+  applyWebOsAudioCodecOverrides,
+  detectWebOsAudioCapabilities
+} from "../../platform/webos/webosAudioCapabilities.js";
 import { loadStreamingLibs } from "../../runtime/loadStreamingLibs.js";
 
 const MIN_PROGRESS_SYNC_DURATION_MS = 60000;
@@ -65,10 +69,14 @@ export const PlayerController = {
   webOsAudioSelectionRequestToken: 0,
   webosDeviceInfoPromise: null,
   webosUnsupportedAudioCodecs: new Set(["dts", "truehd"]),
+  webosAudioCapabilities: null,
+  forceDtsAudio: false,
+  forceTrueHdAudio: false,
   viewportSyncHandler: null,
   avplayDisplayRect: null,
   avplayDisplayMethod: "PLAYER_DISPLAY_MODE_FULL_SCREEN",
   startupAudioGateActive: false,
+  startupAudioGatePausesNativePlayback: true,
 
   isExpectedPlayInterruption(error) {
     const message = String(error?.message || "").toLowerCase();
@@ -264,56 +272,65 @@ export const PlayerController = {
     return String(this.playbackEngine || "").startsWith("native");
   },
 
-  refreshWebOsDeviceInfo() {
+  refreshWebOsDeviceInfo({ forceRefresh = false } = {}) {
     if (!Platform.isWebOS()) {
       return Promise.resolve({
         unsupportedAudioCodecs: this.getWebOsUnsupportedAudioCodecs()
       });
     }
-    if (this.webosDeviceInfoPromise) {
-      return this.webosDeviceInfoPromise;
-    }
-    if (!WebOsLunaService.isAvailable()) {
-      this.webosDeviceInfoPromise = Promise.resolve({
-        unsupportedAudioCodecs: this.getWebOsUnsupportedAudioCodecs()
-      });
+    if (this.webosDeviceInfoPromise && !forceRefresh) {
       return this.webosDeviceInfoPromise;
     }
 
-    this.webosDeviceInfoPromise = WebOsLunaService.request("luna://com.webos.service.config", {
-      method: "getConfigs",
-      parameters: {
-        configNames: ["tv.model.edidType"]
-      }
-    }).then((result) => {
-      const edidType = String(result?.configs?.["tv.model.edidType"] || "").toLowerCase();
-      if (edidType.includes("dts")) {
-        this.webosUnsupportedAudioCodecs.delete("dts");
-      }
-      if (edidType.includes("truehd")) {
-        this.webosUnsupportedAudioCodecs.delete("truehd");
-      }
-      return {
+    // EDID says the connected sink can passthrough; dts_restore says the TV can
+    // software-decode. Either one is enough, and both probes are time-boxed so a
+    // hung Luna call cannot stall playback startup.
+    this.webosDeviceInfoPromise = detectWebOsAudioCapabilities({ forceRefresh })
+      .then((capabilities) => {
+        this.webosAudioCapabilities = capabilities;
+        this.webosUnsupportedAudioCodecs = new Set(capabilities.unsupportedAudioCodecs);
+        return {
+          ...capabilities,
+          unsupportedAudioCodecs: this.getWebOsUnsupportedAudioCodecs()
+        };
+      })
+      .catch(() => ({
         unsupportedAudioCodecs: this.getWebOsUnsupportedAudioCodecs()
-      };
-    }).catch(() => ({
-      unsupportedAudioCodecs: this.getWebOsUnsupportedAudioCodecs()
-    }));
+      }));
 
     return this.webosDeviceInfoPromise;
   },
 
+  getWebOsAudioCapabilities() {
+    return this.webosAudioCapabilities;
+  },
+
+  setWebOsAudioCodecOverrides({ forceDtsAudio = false, forceTrueHdAudio = false } = {}) {
+    this.forceDtsAudio = Boolean(forceDtsAudio);
+    this.forceTrueHdAudio = Boolean(forceTrueHdAudio);
+  },
+
   getWebOsUnsupportedAudioCodecs() {
-    return Array.from(this.webosUnsupportedAudioCodecs);
+    // Overrides are applied on read rather than baked into the detected set, so
+    // toggling a setting never needs a re-probe.
+    return applyWebOsAudioCodecOverrides(this.webosUnsupportedAudioCodecs, {
+      forceDtsAudio: this.forceDtsAudio,
+      forceTrueHdAudio: this.forceTrueHdAudio
+    });
   },
 
   getWebOsUnsupportedAudioPenalty(text = "") {
-    const normalizedText = String(text || "").toLowerCase();
+    const unsupportedAudioCodecs = new Set(this.getWebOsUnsupportedAudioCodecs());
+    const normalizedText = String(text || "")
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     let penalty = 0;
-    if (this.webosUnsupportedAudioCodecs.has("dts") && /\b(dts-hd|dts:x|dts)\b/.test(normalizedText)) {
+    if (unsupportedAudioCodecs.has("dts") && /\b(dts hd|dts hd ma|dts x|dtsx|dts)\b/.test(normalizedText)) {
       penalty -= 45;
     }
-    if (this.webosUnsupportedAudioCodecs.has("truehd") && /\btruehd\b/.test(normalizedText)) {
+    if (unsupportedAudioCodecs.has("truehd") && /\b(truehd|true hd|dolby truehd|mlp fba|a truehd)\b/.test(normalizedText)) {
       penalty -= 45;
     }
     return penalty;
@@ -457,6 +474,11 @@ export const PlayerController = {
     if (!this.video || this.isUsingAvPlay() || !this.startupAudioGateActive) {
       return;
     }
+    // In the play-but-muted gate mode the video has to keep running: webOS does
+    // not expose a remote MKV's full audio track list until it is decoding.
+    if (!this.startupAudioGatePausesNativePlayback) {
+      return;
+    }
     try {
       this.video.pause();
       this.isPlaying = false;
@@ -503,10 +525,12 @@ export const PlayerController = {
     return playPromise;
   },
 
-  setStartupAudioGate(active, { resume = true } = {}) {
+  setStartupAudioGate(active, { resume = true, pauseNativePlayback = true } = {}) {
     const shouldGate = Boolean(active);
     const wasGated = Boolean(this.startupAudioGateActive);
+    const wasPausingNativePlayback = Boolean(this.startupAudioGatePausesNativePlayback);
     this.startupAudioGateActive = shouldGate;
+    this.startupAudioGatePausesNativePlayback = shouldGate ? Boolean(pauseNativePlayback) : true;
     this.applyStartupAudioGateToVideo();
 
     if (shouldGate) {
@@ -532,7 +556,12 @@ export const PlayerController = {
       }
       return;
     }
-    this.resumeNativePlaybackAfterStartupGate();
+    // Under the play-but-muted gate the element was never paused, so unmuting
+    // (already done above) is the whole release. Only call play() if the gate
+    // actually stopped playback, or the element drifted into a paused state.
+    if (wasPausingNativePlayback || this.video?.paused) {
+      this.resumeNativePlaybackAfterStartupGate();
+    }
   },
 
   startPreparedAvPlayPlayback({ syncTracks = true } = {}) {
@@ -2526,6 +2555,12 @@ export const PlayerController = {
   // the pipeline has a media id). Wait for the media id, race the request
   // against a timeout, and only commit the selection state on success so the
   // UI cannot claim a track that never actually switched.
+  cancelWebOsAudioTrackSelection() {
+    // Bumping the token makes every in-flight step of the current selection a
+    // no-op: the Luna result is discarded and no further status is emitted.
+    this.webOsAudioSelectionRequestToken = Number(this.webOsAudioSelectionRequestToken || 0) + 1;
+  },
+
   requestConfirmedWebOsAudioTrackSelection({
     targetTrackIndex,
     selectedTrackIndex = targetTrackIndex,

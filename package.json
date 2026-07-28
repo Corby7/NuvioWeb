@@ -52,6 +52,7 @@
     "hls.js": "1.5.20",
     "intersection-observer": "^0.12.2",
     "jszip": "^3.10.1",
+    "libbitsub": "1.10.2",
     "whatwg-fetch": "^3.6.20"
   }
 }
