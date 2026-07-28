@@ -32,7 +32,12 @@ import {
 } from "../../../core/player/startupAudioGatePolicy.js";
 import { SubtitleItemPreferencesStore } from "../../../data/local/subtitleItemPreferencesStore.js";
 import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSettingsStore.js";
-import { fetchSubtitleCues, decodeSubtitleBuffer } from "./subtitleEngine.js";
+import {
+  fetchSubtitleCues,
+  decodeSubtitleBuffer,
+  sanitizeCueText,
+  extractAssAlignment
+} from "./subtitleEngine.js";
 import { SubtitleOverlay } from "./subtitleOverlay.js";
 import { matchStreamBadges } from "../../../core/streams/streamBadgeRules.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
@@ -352,6 +357,11 @@ const BITMAP_SUBTITLE_PREFETCH_SECONDS = 20;
 // Bucketed so seeking within the same window reuses the loaded decoder; the
 // 30s overlap with WINDOW_SECONDS covers cues straddling a bucket boundary.
 const BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS = 90;
+// Text cues are far smaller than bitmap ones, so page them in the largest
+// window the service allows (it caps a request at 180s).
+const TEXT_SUBTITLE_WINDOW_SECONDS = 180;
+const TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS = 120;
+const TEXT_SUBTITLE_PREFETCH_SECONDS = 25;
 const PARENTAL_GUIDE_CONTAINER_IN_MS = 300;
 const PARENTAL_GUIDE_LINE_IN_MS = 400;
 const PARENTAL_GUIDE_ITEM_STAGGER_MS = 80;
@@ -802,6 +812,36 @@ function getBitmapSubtitleFormat(track = {}) {
 
 function isDecodableBitmapEmbeddedSubtitleTrack(track = {}) {
   return DECODABLE_BITMAP_SUBTITLE_FORMATS.has(getBitmapSubtitleFormat(track));
+}
+
+// Short badge for the subtitle picker so image-based tracks (which cannot be
+// restyled and cost more to render) are distinguishable from text ones.
+function getSubtitleFormatLabel(track = {}) {
+  const bitmapFormat = getBitmapSubtitleFormat(track);
+  if (bitmapFormat === "pgs") return "PGS";
+  if (bitmapFormat === "vobsub") return "VobSub";
+
+  const codecText = normalizeTrackCodecText(
+    track?.codec || track?.subtitleCodec || track?.codec_name || track?.format || ""
+  );
+  if (!codecText) return "";
+  if (codecText.includes("ASS") || codecText.includes("SSA")) return "ASS";
+  if (codecText.includes("SUBRIP") || codecText.includes("SRT")) return "SRT";
+  if (codecText.includes("WEBVTT") || codecText.includes("VTT")) return "VTT";
+  if (codecText.includes("DVB")) return "DVB";
+  if (codecText.includes("TELETEXT")) return "Teletext";
+  if (codecText.includes("TEXT") || codecText.includes("UTF8")) return "Text";
+  return "";
+}
+
+// Addon subtitles have no codec metadata, so fall back to the file extension.
+function getSubtitleUrlFormatLabel(url = "") {
+  const path = String(url || "").split(/[?#]/)[0].toLowerCase();
+  if (path.endsWith(".srt")) return "SRT";
+  if (path.endsWith(".vtt")) return "VTT";
+  if (path.endsWith(".ass") || path.endsWith(".ssa")) return "ASS";
+  if (path.endsWith(".sub")) return "VobSub";
+  return "";
 }
 
 function canUseWebOsBitmapSubtitles() {
@@ -1697,6 +1737,13 @@ export const PlayerScreen = {
     this.bitmapSubtitleLastFrameKey = "";
     this.bitmapSubtitleLastErrorAt = 0;
     this.bitmapSubtitleScratchCanvas = null;
+    this.embeddedTextSubtitleToken = 0;
+    this.embeddedTextSubtitleTrackIndex = -1;
+    this.embeddedTextSubtitleTrack = null;
+    this.embeddedTextSubtitleLoading = false;
+    this.embeddedTextSubtitleWindowStart = 0;
+    this.embeddedTextSubtitleWindowEnd = 0;
+    this.embeddedTextSubtitleLastErrorAt = 0;
 
     this.audioDialogVisible = false;
     this.audioDialogIndex = 0;
@@ -5352,7 +5399,13 @@ export const PlayerScreen = {
     }
     const hasModal = this.subtitleDialogVisible || this.audioDialogVisible || this.sourcesPanelVisible || this.episodePanelVisible || this.speedDialogVisible;
     modalBackdrop.classList.toggle("hidden", !hasModal);
+    // The subtitle and audio panels are top-anchored and leave the lower band
+    // clear, so the scrim must stay light down there — for subtitles that band
+    // is where the live style preview renders.
+    const hasTrackPanel = Boolean(this.subtitleDialogVisible || this.audioDialogVisible);
+    modalBackdrop.classList.toggle("is-track-panel", hasTrackPanel);
     controlsOverlay?.classList.toggle("modal-blocked", hasModal);
+    controlsOverlay?.classList.toggle("track-panel-open", hasTrackPanel);
   },
 
   bindVideoEvents() {
@@ -6500,6 +6553,9 @@ export const PlayerScreen = {
       }
     }
     this.renderBitmapSubtitleAtCurrentTime();
+    if (this.embeddedTextSubtitleTrack) {
+      this.ensureEmbeddedTextSubtitleWindow(current);
+    }
     this.syncSkipIntroButtonProgress();
     this.renderSkipIntroButton();
 
@@ -7529,22 +7585,24 @@ export const PlayerScreen = {
     // multi-audio list arrives. Re-open matching while startup still owns
     // playback; after the gate releases the bounded fallback stays authoritative
     // (releaseStartupAudioGate clears the signature, so this cannot re-fire).
-    const audioTrackSetSignature = this.getStartupAudioTrackSetSignature();
-    if (
-      Environment.isWebOS()
-      && this.startupAudioGateActive
-      && this.startupAudioFallbackApplied
-      && this.startupAudioTrackSetSignature
-      && audioTrackSetSignature !== this.startupAudioTrackSetSignature
-    ) {
-      if (this.pendingWebOsAudioSelection?.automaticFallback) {
-        PlayerController.cancelWebOsAudioTrackSelection?.();
-        this.pendingWebOsAudioSelection = null;
+    // Only meaningful while startup still owns playback, so don't pay for the
+    // signature on every later refresh.
+    if (Environment.isWebOS() && this.startupAudioGateActive) {
+      const audioTrackSetSignature = this.getStartupAudioTrackSetSignature();
+      if (
+        this.startupAudioFallbackApplied
+        && this.startupAudioTrackSetSignature
+        && audioTrackSetSignature !== this.startupAudioTrackSetSignature
+      ) {
+        if (this.pendingWebOsAudioSelection?.automaticFallback) {
+          PlayerController.cancelWebOsAudioTrackSelection?.();
+          this.pendingWebOsAudioSelection = null;
+        }
+        this.startupAudioFallbackApplied = false;
+        this.startupAudioPreferenceApplied = false;
       }
-      this.startupAudioFallbackApplied = false;
-      this.startupAudioPreferenceApplied = false;
+      this.startupAudioTrackSetSignature = audioTrackSetSignature;
     }
-    this.startupAudioTrackSetSignature = audioTrackSetSignature;
 
     this.ensureSupportedAudioTrackSelected();
     if (this.startupTrackPreferenceReady) {
@@ -8516,10 +8574,10 @@ export const PlayerScreen = {
         : -1;
       this.selectedManifestSubtitleTrackId = null;
     } else if (this.shouldUseEmbeddedSubtitleTracks()) {
-      // A bitmap track is rendered by us, never handed to Luna, so the Luna-side
-      // index does not know about it. Keep the app's own selection instead of
-      // reverting to whatever the native pipeline last had.
-      if (!this.bitmapSubtitleTrack) {
+      // Bitmap tracks — and text tracks we extract ourselves — are never handed
+      // to Luna, so the Luna-side index does not know about them. Keep the app's
+      // own selection instead of reverting to what the native pipeline had.
+      if (!this.bitmapSubtitleTrack && this.embeddedTextSubtitleTrackIndex < 0) {
         this.selectedEmbeddedSubtitleTrackIndex = Number.isFinite(selectedEmbeddedSubtitleTrack)
           ? selectedEmbeddedSubtitleTrack
           : -1;
@@ -8713,6 +8771,8 @@ export const PlayerScreen = {
               selected: canApply && track.embeddedTrackIndex === this.selectedEmbeddedSubtitleTrackIndex,
               trackIndex: null,
               embeddedSubtitleTrackIndex: track.embeddedTrackIndex,
+              subtitleFormatLabel: getSubtitleFormatLabel(track),
+              bitmapSubtitle: Boolean(track.bitmapSubtitle),
               unavailable: !canApply
             };
           }),
@@ -8778,6 +8838,7 @@ export const PlayerScreen = {
             languageKey: display.languageKey,
             languageLabel: display.languageLabel,
             isForced: isForcedSubtitleTrack(subtitle),
+            subtitleFormatLabel: getSubtitleUrlFormatLabel(subtitle?.url),
             selected: this.selectedAddonSubtitleId === subtitleId
               || (this.selectedAddonSubtitleId == null && absoluteIndex === this.selectedSubtitleTrackIndex),
             trackIndex: null,
@@ -8884,6 +8945,9 @@ export const PlayerScreen = {
       const languageLabel = subtitleLanguageLabel(languageKey);
       const isForced = Boolean(entry.isForced) || isForcedSubtitleTrack(entry);
       const secondaryParts = [t("subtitle_tab_builtin", {}, "Built-in")];
+      if (entry.subtitleFormatLabel) {
+        pushUniqueText(secondaryParts, entry.subtitleFormatLabel);
+      }
       [entry.secondary, entry.label].forEach((detail) => {
         if (!detail || isSubtitleLanguageOnlyDetail(detail, languageLabel, languageKey)) {
           return;
@@ -8913,6 +8977,9 @@ export const PlayerScreen = {
       const languageLabel = subtitleLanguageLabel(languageKey);
       const isForced = Boolean(entry.isForced) || isForcedSubtitleTrack(entry);
       const secondaryParts = [entry.secondary || t("subtitle_tab_addons", {}, "Addons")];
+      if (entry.subtitleFormatLabel) {
+        pushUniqueText(secondaryParts, entry.subtitleFormatLabel);
+      }
       if (entry.label && !isSubtitleLanguageOnlyDetail(entry.label, languageLabel, languageKey)) {
         pushUniqueText(secondaryParts, entry.label);
       }
@@ -9760,6 +9827,13 @@ export const PlayerScreen = {
       return;
     }
 
+    // Any new selection invalidates an in-flight text extraction, so a late
+    // response cannot install cues for a track the user already moved off.
+    this.embeddedTextSubtitleToken = Number(this.embeddedTextSubtitleToken || 0) + 1;
+    this.embeddedTextSubtitleTrackIndex = -1;
+    this.embeddedTextSubtitleTrack = null;
+    this.embeddedTextSubtitleLoading = false;
+
     const isEmbeddedEntry = Object.prototype.hasOwnProperty.call(entry, "embeddedSubtitleTrackIndex");
     if (!isEmbeddedEntry) {
       this.disableEmbeddedSubtitleSelection();
@@ -9799,6 +9873,50 @@ export const PlayerScreen = {
         return;
       }
       this.clearBitmapSubtitleOverlay({ dispose: true });
+
+      // Try to render the text track ourselves so the style controls apply.
+      // Falls back to the native pipeline if extraction yields nothing.
+      if (embeddedTrack && this.canRenderEmbeddedTextSubtitles()) {
+        this.clearMountedExternalSubtitleTracks();
+        this.subtitleOverlay?.clear();
+        if (typeof PlayerController.setWebOsEmbeddedSubtitleTrack === "function") {
+          PlayerController.setWebOsEmbeddedSubtitleTrack(-1);
+        }
+        this.getTextTracks().forEach((textTrack) => {
+          try {
+            textTrack.mode = "disabled";
+          } catch (_) {
+            // Best effort: some webOS builds expose readonly mode.
+          }
+        });
+        this.selectedEmbeddedSubtitleTrackIndex = targetTrackIndex;
+        this.selectedSubtitleTrackIndex = -1;
+        this.selectedAddonSubtitleId = null;
+        this.selectedManifestSubtitleTrackId = null;
+        this.embeddedTextSubtitleTrackIndex = targetTrackIndex;
+        this.embeddedTextSubtitleTrack = embeddedTrack;
+        this.embeddedTextSubtitleWindowStart = 0;
+        this.embeddedTextSubtitleWindowEnd = 0;
+        this.embeddedTextSubtitleLastErrorAt = 0;
+        this.invalidateTrackDialogCaches();
+        this.renderControlButtons();
+        this.renderSubtitleDialog();
+        void this.loadEmbeddedTextSubtitleCues(
+          embeddedTrack,
+          this.getPlaybackCurrentSeconds()
+        ).then((applied) => {
+          if (applied || this.selectedEmbeddedSubtitleTrackIndex !== targetTrackIndex) {
+            return;
+          }
+          // Extraction failed outright — hand the track back to the pipeline so
+          // the user still gets subtitles, just unstyleable ones.
+          this.embeddedTextSubtitleTrackIndex = -1;
+          this.embeddedTextSubtitleTrack = null;
+          this.applyNativeEmbeddedSubtitleTrack(embeddedTrack, targetTrackIndex);
+        });
+        return;
+      }
+
       this.applyNativeEmbeddedSubtitleTrack(embeddedTrack, targetTrackIndex);
       return;
     }
@@ -9955,6 +10073,98 @@ export const PlayerScreen = {
     this.renderSubtitleDialog();
   },
 
+  // Embedded text tracks are normally handed to the webOS pipeline, which draws
+  // them on the video plane where none of the app's style settings can reach
+  // them. Extracting the cues and rendering them through the overlay makes font
+  // size, colour, outline, offset and delay work on built-in subtitles too.
+  canRenderEmbeddedTextSubtitles() {
+    return Environment.isWebOS() && Boolean(this.subtitleOverlay);
+  },
+
+  // The service caps a window at 180s, so text cues are paged around the
+  // playhead exactly like bitmap ones rather than fetched whole.
+  ensureEmbeddedTextSubtitleWindow(timeSeconds) {
+    const track = this.embeddedTextSubtitleTrack;
+    if (!track || this.embeddedTextSubtitleLoading) {
+      return;
+    }
+    const time = Math.max(0, Number(timeSeconds || 0));
+    const outsideWindow = time < this.embeddedTextSubtitleWindowStart
+      || time >= this.embeddedTextSubtitleWindowEnd;
+    const approachingEnd = this.embeddedTextSubtitleWindowEnd > 0
+      && time >= this.embeddedTextSubtitleWindowEnd - TEXT_SUBTITLE_PREFETCH_SECONDS;
+    if (!outsideWindow && !approachingEnd) {
+      return;
+    }
+    const retryAllowed = !this.embeddedTextSubtitleLastErrorAt
+      || Date.now() - this.embeddedTextSubtitleLastErrorAt >= 5000;
+    if (retryAllowed) {
+      void this.loadEmbeddedTextSubtitleCues(track, time);
+    }
+  },
+
+  async loadEmbeddedTextSubtitleCues(track, timeSeconds = 0) {
+    const sourceUrl = this.getTrackProbeUrl();
+    const trackNumber = Number(track?.sourceTrackId);
+    if (!sourceUrl || !Number.isFinite(trackNumber) || trackNumber <= 0) {
+      return false;
+    }
+    const requestToken = Number(this.embeddedTextSubtitleToken || 0) + 1;
+    this.embeddedTextSubtitleToken = requestToken;
+    this.embeddedTextSubtitleLoading = true;
+
+    const time = Math.max(0, Number(timeSeconds || 0));
+    const startSeconds = Math.floor(time / TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS)
+      * TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS;
+    try {
+      const windowData = await localMediaBitmapSubtitleRepository.getWindow({
+        url: sourceUrl,
+        trackNumber,
+        startSeconds,
+        endSeconds: startSeconds + TEXT_SUBTITLE_WINDOW_SECONDS
+      });
+      if (requestToken !== this.embeddedTextSubtitleToken) {
+        return false;
+      }
+      if (String(windowData.format) !== "text" || !Array.isArray(windowData.cues)) {
+        return false;
+      }
+      const cues = windowData.cues
+        .map((cue) => {
+          const raw = String(cue?.text || "");
+          return {
+            start: Math.max(0, Number(cue?.startMs || 0) / 1000),
+            end: Math.max(0, Number(cue?.endMs || 0) / 1000),
+            text: sanitizeCueText(raw),
+            align: extractAssAlignment(raw)
+          };
+        })
+        .filter((cue) => cue.text && cue.end > cue.start)
+        .sort((left, right) => left.start - right.start || left.end - right.end);
+
+      this.embeddedTextSubtitleWindowStart = windowData.windowStartSeconds;
+      this.embeddedTextSubtitleWindowEnd = windowData.windowEndSeconds;
+      this.embeddedTextSubtitleLastErrorAt = 0;
+      // An empty stretch is still a valid window — subtitles simply have a gap
+      // there — so keep the track active rather than falling back to native.
+      this.subtitleOverlay?.setCueList(cues);
+      return true;
+    } catch (error) {
+      if (requestToken === this.embeddedTextSubtitleToken) {
+        this.embeddedTextSubtitleLastErrorAt = Date.now();
+        console.warn("Embedded text subtitle extraction failed", {
+          trackNumber,
+          error: error?.message || String(error || "")
+        });
+      }
+      return false;
+    } finally {
+      if (requestToken === this.embeddedTextSubtitleToken) {
+        this.embeddedTextSubtitleLoading = false;
+      }
+    }
+  },
+
   warmBitmapSubtitleSharedResources() {
     if (
       this.bitmapSubtitleDecoderWarmed
@@ -9982,6 +10192,7 @@ export const PlayerScreen = {
       canvas.setAttribute("aria-hidden", "true");
     }
     this.bitmapSubtitleLastFrameKey = "";
+    this.bitmapSubtitlePaintGuardKey = "";
   },
 
   clearBitmapSubtitleOverlay({ dispose = false } = {}) {
@@ -9991,6 +10202,10 @@ export const PlayerScreen = {
     this.bitmapSubtitleWindowStart = 0;
     this.bitmapSubtitleWindowEnd = 0;
     this.bitmapSubtitleLastErrorAt = 0;
+    this.bitmapSubtitleCachedFrame = null;
+    this.bitmapSubtitleCachedCueKey = "";
+    this.bitmapSubtitleScratchKey = "";
+    this.bitmapSubtitlePaintGuardKey = "";
     this.clearBitmapSubtitleCanvas();
     if (dispose) {
       this.bitmapSubtitleDecoder?.dispose?.();
@@ -10080,7 +10295,24 @@ export const PlayerScreen = {
       }
     }
 
-    const frame = outsideWindow ? null : this.bitmapSubtitleDecoder?.renderAtSeconds(subtitleTime);
+    // Resolve which cue is active without decoding, and only rasterise when it
+    // actually changes. A cue spans seconds while this runs every tick, so
+    // re-decoding the same image each time was the bulk of the cost.
+    const decoder = this.bitmapSubtitleDecoder;
+    const activeCue = outsideWindow ? null : decoder?.getActiveCueAtSeconds(subtitleTime);
+    if (!activeCue) {
+      this.bitmapSubtitleCachedFrame = null;
+      this.bitmapSubtitleCachedCueKey = "";
+      this.clearBitmapSubtitleCanvas();
+      return false;
+    }
+    const cueKey = `${activeCue.index}:${activeCue.startMs}:${activeCue.endMs}`;
+    let frame = this.bitmapSubtitleCachedCueKey === cueKey ? this.bitmapSubtitleCachedFrame : null;
+    if (!frame) {
+      frame = decoder?.renderAtSeconds(subtitleTime) || null;
+      this.bitmapSubtitleCachedFrame = frame;
+      this.bitmapSubtitleCachedCueKey = frame ? cueKey : "";
+    }
     if (!frame) {
       this.clearBitmapSubtitleCanvas();
       return false;
@@ -10089,17 +10321,40 @@ export const PlayerScreen = {
     if (!canvas || !frame.width || !frame.height || !frame.screenWidth || !frame.screenHeight) {
       return false;
     }
+
+    // Bail before touching layout. getPlayerViewportSize()/calculateAspectRect()
+    // both call getBoundingClientRect(), and this runs every tick right after
+    // the controls re-render their markup — reading geometry there forces a
+    // synchronous layout on each pass. Everything that can change the painted
+    // result is captured here using reads that do not force layout.
+    const styleSettings = this.subtitleStyleSettings || {};
+    const paintGuardKey = [
+      cueKey,
+      this.aspectModeIndex,
+      normalizeSubtitleFontSize(styleSettings.fontSize),
+      splitSubtitleVerticalOffset(styleSettings.verticalOffset).value,
+      window.innerWidth,
+      window.innerHeight
+    ].join(":");
+    if (
+      !force
+      && paintGuardKey === this.bitmapSubtitlePaintGuardKey
+      && !canvas.classList.contains("hidden")
+    ) {
+      return true;
+    }
+
     const viewport = typeof PlayerController.getPlayerViewportSize === "function"
       ? PlayerController.getPlayerViewportSize()
       : null;
     const viewportWidth = Math.max(1, Number(viewport?.width || window.innerWidth || document.documentElement?.clientWidth || 1920));
     const viewportHeight = Math.max(1, Number(viewport?.height || window.innerHeight || document.documentElement?.clientHeight || 1080));
-    const style = this.subtitleStyleSettings || {};
-    const sizeScale = normalizeSubtitleFontSize(style.fontSize) / 100;
-    const verticalOffsetPx = splitSubtitleVerticalOffset(style.verticalOffset).value * -0.02 * viewportHeight;
+    const sizeScale = normalizeSubtitleFontSize(styleSettings.fontSize) / 100;
+    const verticalOffsetPx = splitSubtitleVerticalOffset(styleSettings.verticalOffset).value * -0.02 * viewportHeight;
     const mode = this.aspectModes[this.aspectModeIndex] || this.aspectModes[0];
     const rect = this.calculateAspectRect(mode.objectFit, PlayerController.video);
-    // Repaint only when something that affects the output actually moved.
+    // Second-level check, now that geometry is known: catches a moved video rect
+    // (e.g. new stream dimensions) that the cheap guard above cannot see.
     const renderKey = [
       frame.key,
       viewportWidth,
@@ -10114,24 +10369,26 @@ export const PlayerScreen = {
     if (!force && renderKey === this.bitmapSubtitleLastFrameKey && !canvas.classList.contains("hidden")) {
       return true;
     }
-    canvas.width = viewportWidth;
-    canvas.height = viewportHeight;
     const context = canvas.getContext("2d");
     if (!context) {
       return false;
     }
-    context.clearRect(0, 0, viewportWidth, viewportHeight);
     const scratch = this.bitmapSubtitleScratchCanvas || document.createElement("canvas");
     this.bitmapSubtitleScratchCanvas = scratch;
-    scratch.width = frame.width;
-    scratch.height = frame.height;
     const scratchContext = scratch.getContext("2d");
     if (!scratchContext || frame.rgba.length !== frame.width * frame.height * 4) {
       return false;
     }
-    const imageData = scratchContext.createImageData(frame.width, frame.height);
-    imageData.data.set(frame.rgba);
-    scratchContext.putImageData(imageData, 0, 0);
+    // The pixels only change when the cue changes; a repaint driven by geometry
+    // (aspect, viewport, font scale) can reuse the scratch bitmap as-is.
+    if (this.bitmapSubtitleScratchKey !== cueKey) {
+      scratch.width = frame.width;
+      scratch.height = frame.height;
+      const imageData = scratchContext.createImageData(frame.width, frame.height);
+      imageData.data.set(frame.rgba);
+      scratchContext.putImageData(imageData, 0, 0);
+      this.bitmapSubtitleScratchKey = cueKey;
+    }
     // Map the cue's position in the subtitle's own coordinate space onto the
     // letterboxed video rect, then apply the user's size/offset preferences.
     const scaleX = rect.width / frame.screenWidth;
@@ -10140,16 +10397,27 @@ export const PlayerScreen = {
     const targetHeight = frame.height * scaleY * sizeScale;
     const targetCenterX = rect.x + ((frame.x + frame.width / 2) * scaleX);
     const targetCenterY = rect.y + ((frame.y + frame.height / 2) * scaleY) + verticalOffsetPx;
-    context.drawImage(
-      scratch,
-      targetCenterX - targetWidth / 2,
-      targetCenterY - targetHeight / 2,
-      targetWidth,
-      targetHeight
-    );
+
+    // Size the surface to the cue and move it into place, rather than painting
+    // into a viewport-sized layer. Clamped to the viewport so a bad cue cannot
+    // allocate something enormous.
+    const drawWidth = Math.max(1, Math.min(viewportWidth, Math.round(targetWidth)));
+    const drawHeight = Math.max(1, Math.min(viewportHeight, Math.round(targetHeight)));
+    const drawLeft = Math.round(targetCenterX - targetWidth / 2);
+    const drawTop = Math.round(targetCenterY - targetHeight / 2);
+    if (canvas.width !== drawWidth || canvas.height !== drawHeight) {
+      canvas.width = drawWidth;
+      canvas.height = drawHeight;
+    }
+    canvas.style.width = `${drawWidth}px`;
+    canvas.style.height = `${drawHeight}px`;
+    canvas.style.transform = `translate(${drawLeft}px, ${drawTop}px)`;
+    context.clearRect(0, 0, drawWidth, drawHeight);
+    context.drawImage(scratch, 0, 0, drawWidth, drawHeight);
     canvas.classList.remove("hidden");
     canvas.setAttribute("aria-hidden", "false");
     this.bitmapSubtitleLastFrameKey = renderKey;
+    this.bitmapSubtitlePaintGuardKey = paintGuardKey;
     return true;
   },
 
@@ -10334,6 +10602,95 @@ export const PlayerScreen = {
     scheduleActivation();
   },
 
+  // Moving the focus ring used to re-run renderSubtitleDialog(), rebuilding the
+  // whole dialog's innerHTML — three rails, ~50 elements — which cost a full
+  // style recalc plus layout (~30ms) on every d-pad press. Nothing about the
+  // content changes when focus moves within a rail, so just move the classes.
+  // Returns false when the caller still needs a real re-render.
+  updateSubtitleDialogFocusOnly() {
+    const dialog = this.uiRefs?.subtitleDialog;
+    if (!dialog || !this.subtitleDialogVisible || !dialog.childNodes.length) {
+      return false;
+    }
+    const focusedRail = this.subtitleFocusedRail;
+    const railIndex = focusedRail === "language"
+      ? this.subtitleLanguageRailIndex
+      : focusedRail === "options"
+        ? this.subtitleOptionRailIndex
+        : this.subtitleStyleRailIndex;
+    const focusedSide = this.subtitleStyleControlSide === "plus" ? "plus" : "minus";
+
+    let focusedNode = null;
+    dialog.querySelectorAll("[data-subtitle-rail]").forEach((node) => {
+      const rail = node.getAttribute("data-subtitle-rail");
+      const index = Number(node.getAttribute("data-subtitle-index"));
+      const action = node.getAttribute("data-subtitle-style-action");
+      const isFocusedRow = rail === focusedRail && index === railIndex;
+      // A style row and its two steppers all carry data-subtitle-rail. The row
+      // highlights whenever it is current; each stepper only when its side is.
+      const isFocused = isFocusedRow && (
+        !action || action === (focusedSide === "plus" ? "increase" : "decrease")
+      );
+      if (isFocusedRow && !action) {
+        focusedNode = node;
+      }
+      if (node.classList.contains("focused") !== isFocused) {
+        node.classList.toggle("focused", isFocused);
+      }
+    });
+
+    if (!focusedNode) {
+      return false;
+    }
+    if (typeof focusedNode.scrollIntoView === "function") {
+      focusedNode.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    return true;
+  },
+
+  buildSubtitleOptionsRailMarkup(options = [], emptyMarkup = "") {
+    if (!options.length) {
+      return emptyMarkup;
+    }
+    return options.map((item, index) => `
+      <div class="player-dialog-item focusable${item.selected ? " selected" : ""}${item.unavailable ? " disabled" : ""}${this.subtitleFocusedRail === "options" && index === this.subtitleOptionRailIndex ? " focused" : ""}" data-subtitle-rail="options" data-subtitle-index="${index}">
+        <div class="player-dialog-item-main">${escapeHtml(item.title || "")}</div>
+        <div class="player-dialog-item-sub">${escapeHtml(item.secondary || "")}</div>
+        <div class="player-dialog-item-check">${item.selected ? "&#10003;" : ""}</div>
+      </div>
+    `).join("");
+  },
+
+  // Moving through the language rail only changes which sources are listed, so
+  // swap that one rail instead of rebuilding all three. The language list is
+  // the longest and most-navigated, and a full rebuild there cost ~160 dropped
+  // frames per 5s of scrolling.
+  refreshSubtitleOptionsRailOnly() {
+    const dialog = this.uiRefs?.subtitleDialog;
+    if (!dialog || !this.subtitleDialogVisible || !dialog.childNodes.length) {
+      return false;
+    }
+    const optionsRail = dialog.querySelector(".player-subtitle-options-rail");
+    const styleRail = dialog.querySelector(".player-subtitle-style-rail");
+    if (!optionsRail) {
+      return false;
+    }
+    const languages = this.getSubtitleLanguageRailItems();
+    const activeLanguage = languages[this.subtitleLanguageRailIndex]?.key || SUBTITLE_LANGUAGE_OFF_KEY;
+    const options = this.getSubtitleOptionsForLanguage(activeLanguage);
+    const subtitleLoadingVisible = this.embeddedSubtitleLoading && this.canDiscoverEmbeddedSubtitleTracks();
+    const showOptionsRail = activeLanguage !== SUBTITLE_LANGUAGE_OFF_KEY || subtitleLoadingVisible;
+    const emptyMarkup = subtitleLoadingVisible
+      ? `<div class="player-dialog-empty">${escapeHtml(t("subtitle_loading_builtin", {}, "Loading subtitle tracks..."))}</div>`
+      : `<div class="player-dialog-empty">${escapeHtml(t("subtitle_none", {}, "No subtitles"))}</div>`;
+
+    this.subtitleOptionRailIndex = clamp(this.subtitleOptionRailIndex, 0, Math.max(0, options.length - 1));
+    optionsRail.innerHTML = this.buildSubtitleOptionsRailMarkup(options, emptyMarkup);
+    optionsRail.classList.toggle("hidden", !showOptionsRail);
+    styleRail?.classList.toggle("hidden", !showOptionsRail);
+    return true;
+  },
+
   renderSubtitleDialog() {
     const dialog = this.uiRefs?.subtitleDialog;
     if (!dialog) {
@@ -10373,13 +10730,7 @@ export const PlayerScreen = {
           `).join("")}
         </div>
         <div class="player-subtitle-rail player-subtitle-options-rail${showOptionsRail ? "" : " hidden"}">
-          ${options.length ? options.map((item, index) => `
-            <div class="player-dialog-item focusable${item.selected ? " selected" : ""}${item.unavailable ? " disabled" : ""}${this.subtitleFocusedRail === "options" && index === this.subtitleOptionRailIndex ? " focused" : ""}" data-subtitle-rail="options" data-subtitle-index="${index}">
-              <div class="player-dialog-item-main">${escapeHtml(item.title || "")}</div>
-              <div class="player-dialog-item-sub">${escapeHtml(item.secondary || "")}</div>
-              <div class="player-dialog-item-check">${item.selected ? "&#10003;" : ""}</div>
-            </div>
-          `).join("") : emptySubtitleOptionsMarkup}
+          ${this.buildSubtitleOptionsRailMarkup(options, emptySubtitleOptionsMarkup)}
         </div>
         <div class="player-subtitle-rail player-subtitle-style-rail${showOptionsRail ? "" : " hidden"}">
           ${styleItems.map((item, index) => `
@@ -10406,68 +10757,64 @@ export const PlayerScreen = {
     const styleItems = this.getSubtitleStyleControls();
     const styleItem = styleItems[this.subtitleStyleRailIndex];
     
-    if (keyCode === 38) {
+    if (keyCode === 38 || keyCode === 40) {
+      const step = keyCode === 38 ? -1 : 1;
+      // Moving in the language rail swaps the options rail contents, so that
+      // case still needs a real render; the other rails only move focus.
+      let contentChanged = false;
       if (this.subtitleFocusedRail === "language") {
-        this.subtitleLanguageRailIndex = clamp(this.subtitleLanguageRailIndex - 1, 0, Math.max(0, languages.length - 1));
+        this.subtitleLanguageRailIndex = clamp(this.subtitleLanguageRailIndex + step, 0, Math.max(0, languages.length - 1));
         this.syncSubtitleOptionIndexForFocusedLanguage();
+        // Swap just the options rail, then move the focus ring.
+        contentChanged = !(this.refreshSubtitleOptionsRailOnly() && this.updateSubtitleDialogFocusOnly());
       } else if (this.subtitleFocusedRail === "options") {
-        this.subtitleOptionRailIndex = clamp(this.subtitleOptionRailIndex - 1, 0, Math.max(0, options.length - 1));
+        this.subtitleOptionRailIndex = clamp(this.subtitleOptionRailIndex + step, 0, Math.max(0, options.length - 1));
       } else {
-        this.subtitleStyleRailIndex = clamp(this.subtitleStyleRailIndex - 1, 0, Math.max(0, styleItems.length - 1));
+        this.subtitleStyleRailIndex = clamp(this.subtitleStyleRailIndex + step, 0, Math.max(0, styleItems.length - 1));
       }
-      this.renderSubtitleDialog();
+      if (contentChanged || !this.updateSubtitleDialogFocusOnly()) {
+        this.renderSubtitleDialog();
+      }
       return true;
     }
-    if (keyCode === 40) {
-      if (this.subtitleFocusedRail === "language") {
-        this.subtitleLanguageRailIndex = clamp(this.subtitleLanguageRailIndex + 1, 0, Math.max(0, languages.length - 1));
-        this.syncSubtitleOptionIndexForFocusedLanguage();
-      } else if (this.subtitleFocusedRail === "options") {
-        this.subtitleOptionRailIndex = clamp(this.subtitleOptionRailIndex + 1, 0, Math.max(0, options.length - 1));
-      } else {
-        this.subtitleStyleRailIndex = clamp(this.subtitleStyleRailIndex + 1, 0, Math.max(0, styleItems.length - 1));
+    // Horizontal moves only change which rail (or which stepper side) is
+    // focused — never the content — so they take the focus-only path too.
+    const applyFocusMove = () => {
+      if (!this.updateSubtitleDialogFocusOnly()) {
+        this.renderSubtitleDialog();
       }
-      this.renderSubtitleDialog();
       return true;
-    }
+    };
+
     if (keyCode === 37) {
       if (this.subtitleFocusedRail === "style") {
         if (this.subtitleStyleControlSide === "plus") {
           this.subtitleStyleControlSide = "minus";
-          this.renderSubtitleDialog();
-          return true;
         } else {
           this.subtitleFocusedRail = options.length ? "options" : "language";
           this.subtitleStyleControlSide = "minus";
-          this.renderSubtitleDialog();
-          return true;
         }
-      } else if (this.subtitleFocusedRail === "options") {
-        this.subtitleFocusedRail = "language";
-      } else {
-        return false;
+        return applyFocusMove();
       }
-      this.renderSubtitleDialog();
-      return true;
+      if (this.subtitleFocusedRail === "options") {
+        this.subtitleFocusedRail = "language";
+        return applyFocusMove();
+      }
+      return false;
     }
     if (keyCode === 39) {
       if (this.subtitleFocusedRail === "language" && activeLanguage !== SUBTITLE_LANGUAGE_OFF_KEY && options.length) {
         this.subtitleFocusedRail = "options";
-        this.renderSubtitleDialog();
-        return true;
+        return applyFocusMove();
       }
       if (this.subtitleFocusedRail === "options") {
         this.subtitleFocusedRail = "style";
         this.subtitleStyleControlSide = "minus";
-        this.renderSubtitleDialog();
-        return true;
+        return applyFocusMove();
       }
-      if (this.subtitleFocusedRail === "style") {
-        if (this.subtitleStyleControlSide === "minus") {
-          this.subtitleStyleControlSide = "plus";
-          this.renderSubtitleDialog();
-          return true;
-        }
+      if (this.subtitleFocusedRail === "style" && this.subtitleStyleControlSide === "minus") {
+        this.subtitleStyleControlSide = "plus";
+        return applyFocusMove();
       }
       return true;
     }
@@ -11021,14 +11368,14 @@ export const PlayerScreen = {
       `;
     }
     return `
-      <div class="player-audio-control-card focusable${focused ? " focused" : ""}${!control.enabled ? " disabled" : ""}" data-audio-column="controls" data-audio-index="${index}">
+      <div class="player-audio-control-card player-audio-control-stepper focusable${focused ? " focused" : ""}${!control.enabled ? " disabled" : ""}" data-audio-column="controls" data-audio-index="${index}">
         <div class="player-audio-control-title">${escapeHtml(control.title)}</div>
         <div class="player-audio-control-value">${escapeHtml(control.value)}</div>
         <div class="player-audio-step-row">
           <button class="player-dialog-step player-dialog-step-minus focusable${focused ? " focused" : ""}${!control.canDecrease ? " disabled" : ""}" type="button" tabindex="-1" data-audio-column="controls" data-audio-index="${index}" data-audio-step="-1">&#8722;</button>
           <button class="player-dialog-step player-dialog-step-plus focusable${focused ? " focused" : ""}${!control.canIncrease ? " disabled" : ""}" type="button" tabindex="-1" data-audio-column="controls" data-audio-index="${index}" data-audio-step="1">&#43;</button>
         </div>
-        <div class="player-dialog-item-sub">${escapeHtml(control.helper || "")}</div>
+        ${control.helper ? `<div class="player-dialog-item-sub">${escapeHtml(control.helper)}</div>` : ""}
       </div>
     `;
   },

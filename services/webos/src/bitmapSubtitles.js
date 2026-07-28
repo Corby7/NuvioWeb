@@ -52,6 +52,7 @@ var ID_CLUSTER_TIMECODE = 0xe7;
 var ID_SIMPLE_BLOCK = 0xa3;
 var ID_BLOCK_GROUP = 0xa0;
 var ID_BLOCK = 0xa1;
+var ID_BLOCK_DURATION = 0x9b;
 
 var MPEG_PACK_HEADER = Buffer.from([
   0x00, 0x00, 0x01, 0xba, 0x44, 0x00, 0x04,
@@ -463,6 +464,16 @@ function bitmapFormatForCodecId(codecId) {
   return "";
 }
 
+// Text subtitle tracks are extracted so the app can render and style them
+// itself. Left to the webOS pipeline they are drawn on the video plane, where
+// none of the app's size/colour/outline settings can reach them.
+function textFormatForCodecId(codecId) {
+  if (codecId === "S_TEXT/UTF8" || codecId === "S_TEXT/UTF-8") return "utf8";
+  if (codecId === "S_TEXT/ASS" || codecId === "S_TEXT/SSA") return "ass";
+  if (codecId === "S_TEXT/WEBVTT") return "webvtt";
+  return "";
+}
+
 function validateVobSubPayload(payload) {
   if (!payload || payload.length < 4) return false;
   var packetSize = payload.readUInt16BE(0);
@@ -525,9 +536,12 @@ function parseBlock(data, element, track, clusterTicks, timecodeScaleNs) {
     if (!validatePgsPayload(payload)) {
       throw bitmapSubtitleError("INVALID_PGS", "Matroska block contained an invalid PGS segment sequence");
     }
-  } else if (!validateVobSubPayload(payload)) {
-    throw bitmapSubtitleError("INVALID_VOBSUB", "Matroska block contained an invalid VOBSUB packet");
+  } else if (blockFormat === "vobsub") {
+    if (!validateVobSubPayload(payload)) {
+      throw bitmapSubtitleError("INVALID_VOBSUB", "Matroska block contained an invalid VOBSUB packet");
+    }
   }
+  // Text payloads are the subtitle body itself; nothing to validate.
   var absoluteTicks = clusterTicks + relativeTicks;
   if (absoluteTicks < 0) return null;
   return {
@@ -552,14 +566,24 @@ function parseCluster(data, track, timecodeScaleNs) {
   var frames = [];
   children.forEach(function (child) {
     var block = null;
+    var durationTicks = 0;
     if (child.id === ID_SIMPLE_BLOCK) {
       block = child;
     } else if (child.id === ID_BLOCK_GROUP) {
       block = findChild(data, child, ID_BLOCK);
+      // Text cues carry their length in BlockDuration; SimpleBlock has none.
+      var durationElement = findChild(data, child, ID_BLOCK_DURATION);
+      if (durationElement) {
+        durationTicks = readUnsigned(data, durationElement) || 0;
+      }
     }
     if (!block) return;
     var frame = parseBlock(data, block, track, clusterTicks, timecodeScaleNs);
-    if (frame) frames.push(frame);
+    if (!frame) return;
+    frame.durationMs = durationTicks > 0
+      ? Math.round(durationTicks * timecodeScaleNs / 1000000)
+      : 0;
+    frames.push(frame);
   });
   return frames;
 }
@@ -684,10 +708,13 @@ function normalizeIdxHeader(codecPrivate) {
 async function buildWindow(mediaUrl, trackNumber, startSeconds, endSeconds) {
   var metadata = await loadMetadata(mediaUrl);
   var track = metadata.tracks.find(function (entry) {
-    return entry.number === trackNumber && entry.type === 0x11 && bitmapFormatForCodecId(entry.codecId);
+    return entry.number === trackNumber
+      && entry.type === 0x11
+      && (bitmapFormatForCodecId(entry.codecId) || textFormatForCodecId(entry.codecId));
   });
-  if (!track) throw bitmapSubtitleError("TRACK_NOT_FOUND", "Requested bitmap subtitle track was not found");
+  if (!track) throw bitmapSubtitleError("TRACK_NOT_FOUND", "Requested subtitle track was not found");
   var trackFormat = bitmapFormatForCodecId(track.codecId);
+  var trackTextFormat = textFormatForCodecId(track.codecId);
   // PGS carries its palettes and geometry inline; only VOBSUB needs the IDX
   // header out of CodecPrivate.
   if (trackFormat === "vobsub" && !track.codecPrivate.length) {
@@ -733,6 +760,40 @@ async function buildWindow(mediaUrl, trackNumber, startSeconds, endSeconds) {
     seen.add(key);
     uniqueFrames.push(frame);
   });
+
+  if (trackTextFormat) {
+    // ASS/SSA blocks are a CSV row whose first 8 fields are layout metadata:
+    // ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+    var stripAssFields = function (value) {
+      var parts = value.split(",");
+      return parts.length > 8 ? parts.slice(8).join(",") : value;
+    };
+    var cues = [];
+    uniqueFrames.forEach(function (frame) {
+      var raw = frame.payload.toString("utf8").replace(/\0+$/, "").trim();
+      if (!raw) return;
+      var text = trackTextFormat === "ass" ? stripAssFields(raw) : raw;
+      if (!text.trim()) return;
+      // Fall back to a readable dwell time when BlockDuration is absent.
+      var durationMs = frame.durationMs > 0 ? frame.durationMs : 3000;
+      cues.push({
+        startMs: frame.timestampMs,
+        endMs: frame.timestampMs + durationMs,
+        text: text
+      });
+    });
+    return {
+      format: "text",
+      textFormat: trackTextFormat,
+      trackNumber: trackNumber,
+      language: track.language || "",
+      name: track.name || "",
+      windowStartSeconds: startMs / 1000,
+      windowEndSeconds: endMs / 1000,
+      cueCount: cues.length,
+      cues: cues
+    };
+  }
 
   var chunks = [];
   var outputLength = 0;
@@ -858,6 +919,7 @@ module.exports = {
     appendPgsSupRecords: appendPgsSupRecords,
     validatePgsPayload: validatePgsPayload,
     bitmapFormatForCodecId: bitmapFormatForCodecId,
+    textFormatForCodecId: textFormatForCodecId,
     normalizeWindowRange: normalizeWindowRange,
     mapWithConcurrency: mapWithConcurrency,
     formatTimestamp: formatTimestamp,

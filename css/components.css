@@ -10968,16 +10968,16 @@ img[data-lazy-src] {
    --player-subtitle-overlay-font-size / -offset from the style settings. */
 /* Bitmap (VobSub/PGS) subtitles are drawn here instead of the text overlay.
    The two are mutually exclusive, so they deliberately share a stacking level:
-   below the controls, above the video. Sizing is done in JS via the canvas
-   width/height attributes, so no object-fit here. */
+   below the controls, above the video.
+
+   The canvas is sized and positioned per cue by JS rather than spanning the
+   viewport: a full-screen 1920x1080 layer composited over the hardware video
+   plane cost ~500ms of extra main-thread work and 20+ dropped frames per 5s on
+   the C3. A cue is a few percent of that area. */
 .player-bitmap-subtitles {
   position: absolute;
   top: 0;
-  right: 0;
-  bottom: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
   pointer-events: none;
   z-index: 15;
 }
@@ -11236,6 +11236,15 @@ img[data-lazy-src] {
 
 .player-controls-overlay.modal-blocked {
   pointer-events: none;
+}
+
+/* While a track panel is open the transport is already non-interactive, and it
+   sits in the same band as the subtitle preview. Fade it back so the preview
+   stays legible; the title block keeps enough presence for context. */
+.player-controls-overlay.modal-blocked.track-panel-open .player-controls-bar,
+.player-controls-overlay.modal-blocked.track-panel-open .player-controls-row {
+  opacity: 0.22;
+  transition: opacity 160ms ease;
 }
 
 .player-controls-overlay.pause-overlay-active .player-controls-top {
@@ -12310,6 +12319,21 @@ img[data-lazy-src] {
   pointer-events: none;
 }
 
+/* Track panels (subtitles / audio) are top-anchored and deliberately leave the
+   lower band of the screen clear. Weight the scrim to the top so the video —
+   and, for subtitles, the live style preview — stays readable underneath. */
+.player-modal-backdrop.is-track-panel {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.82) 0%,
+      rgba(0, 0, 0, 0.74) 46%,
+      rgba(0, 0, 0, 0.34) 68%,
+      rgba(0, 0, 0, 0.12) 82%,
+      rgba(0, 0, 0, 0) 100%
+    );
+}
+
 .player-modal {
   position: absolute;
   z-index: 36;
@@ -13006,11 +13030,86 @@ img[data-lazy-src] {
   transition-duration: 200ms;
 }
 
+/* Top-anchored so the bottom band stays clear: for subtitles that is the live
+   style preview, for audio it keeps the transport controls readable. The
+   min() floor stops the panel collapsing on short viewports. */
 .player-subtitle-modal,
 .player-audio-modal {
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-height: max(58%, calc(100% - 340px));
 }
+
+/* A cut-off row should read as "more below", not as a clipped layout. */
+.player-subtitle-rail,
+.player-audio-track-list,
+.player-audio-controls-list {
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 44px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 44px), transparent 100%);
+}
+
+/* ---- Compaction -------------------------------------------------------
+   The rows inherit Android-TV 2x metrics (112x80 steppers, 32px rows) which
+   only fits ~5 options on screen. These bring the density up while staying
+   above the ~24px floor for 10-foot legibility. The header keeps its original
+   size and the original spacing beneath it. */
+.player-subtitle-modal,
+.player-audio-modal {
+  padding: 64px 48px 10px;
+}
+
+/* These panels are flex columns with a capped height. When the rails overflow
+   that cap — which the subtitle panel's long language list does — the title
+   gets shrunk as a flex item and loses its spacing, while the shorter audio
+   panel keeps its own. Pin it so both read identically. */
+.player-subtitle-modal .player-dialog-title,
+.player-audio-modal .player-dialog-title {
+  flex: 0 0 auto;
+}
+
+
+.player-subtitle-modal .player-dialog-item-main,
+.player-audio-modal .player-dialog-item-main {
+  font-size: 26px;
+}
+
+.player-subtitle-modal .player-dialog-item-sub,
+.player-audio-modal .player-dialog-item-sub {
+  font-size: 19px;
+}
+
+.player-subtitle-modal .player-subtitle-rail,
+.player-audio-modal .player-audio-track-list,
+.player-audio-modal .player-audio-controls-list {
+  gap: 10px;
+  padding-top: 0;
+}
+
+.player-subtitle-modal .player-subtitle-language-rail .player-dialog-item,
+.player-subtitle-modal .player-subtitle-options-rail .player-dialog-item,
+.player-audio-modal .player-audio-track-list .player-dialog-item {
+  padding: 11px 18px;
+  border-radius: 14px;
+}
+
+.player-subtitle-modal .player-subtitle-style-rail .player-dialog-item {
+  padding: 9px 16px;
+  border-radius: 14px;
+}
+
+/* Steppers dominated each style row; a 76x54 hit target is still comfortable
+   with a d-pad since focus moves per row, not per pixel. */
+.player-subtitle-modal .player-dialog-step,
+.player-audio-modal .player-dialog-step {
+  width: 76px;
+  height: 54px;
+  min-width: 0;
+  font-size: 34px;
+  border-radius: 14px;
+}
+
 
 .player-speed-modal {
   left: min(4.58vw, 88px); /* ATV 44dp -> 88px */
@@ -13020,9 +13119,16 @@ img[data-lazy-src] {
   border-radius: min(1.67vw, 32px);
 }
 
+/* Source column is sized to its content rather than an equal 1fr share: it
+   usually holds a single entry, and an equal split left most of the panel
+   empty. The trailing column absorbs the slack so the style controls keep a
+   comfortable width. */
 .player-subtitle-overlay-grid {
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 64px; /* ATV 14dp -> 28px */
+  /* Trailing column is wide enough that two-word labels ("Outline Color",
+     "Bottom Offset") stay on one line beside the steppers. */
+  grid-template-columns: minmax(260px, 320px) minmax(200px, max-content) minmax(360px, 440px);
+  gap: 32px;
+  justify-content: start;
 }
 
 .player-dialog-title {
@@ -13031,8 +13137,8 @@ img[data-lazy-src] {
 
 .player-subtitle-rail {
   gap: 16px; /* ATV 4dp -> 8px */
-  height: 100%;
-  max-height: none;
+  height: auto;
+  max-height: 100%;
   padding: min(0.83vw, 16px) 0;
   scroll-behavior: auto;
 }
@@ -13154,17 +13260,27 @@ img[data-lazy-src] {
   opacity: 0.35;
 }
 
+/* Track list leads; the amplification column is secondary and sized to its
+   content instead of taking an equal half of the panel. */
 .player-audio-overlay-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 64px;
+  grid-template-columns: minmax(380px, 600px) minmax(300px, 380px);
+  gap: 40px;
+  justify-content: start;
+  align-items: start;
 }
 
 .player-audio-track-list {
-  width: min(46.25vw, 888px); /* ATV 444dp -> 888px */
-  max-height: min(64.58vw, 1240px); /* ATV 620dp -> 1240px */
+  width: 100%;
+  max-height: 100%;
   gap: min(0.625vw, 12px);
   padding: min(0.83vw, 16px) 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.player-audio-track-list::-webkit-scrollbar {
+  display: none;
 }
 
 .player-audio-track-list .player-dialog-item {
@@ -13192,6 +13308,49 @@ img[data-lazy-src] {
 
 .player-audio-toggle {
   padding: min(0.73vw, 14px) min(1.04vw, 20px); /* ATV persist 7/10dp -> 14/20px */
+}
+
+/* Compact amplification: the label keeps its own row so it never truncates,
+   then the value sits alongside the steppers, with the availability note as
+   fine print underneath instead of a full-width block. */
+.player-audio-control-stepper {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "title title"
+    "value steps"
+    "note  note";
+  align-items: center;
+  column-gap: 20px;
+  row-gap: 4px;
+  padding: min(0.73vw, 14px) min(1.04vw, 20px);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: min(1.25vw, 24px);
+}
+
+.player-audio-control-stepper > .player-audio-control-title {
+  grid-area: title;
+}
+
+.player-audio-control-stepper > .player-audio-control-value {
+  grid-area: value;
+  white-space: nowrap;
+}
+
+.player-audio-control-stepper > .player-audio-step-row {
+  grid-area: steps;
+  margin: 0;
+}
+
+.player-audio-control-stepper > .player-dialog-item-sub {
+  grid-area: note;
+  font-size: min(0.94vw, 18px);
+  line-height: 1.25;
+  opacity: 0.72;
+}
+
+.player-audio-control-stepper.disabled {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .player-audio-control-card > .player-audio-control-title,

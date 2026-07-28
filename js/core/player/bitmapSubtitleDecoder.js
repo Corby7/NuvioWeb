@@ -224,7 +224,10 @@ export class BitmapSubtitleDecoder {
     return parser.count;
   }
 
-  renderAtSeconds(timeSeconds) {
+  // Cheap lookup that avoids the decode: callers poll every tick, but a cue
+  // typically spans several seconds, so re-rasterising the same image each time
+  // is pure waste. Returns null when no cue covers the timestamp.
+  getActiveCueAtSeconds(timeSeconds) {
     const parser = this.parser;
     if (!parser) {
       return null;
@@ -239,6 +242,19 @@ export class BitmapSubtitleDecoder {
     if (timestampMs < startMs || timestampMs >= endMs) {
       return null;
     }
+    return { index, startMs, endMs };
+  }
+
+  renderAtSeconds(timeSeconds) {
+    const parser = this.parser;
+    if (!parser) {
+      return null;
+    }
+    const active = this.getActiveCueAtSeconds(timeSeconds);
+    if (!active) {
+      return null;
+    }
+    const { index, startMs, endMs } = active;
     const frame = parser.renderAtIndex(index);
     if (!frame) {
       return null;

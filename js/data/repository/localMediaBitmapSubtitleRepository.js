@@ -78,16 +78,30 @@ export const localMediaBitmapSubtitleRepository = {
       throw new Error(payload.errorText || payload.errorCode || "Bitmap subtitle extraction failed");
     }
     const format = String(payload.format || "").toLowerCase();
-    if (format !== "vobsub" && format !== "pgs") {
-      throw new Error("Unsupported bitmap subtitle response");
+    if (format !== "vobsub" && format !== "pgs" && format !== "text") {
+      throw new Error("Unsupported embedded subtitle response");
     }
 
-    return {
+    const base = {
       format,
       trackNumber: targetTrack,
       windowStartSeconds: Math.max(0, Number(payload.windowStartSeconds) || 0),
       windowEndSeconds: Math.max(0, Number(payload.windowEndSeconds) || 0),
-      cueCount: Math.max(0, Math.trunc(Number(payload.cueCount) || 0)),
+      cueCount: Math.max(0, Math.trunc(Number(payload.cueCount) || 0))
+    };
+
+    // Text tracks come back as structured cues; the app renders them through
+    // its own overlay so the subtitle style settings apply.
+    if (format === "text") {
+      return {
+        ...base,
+        textFormat: String(payload.textFormat || "utf8"),
+        cues: Array.isArray(payload.cues) ? payload.cues : []
+      };
+    }
+
+    return {
+      ...base,
       // Only VOBSUB has a side-channel IDX index; for PGS the .sup byte stream
       // in subData is self-describing.
       idxContent: String(payload.idxContent || ""),
