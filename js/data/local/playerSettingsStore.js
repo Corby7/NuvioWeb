@@ -30,6 +30,10 @@ const DEFAULTS = {
   },
   audioAmplificationDb: 0,
   persistAudioAmplification: false,
+  // Which source to preselect when a language offers several. "auto" prefers
+  // text over image-based tracks because only text can be restyled and it is
+  // far cheaper to render; see normalizeSubtitleSourcePreference.
+  subtitleSourcePreference: "auto",
   // Legacy combined DTS+TrueHD override from upstream 0.3.14. This fork never
   // shipped it, so it stays false; it exists only as migration input for
   // WebOsAudioCompatibilityStore.get({ legacyForceAll }).
@@ -43,6 +47,15 @@ const DEFAULTS = {
 };
 
 export const DEFAULT_SUBTITLE_STYLE = Object.freeze({ ...DEFAULTS.subtitleStyle });
+
+export const SUBTITLE_SOURCE_PREFERENCES = Object.freeze(["auto", "builtin", "addon"]);
+
+export function normalizeSubtitleSourcePreference(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return SUBTITLE_SOURCE_PREFERENCES.includes(normalized)
+    ? normalized
+    : DEFAULTS.subtitleSourcePreference;
+}
 
 const STREAM_AUTO_PLAY_MODES = ["MANUAL", "FIRST_STREAM", "REGEX_MATCH"];
 const STREAM_AUTO_PLAY_SOURCES = ["ALL_SOURCES", "INSTALLED_ADDONS_ONLY", "ENABLED_PLUGINS_ONLY"];
@@ -189,6 +202,7 @@ function normalizePlayerSettings(settings = {}) {
     ),
     stillWatchingEnabled: Boolean(settings.stillWatchingEnabled ?? DEFAULTS.stillWatchingEnabled),
     forceDtsTrueHdAudio: Boolean(settings.forceDtsTrueHdAudio ?? DEFAULTS.forceDtsTrueHdAudio),
+    subtitleSourcePreference: normalizeSubtitleSourcePreference(settings.subtitleSourcePreference),
     stillWatchingEpisodeThreshold: normalizeStillWatchingThreshold(
       settings.stillWatchingEpisodeThreshold ?? DEFAULTS.stillWatchingEpisodeThreshold
     ),

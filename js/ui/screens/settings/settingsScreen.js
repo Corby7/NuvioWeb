@@ -324,6 +324,15 @@ const SUBTITLE_OUTLINE_COLOR_OPTIONS = [
   { id: "#FF5C5C", label: "Red" }
 ];
 
+// Labels name the thing each option actually prioritises. Image-based tracks
+// (PGS/VobSub) come last in every order regardless — they cannot be restyled and
+// are much heavier to render — so no option advertises them.
+const SUBTITLE_SOURCE_PREFERENCE_OPTIONS = [
+  { id: "auto", label: "Built-in text, then addon (recommended)" },
+  { id: "builtin", label: "All built-in, then addon" },
+  { id: "addon", label: "Addon, then built-in" }
+];
+
 const STREAM_AUTOPLAY_MODE_OPTIONS = [
   { id: "MANUAL", label: "Off (choose manually)" },
   { id: "FIRST_STREAM", label: "First stream" },
@@ -4924,6 +4933,18 @@ export const SettingsScreen = {
         }
       });
     });
+    this.actionMap.set("playback:subtitleSource", () => {
+      this.openOptionDialog({
+        title: t("subtitle_source_preference", {}, "Preferred subtitle source"),
+        options: SUBTITLE_SOURCE_PREFERENCE_OPTIONS,
+        selectedId: PlayerSettingsStore.get().subtitleSourcePreference || "auto",
+        returnFocusKey: "playback:subtitleSource",
+        onSelect: (option) => {
+          PlayerSettingsStore.set({ subtitleSourcePreference: option.id });
+        }
+      });
+    });
+
     this.actionMap.set("playback:subtitleLanguage", () => {
       const currentSettings = PlayerSettingsStore.get();
       const currentLanguage = normalizeSelectableSubtitleLanguageCode(
@@ -5242,6 +5263,12 @@ export const SettingsScreen = {
           title: t("settings.playback.subtitleLanguage.title"),
           subtitle: t("settings.playback.subtitleLanguage.subtitle"),
           value: labelForSubtitlePlaybackLanguage(model.player.subtitleLanguage)
+        })}
+        ${this.renderActionRow({
+          focusKey: "playback:subtitleSource",
+          title: t("subtitle_source_preference", {}, "Preferred subtitle source"),
+          subtitle: t("subtitle_source_preference_desc", {}, "Which source to preselect when a language offers several."),
+          value: labelForOption(SUBTITLE_SOURCE_PREFERENCE_OPTIONS, model.player.subtitleSourcePreference, "Built-in text, then addon (recommended)")
         })}
         ${this.renderToggleRow({
           focusKey: "playback:useForcedSubtitles",

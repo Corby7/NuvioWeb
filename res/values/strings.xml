@@ -1480,6 +1480,8 @@
     <string name="subtitle_built_in">Built in</string>
     <string name="subtitle_all">All</string>
     <string name="subtitle_loading_cues">Loading subtitles…</string>
+    <string name="subtitle_source_preference">Preferred subtitle source</string>
+    <string name="subtitle_source_preference_desc">Which source to preselect when a language offers several.</string>
     <string name="subtitle_section_core">Core</string>
     <string name="subtitle_section_advanced">Advanced</string>
     <string name="subtitle_font_size">Font Size</string>

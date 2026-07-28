@@ -15,7 +15,11 @@ import { subtitleRepository } from "../../../data/repository/subtitleRepository.
 import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { parentalGuideRepository } from "../../../data/repository/parentalGuideRepository.js";
 import { skipIntroRepository } from "../../../data/repository/skipIntroRepository.js";
-import { PlayerSettingsStore, DEFAULT_SUBTITLE_STYLE } from "../../../data/local/playerSettingsStore.js";
+import {
+  PlayerSettingsStore,
+  DEFAULT_SUBTITLE_STYLE,
+  normalizeSubtitleSourcePreference
+} from "../../../data/local/playerSettingsStore.js";
 import { WebOsAudioCompatibilityStore } from "../../../data/local/webOsAudioCompatibilityStore.js";
 import { TrackPreferencesStore } from "../../../data/local/trackPreferencesStore.js";
 import {
@@ -8982,6 +8986,7 @@ export const PlayerScreen = {
         secondary: secondaryParts.join(" • "),
         selected: Boolean(entry.selected),
         sourceType: "internal",
+        isBitmap: Boolean(entry.bitmapSubtitle),
         isForced,
         unavailable: Boolean(entry.unavailable),
         entry
@@ -9575,8 +9580,14 @@ export const PlayerScreen = {
 
     const options = this.collectSubtitleOptionItems().filter((entry) => entry.languageKey !== SUBTITLE_LANGUAGE_OFF_KEY);
     const matchTarget = (entry, target) => this.matchesStartupSubtitleTarget(entry, target);
-    const findMatch = (target, { sourceType = null, forced = null } = {}) => options.find((entry) => {
+    const findMatch = (target, { sourceType = null, forced = null, bitmap = null } = {}) => options.find((entry) => {
       if (sourceType && entry.sourceType !== sourceType) {
+        return false;
+      }
+      if (bitmap === true && !entry.isBitmap) {
+        return false;
+      }
+      if (bitmap === false && entry.isBitmap) {
         return false;
       }
       if (forced === true && !entry.isForced) {
@@ -9597,13 +9608,33 @@ export const PlayerScreen = {
         continue;
       }
 
-      const internalMatch = findMatch(target, { sourceType: "internal", forced: false });
-      if (internalMatch) return internalMatch;
-      const addonMatch = findMatch(target, { sourceType: "addon", forced: false });
-      if (addonMatch) return addonMatch;
+      // Ordered by the user's source preference. Every order puts image-based
+      // tracks last within its group: they cannot be restyled and cost far more
+      // to render, so they are only worth picking when nothing else matches.
+      const builtinText = () => findMatch(target, { sourceType: "internal", forced: false, bitmap: false });
+      const builtinImage = () => findMatch(target, { sourceType: "internal", forced: false, bitmap: true });
+      const addon = () => findMatch(target, { sourceType: "addon", forced: false });
+
+      const preference = this.getSubtitleSourcePreference();
+      const order = preference === "builtin"
+        ? [builtinText, builtinImage, addon]
+        : preference === "addon"
+          ? [addon, builtinText, builtinImage]
+          : [builtinText, addon, builtinImage];
+
+      for (const pick of order) {
+        const match = pick();
+        if (match) {
+          return match;
+        }
+      }
     }
 
     return null;
+  },
+
+  getSubtitleSourcePreference() {
+    return normalizeSubtitleSourcePreference(PlayerSettingsStore.get().subtitleSourcePreference);
   },
 
   matchesStartupSubtitleTarget(entry, target) {
