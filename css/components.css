@@ -13443,6 +13443,11 @@ img[data-lazy-src] {
   margin: min(0.42vw, 8px) 0;
 }
 
+/* No backdrop-filter here: these panels are ~1040x1080 and sit over decoding
+   video, so a live blur forces the compositor to read back and re-blur half the
+   screen every frame the video advances — the single most expensive thing on the
+   player on webOS. The near-opaque fill below reproduces the intended look
+   (the modal scrim already darkens what shows through at the edges). */
 .player-sources-panel,
 .player-episode-panel {
   width: var(--player-panel-width);
@@ -13450,9 +13455,7 @@ img[data-lazy-src] {
   border-radius: 64px;
   transform: translateX(0);
   transition: opacity 120ms ease, transform 220ms ease;
-  background: rgba(12, 14, 18, 0.72);
-  backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
-  -webkit-backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
+  background: rgba(12, 14, 18, 0.97);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 

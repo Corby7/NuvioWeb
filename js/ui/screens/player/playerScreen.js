@@ -336,6 +336,10 @@ const PLAYER_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const NEXT_EPISODE_THRESHOLD_PERCENT = 0.985;
 const NEXT_EPISODE_PREFETCH_PERCENT = 0.9;
 const SKIP_INTERVAL_CHECK_MS = 250;
+const PANEL_ARROW_DIRECTIONS = { 37: "left", 38: "up", 39: "right", 40: "down" };
+// Only applies to auto-repeat from a held key (TV remotes send discrete presses
+// with `repeat` unset, so their input is never dropped).
+const PANEL_HELD_KEY_MIN_INTERVAL_MS = 60;
 const PARENTAL_GUIDE_ROW_HEIGHT = 36;
 const PARENTAL_GUIDE_ROW_GAP = 4;
 const PAUSE_OVERLAY_DELAY_MS = 5000;
@@ -1192,6 +1196,26 @@ function resolvePlayerSourceBadgePlacement(badgeSettings = StreamBadgeSettingsSt
   return String(badgeSettings.badgePlacement || "BOTTOM").trim().toUpperCase() === "TOP" ? "TOP" : "BOTTOM";
 }
 
+// Badge matching runs every compiled regex rule against every candidate field of
+// every stream, so re-deriving it for the whole list on each sources-panel render
+// is quadratic while addon chunks stream in. Stream objects survive
+// mergeStreamItems by reference, so a WeakMap keyed on the stream (validated
+// against the settings snapshot identity) collapses that to one match per stream.
+const playerSourceBadgeHtmlCache = new WeakMap();
+
+function renderCachedPlayerSourceBadges(stream, badgeSettings) {
+  if (!stream || typeof stream !== "object") {
+    return renderPlayerSourceBadges(stream, badgeSettings);
+  }
+  const cached = playerSourceBadgeHtmlCache.get(stream);
+  if (cached && cached.settings === badgeSettings) {
+    return cached.html;
+  }
+  const html = renderPlayerSourceBadges(stream, badgeSettings);
+  playerSourceBadgeHtmlCache.set(stream, { settings: badgeSettings, html });
+  return html;
+}
+
 function formatSubtitleDelay(delayMs = 0) {
   const seconds = Number(delayMs || 0) / 1000;
   return `${seconds >= 0 ? "+" : ""}${seconds.toFixed(3)}s`;
@@ -1778,6 +1802,16 @@ export const PlayerScreen = {
     this.sourceLoadToken = 0;
     this.streamCandidatesByVideoId = new Map();
     this.streamCandidatesLoadPromises = new Map();
+    this.orderedStreamCandidatesSource = null;
+    this.orderedStreamCandidatesCache = null;
+    this.sourceFiltersCacheSource = null;
+    this.sourceFiltersCache = null;
+    this.filteredSourcesCacheSource = null;
+    this.filteredSourcesCacheFilter = null;
+    this.filteredSourcesCache = null;
+    this.sourceBadgeSettingsCache = null;
+    this.sourcesRenderFrame = null;
+    this.lastHeldPanelKeyAt = 0;
 
     this.aspectModeIndex = 0;
     this.aspectToastTimer = null;
@@ -11656,19 +11690,34 @@ export const PlayerScreen = {
     return keyCode === 37 || keyCode === 38 || keyCode === 39 || keyCode === 40 || keyCode === 13;
   },
 
+  // A single sources-panel key press used to run this sort six times over
+  // (moveSourcesFocus, ensureSourcesFocus and renderSourcesPanel each ask for
+  // both the filters and the list). Every streamCandidates assignment builds a
+  // fresh array, so caching on array identity is safe and needs no manual
+  // invalidation.
   getSourceFilters() {
+    const ordered = this.getOrderedStreamCandidates();
+    if (this.sourceFiltersCacheSource === ordered && this.sourceFiltersCache) {
+      return this.sourceFiltersCache;
+    }
     const addons = [];
-    this.getOrderedStreamCandidates().forEach((stream) => {
+    ordered.forEach((stream) => {
       const addonName = String(stream?.addonName || "").trim();
       if (addonName && !addons.includes(addonName)) {
         addons.push(addonName);
       }
     });
-    return ["all", ...addons];
+    this.sourceFiltersCacheSource = ordered;
+    this.sourceFiltersCache = ["all", ...addons];
+    return this.sourceFiltersCache;
   },
 
   getOrderedStreamCandidates() {
-    return (this.streamCandidates || [])
+    const candidates = this.streamCandidates || [];
+    if (this.orderedStreamCandidatesSource === candidates && this.orderedStreamCandidatesCache) {
+      return this.orderedStreamCandidatesCache;
+    }
+    const ordered = candidates
       .map((stream, index) => ({ stream, index }))
       .sort((left, right) => {
         const leftOrder = Number(left.stream?.addonOrderIndex ?? Number.MAX_SAFE_INTEGER);
@@ -11679,14 +11728,36 @@ export const PlayerScreen = {
         return left.index - right.index;
       })
       .map((entry) => entry.stream);
+    this.orderedStreamCandidatesSource = candidates;
+    this.orderedStreamCandidatesCache = ordered;
+    return ordered;
   },
 
   getFilteredSources() {
     const ordered = this.getOrderedStreamCandidates();
-    if (this.sourceFilter === "all") {
-      return ordered;
+    const filter = this.sourceFilter;
+    if (this.filteredSourcesCacheSource === ordered
+      && this.filteredSourcesCacheFilter === filter
+      && this.filteredSourcesCache) {
+      return this.filteredSourcesCache;
     }
-    return ordered.filter((stream) => stream.addonName === this.sourceFilter);
+    const filtered = filter === "all"
+      ? ordered
+      : ordered.filter((stream) => stream.addonName === filter);
+    this.filteredSourcesCacheSource = ordered;
+    this.filteredSourcesCacheFilter = filter;
+    this.filteredSourcesCache = filtered;
+    return filtered;
+  },
+
+  getSourceBadgeSettings() {
+    // Settings can only change from the settings route, which means leaving the
+    // player, so one snapshot per panel session is enough — and its stable
+    // identity is what lets renderCachedPlayerSourceBadges hit.
+    if (!this.sourceBadgeSettingsCache) {
+      this.sourceBadgeSettingsCache = StreamBadgeSettingsStore.snapshot();
+    }
+    return this.sourceBadgeSettingsCache;
   },
 
   ensureSourcesFocus() {
@@ -11728,6 +11799,7 @@ export const PlayerScreen = {
     this.subtitleDialogVisible = false;
     this.audioDialogVisible = false;
     this.speedDialogVisible = false;
+    this.sourceBadgeSettingsCache = null;
 
     const filters = this.getSourceFilters();
     this.sourcesFocus = { zone: "filter", index: clamp(filters.indexOf(this.sourceFilter), 0, Math.max(0, filters.length - 1)) };
@@ -11782,7 +11854,7 @@ export const PlayerScreen = {
           return;
         }
         this.streamCandidates = mergeStreamItems(this.streamCandidates, chunkItems);
-        this.renderSourcesPanel();
+        this.scheduleSourcesPanelRender();
       }
     };
 
@@ -11819,9 +11891,11 @@ export const PlayerScreen = {
       return;
     }
 
+    this.cancelScheduledSourcesPanelRender();
+
     const filters = this.getSourceFilters();
     const filtered = this.getFilteredSources();
-    const badgeSettings = StreamBadgeSettingsStore.snapshot();
+    const badgeSettings = this.getSourceBadgeSettings();
     const badgePlacement = resolvePlayerSourceBadgePlacement(badgeSettings);
     this.ensureSourcesFocus();
 
@@ -11860,7 +11934,7 @@ export const PlayerScreen = {
           : filtered.map((stream, index) => {
             const focused = this.sourcesFocus.zone === "list" && this.sourcesFocus.index === index;
             const isCurrent = this.streamCandidates[this.currentStreamIndex]?.url === stream.url;
-            const badges = renderPlayerSourceBadges(stream, badgeSettings);
+            const badges = renderCachedPlayerSourceBadges(stream, badgeSettings);
             const topBadges = badgePlacement === "TOP" ? badges : "";
             const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
             const addonLogoUrl = normalizeImageUrl(stream.addonLogo);
@@ -11881,6 +11955,78 @@ export const PlayerScreen = {
     const focusedCard = panel.querySelector(".player-source-card.focused");
     if (focusedCard) {
       focusedCard.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  },
+
+  // Caps how fast a held-down key can walk a panel list. Discrete presses always
+  // pass through — only OS auto-repeat (`event.repeat`) is rate limited, so no
+  // deliberate input is ever swallowed.
+  shouldThrottleHeldPanelKey(event) {
+    if (!event?.repeat) {
+      this.lastHeldPanelKeyAt = 0;
+      return false;
+    }
+    const now = Date.now();
+    if (now - (this.lastHeldPanelKeyAt || 0) < PANEL_HELD_KEY_MIN_INTERVAL_MS) {
+      return true;
+    }
+    this.lastHeldPanelKeyAt = now;
+    return false;
+  },
+
+  // Addon chunks land in bursts; coalescing the rebuilds to one per frame keeps
+  // a slow addon from starving the main thread while video decodes.
+  scheduleSourcesPanelRender() {
+    if (this.sourcesRenderFrame != null || !this.sourcesPanelVisible) {
+      return;
+    }
+    if (typeof requestAnimationFrame !== "function") {
+      this.renderSourcesPanel();
+      return;
+    }
+    this.sourcesRenderFrame = requestAnimationFrame(() => {
+      this.sourcesRenderFrame = null;
+      this.renderSourcesPanel();
+    });
+  },
+
+  cancelScheduledSourcesPanelRender() {
+    if (this.sourcesRenderFrame != null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(this.sourcesRenderFrame);
+    }
+    this.sourcesRenderFrame = null;
+  },
+
+  // Moving focus only changes which node carries `.focused`, so mutate those two
+  // nodes instead of re-serialising the whole panel (header, filters and every
+  // stream card) on each d-pad press.
+  syncSourcesFocusVisual() {
+    const panel = this.uiRefs?.sourcesPanel;
+    if (!panel || !this.sourcesPanelVisible) {
+      return;
+    }
+    if (this.sourcesRenderFrame != null) {
+      // A full rebuild is already queued and will paint the right focus itself.
+      return;
+    }
+    this.ensureSourcesFocus();
+    const zone = String(this.sourcesFocus.zone || "");
+    const index = Number(this.sourcesFocus.index || 0);
+    const next = panel.querySelector(`[data-sources-zone="${zone}"][data-sources-index="${index}"]`);
+    if (!next) {
+      // Focus points at something this render does not contain — fall back.
+      this.renderSourcesPanel();
+      return;
+    }
+    if (next.classList.contains("focused")) {
+      return;
+    }
+    panel.querySelectorAll("[data-sources-zone].focused").forEach((node) => {
+      node.classList.remove("focused");
+    });
+    next.classList.add("focused");
+    if (zone === "list") {
+      next.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
   },
 
@@ -11981,24 +12127,13 @@ export const PlayerScreen = {
       return true;
     }
 
-    if (keyCode === 37) {
-      this.moveSourcesFocus("left");
-      this.renderSourcesPanel();
-      return true;
-    }
-    if (keyCode === 39) {
-      this.moveSourcesFocus("right");
-      this.renderSourcesPanel();
-      return true;
-    }
-    if (keyCode === 38) {
-      this.moveSourcesFocus("up");
-      this.renderSourcesPanel();
-      return true;
-    }
-    if (keyCode === 40) {
-      this.moveSourcesFocus("down");
-      this.renderSourcesPanel();
+    const direction = PANEL_ARROW_DIRECTIONS[keyCode];
+    if (direction) {
+      if (this.shouldThrottleHeldPanelKey(event)) {
+        return true;
+      }
+      this.moveSourcesFocus(direction);
+      this.syncSourcesFocusVisual();
       return true;
     }
     if (keyCode === 13) {
@@ -12329,7 +12464,26 @@ export const PlayerScreen = {
     }
     const lastIndex = this.episodes.length - 1;
     this.episodePanelIndex = clamp(this.episodePanelIndex + delta, 0, lastIndex);
-    this.renderEpisodePanel();
+    this.syncEpisodePanelSelection();
+  },
+
+  // The panel used to be torn down and rebuilt — 80 cards and their <img> tags —
+  // for every d-pad press. Only the `.selected` class actually changes, so move
+  // it between the two affected nodes. Keeping the nodes alive also lets the
+  // .player-episode-item transition run, which it never could on fresh elements.
+  syncEpisodePanelSelection() {
+    const panel = this.container?.querySelector("#episodeSidePanel");
+    if (!panel) {
+      this.renderEpisodePanel();
+      return;
+    }
+    const next = panel.querySelector(`.player-episode-item[data-episode-index="${this.episodePanelIndex}"]`);
+    if (!next || next.classList.contains("selected")) {
+      return;
+    }
+    panel.querySelector(".player-episode-item.selected")?.classList.remove("selected");
+    next.classList.add("selected");
+    next.scrollIntoView({ block: "nearest", inline: "nearest" });
   },
 
   renderEpisodePanel() {
@@ -12663,6 +12817,7 @@ export const PlayerScreen = {
         zone: sourcesNode.dataset.sourcesZone || "filter",
         index: Number(sourcesNode.dataset.sourcesIndex || 0)
       };
+      this.syncSourcesFocusVisual();
       return;
     }
 
@@ -12703,6 +12858,7 @@ export const PlayerScreen = {
     const episodeNode = target?.closest?.("[data-episode-index]");
     if (episodeNode && this.episodePanelVisible) {
       this.episodePanelIndex = Number(episodeNode.dataset.episodeIndex || 0);
+      this.syncEpisodePanelSelection();
     }
   },
 
@@ -12985,12 +13141,10 @@ export const PlayerScreen = {
     }
 
     if (this.episodePanelVisible) {
-      if (keyCode === 38) {
-        this.moveEpisodePanel(-1);
-        return;
-      }
-      if (keyCode === 40) {
-        this.moveEpisodePanel(1);
+      if (keyCode === 38 || keyCode === 40) {
+        if (!this.shouldThrottleHeldPanelKey(event)) {
+          this.moveEpisodePanel(keyCode === 38 ? -1 : 1);
+        }
         return;
       }
       if (keyCode === 13) {
