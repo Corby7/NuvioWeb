@@ -12088,6 +12088,62 @@ img[data-lazy-src] {
   pointer-events: none;
 }
 
+/* Extracting a subtitle window takes several seconds over a debrid link, so
+   selecting a track needs feedback. Shares the aspect toast's look but sits
+   lower so the two never overlap, and stays up until the cues land. */
+.player-subtitle-loading-toast {
+  position: absolute;
+  left: 50%;
+  /* Sits on the subtitle line — same bottom inset as .player-subtitle-overlay,
+     including the user's vertical offset — so the message appears exactly where
+     the subtitles are about to, and the eye is already there. */
+  top: auto;
+  bottom: calc(7vh + var(--player-subtitle-overlay-offset, 0vh));
+  transform: translateX(-50%);
+  z-index: 35;
+  /* No pill or border: this is transient status, not a control. A shadow keeps
+     it legible over bright frames now that there is no backing surface. */
+  padding: 0;
+  border: none;
+  background: none;
+  color: rgba(240, 246, 255, 0.6);
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  font-size: clamp(17px, 1.1vw, 22px);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+  opacity: 1;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+
+.player-subtitle-loading-toast.hidden {
+  opacity: 0;
+}
+
+.player-subtitle-loading-toast::before {
+  content: "";
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: rgba(255, 255, 255, 0.55);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  animation: player-subtitle-loading-spin 900ms linear infinite;
+}
+
+@keyframes player-subtitle-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-subtitle-loading-toast::before {
+    animation: none;
+  }
+}
+
 .player-stats-overlay {
   position: absolute;
   left: clamp(24px, 2vw, 40px);

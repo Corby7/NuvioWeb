@@ -362,6 +362,11 @@ const BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS = 90;
 const TEXT_SUBTITLE_WINDOW_SECONDS = 180;
 const TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS = 120;
 const TEXT_SUBTITLE_PREFETCH_SECONDS = 25;
+// Measured on the C3 against a 25GB remux: a fresh window costs ~6.4s fixed
+// (range-request setup) plus ~0.074s per second of span, so a 180s window takes
+// ~19.7s but a 30s one takes ~8.6s. Load a narrow window first so subtitles
+// appear roughly twice as fast, then widen in the background.
+const SUBTITLE_FIRST_WINDOW_SECONDS = 30;
 const PARENTAL_GUIDE_CONTAINER_IN_MS = 300;
 const PARENTAL_GUIDE_LINE_IN_MS = 400;
 const PARENTAL_GUIDE_ITEM_STAGGER_MS = 80;
@@ -3889,6 +3894,7 @@ export const PlayerScreen = {
         <div id="playerSkipIntro" class="player-skip-intro hidden"></div>
 
         <div id="playerAspectToast" class="player-aspect-toast hidden"></div>
+        <div id="playerSubtitleLoadingToast" class="player-subtitle-loading-toast hidden" role="status" aria-live="polite"></div>
 
         <div id="playerSeekOverlay" class="player-seek-overlay hidden">
           <div class="player-seek-overlay-track"><div id="playerSeekFill" class="player-progress-fill"></div></div>
@@ -3976,6 +3982,7 @@ export const PlayerScreen = {
       parentalGuide: uiRoot.querySelector("#playerParentalGuide"),
       skipIntro: uiRoot.querySelector("#playerSkipIntro"),
       aspectToast: uiRoot.querySelector("#playerAspectToast"),
+      subtitleLoadingToast: uiRoot.querySelector("#playerSubtitleLoadingToast"),
       seekOverlay: uiRoot.querySelector("#playerSeekOverlay"),
       seekDirection: uiRoot.querySelector("#playerSeekDirection"),
       seekPreview: uiRoot.querySelector("#playerSeekPreview"),
@@ -5378,15 +5385,28 @@ export const PlayerScreen = {
       });
     });
 
+    // Only nudge the native pipeline for tracks it actually owns. A bitmap or
+    // extracted-text track is drawn by the app, so re-enabling it here would
+    // put a second set of subtitles on screen underneath ours.
+    const appRendersSubtitles = Boolean(this.bitmapSubtitleTrack)
+      || this.embeddedTextSubtitleTrackIndex >= 0;
     if (Environment.isWebOS()
+      && !appRendersSubtitles
       && this.selectedEmbeddedSubtitleTrackIndex >= 0
       && typeof PlayerController.setWebOsEmbeddedSubtitleTrack === "function") {
       const selectedIndex = this.selectedEmbeddedSubtitleTrackIndex;
+      // Luna indexes by pipeline position, not by container position; passing
+      // the embedded index here selected a different track entirely.
+      const embeddedTrack = this.getEmbeddedSubtitleTrackByEmbeddedIndex(selectedIndex);
+      const nativeTrackIndex = Number(embeddedTrack?.nativeTrackIndex);
+      if (!Number.isFinite(nativeTrackIndex) || nativeTrackIndex < 0) {
+        return;
+      }
       setTimeout(() => {
         if (this.selectedEmbeddedSubtitleTrackIndex !== selectedIndex) {
           return;
         }
-        PlayerController.setWebOsEmbeddedSubtitleTrack(selectedIndex);
+        PlayerController.setWebOsEmbeddedSubtitleTrack(nativeTrackIndex);
       }, 50);
     }
   },
@@ -9833,6 +9853,7 @@ export const PlayerScreen = {
     this.embeddedTextSubtitleTrackIndex = -1;
     this.embeddedTextSubtitleTrack = null;
     this.embeddedTextSubtitleLoading = false;
+    this.setSubtitleLoadingIndicator(false);
 
     const isEmbeddedEntry = Object.prototype.hasOwnProperty.call(entry, "embeddedSubtitleTrackIndex");
     if (!isEmbeddedEntry) {
@@ -9866,7 +9887,7 @@ export const PlayerScreen = {
         this.selectedAddonSubtitleId = null;
         this.selectedManifestSubtitleTrackId = null;
         this.warmBitmapSubtitleSharedResources();
-        this.renderBitmapSubtitleAtCurrentTime({ force: true });
+        void this.loadBitmapSubtitleWindow(this.getPlaybackCurrentSeconds(), { quick: true });
         this.invalidateTrackDialogCaches();
         this.renderControlButtons();
         this.renderSubtitleDialog();
@@ -9903,7 +9924,8 @@ export const PlayerScreen = {
         this.renderSubtitleDialog();
         void this.loadEmbeddedTextSubtitleCues(
           embeddedTrack,
-          this.getPlaybackCurrentSeconds()
+          this.getPlaybackCurrentSeconds(),
+          { quick: true }
         ).then((applied) => {
           if (applied || this.selectedEmbeddedSubtitleTrackIndex !== targetTrackIndex) {
             return;
@@ -10077,6 +10099,30 @@ export const PlayerScreen = {
   // them on the video plane where none of the app's style settings can reach
   // them. Extracting the cues and rendering them through the overlay makes font
   // size, colour, outline, offset and delay work on built-in subtitles too.
+  // Only shown for a user-initiated track change. Background window refreshes
+  // and prefetches must stay silent or it would blink every ~90s.
+  setSubtitleLoadingIndicator(visible) {
+    const toast = this.uiRefs?.subtitleLoadingToast;
+    if (!toast) {
+      return;
+    }
+    if (this.subtitleLoadingIndicatorTimer) {
+      clearTimeout(this.subtitleLoadingIndicatorTimer);
+      this.subtitleLoadingIndicatorTimer = null;
+    }
+    if (!visible) {
+      toast.classList.add("hidden");
+      return;
+    }
+    // A cached window returns in tens of milliseconds; showing a spinner for
+    // that just flickers. Only surface it once the wait is actually noticeable.
+    this.subtitleLoadingIndicatorTimer = setTimeout(() => {
+      this.subtitleLoadingIndicatorTimer = null;
+      toast.textContent = t("subtitle_loading_cues", {}, "Loading subtitles…");
+      toast.classList.remove("hidden");
+    }, 350);
+  },
+
   canRenderEmbeddedTextSubtitles() {
     return Environment.isWebOS() && Boolean(this.subtitleOverlay);
   },
@@ -10103,7 +10149,7 @@ export const PlayerScreen = {
     }
   },
 
-  async loadEmbeddedTextSubtitleCues(track, timeSeconds = 0) {
+  async loadEmbeddedTextSubtitleCues(track, timeSeconds = 0, { quick = false } = {}) {
     const sourceUrl = this.getTrackProbeUrl();
     const trackNumber = Number(track?.sourceTrackId);
     if (!sourceUrl || !Number.isFinite(trackNumber) || trackNumber <= 0) {
@@ -10112,16 +10158,23 @@ export const PlayerScreen = {
     const requestToken = Number(this.embeddedTextSubtitleToken || 0) + 1;
     this.embeddedTextSubtitleToken = requestToken;
     this.embeddedTextSubtitleLoading = true;
+    if (quick) {
+      this.setSubtitleLoadingIndicator(true);
+    }
 
     const time = Math.max(0, Number(timeSeconds || 0));
-    const startSeconds = Math.floor(time / TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS)
-      * TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS;
+    // The quick pass sits tight around the playhead rather than snapping to a
+    // bucket, so it fetches the least possible to get something on screen.
+    const startSeconds = quick
+      ? Math.max(0, Math.floor(time) - 2)
+      : Math.floor(time / TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS) * TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS;
+    const windowSeconds = quick ? SUBTITLE_FIRST_WINDOW_SECONDS : TEXT_SUBTITLE_WINDOW_SECONDS;
     try {
       const windowData = await localMediaBitmapSubtitleRepository.getWindow({
         url: sourceUrl,
         trackNumber,
         startSeconds,
-        endSeconds: startSeconds + TEXT_SUBTITLE_WINDOW_SECONDS
+        endSeconds: startSeconds + windowSeconds
       });
       if (requestToken !== this.embeddedTextSubtitleToken) {
         return false;
@@ -10145,6 +10198,16 @@ export const PlayerScreen = {
       this.embeddedTextSubtitleWindowStart = windowData.windowStartSeconds;
       this.embeddedTextSubtitleWindowEnd = windowData.windowEndSeconds;
       this.embeddedTextSubtitleLastErrorAt = 0;
+      if (quick) {
+        // Narrow window is only a stopgap; pull the real one straight after so
+        // playback does not hit its edge in half a minute.
+        this.embeddedTextSubtitleLoading = false;
+        setTimeout(() => {
+          if (this.embeddedTextSubtitleTrack === track) {
+            void this.loadEmbeddedTextSubtitleCues(track, time);
+          }
+        }, 0);
+      }
       // An empty stretch is still a valid window — subtitles simply have a gap
       // there — so keep the track active rather than falling back to native.
       this.subtitleOverlay?.setCueList(cues);
@@ -10161,6 +10224,9 @@ export const PlayerScreen = {
     } finally {
       if (requestToken === this.embeddedTextSubtitleToken) {
         this.embeddedTextSubtitleLoading = false;
+      }
+      if (quick) {
+        this.setSubtitleLoadingIndicator(false);
       }
     }
   },
@@ -10215,7 +10281,7 @@ export const PlayerScreen = {
     }
   },
 
-  async loadBitmapSubtitleWindow(timeSeconds) {
+  async loadBitmapSubtitleWindow(timeSeconds, { quick = false } = {}) {
     const track = this.bitmapSubtitleTrack;
     const sourceUrl = this.getTrackProbeUrl();
     if (!track || !sourceUrl || this.bitmapSubtitleLoading) {
@@ -10224,15 +10290,23 @@ export const PlayerScreen = {
     const requestToken = Number(this.bitmapSubtitleLoadToken || 0) + 1;
     this.bitmapSubtitleLoadToken = requestToken;
     this.bitmapSubtitleLoading = true;
+    if (quick) {
+      this.setSubtitleLoadingIndicator(true);
+    }
     const subtitleTime = Math.max(0, Number(timeSeconds || 0));
-    const startSeconds = Math.floor(subtitleTime / BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS)
-      * BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS;
+    // See SUBTITLE_FIRST_WINDOW_SECONDS: a narrow first fetch roughly halves the
+    // wait before the first cue, then the full window loads behind it.
+    const startSeconds = quick
+      ? Math.max(0, Math.floor(subtitleTime) - 2)
+      : Math.floor(subtitleTime / BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS)
+        * BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS;
+    const windowSeconds = quick ? SUBTITLE_FIRST_WINDOW_SECONDS : BITMAP_SUBTITLE_WINDOW_SECONDS;
     try {
       const windowData = await localMediaBitmapSubtitleRepository.getWindow({
         url: sourceUrl,
         trackNumber: track.sourceTrackId,
         startSeconds,
-        endSeconds: startSeconds + BITMAP_SUBTITLE_WINDOW_SECONDS
+        endSeconds: startSeconds + windowSeconds
       });
       if (requestToken !== this.bitmapSubtitleLoadToken || this.bitmapSubtitleTrack !== track) {
         return false;
@@ -10257,6 +10331,14 @@ export const PlayerScreen = {
       this.bitmapSubtitleWindowEnd = windowData.windowEndSeconds;
       this.bitmapSubtitleLastFrameKey = "";
       this.renderBitmapSubtitleAtCurrentTime({ force: true });
+      if (quick) {
+        this.bitmapSubtitleLoading = false;
+        setTimeout(() => {
+          if (this.bitmapSubtitleTrack === track) {
+            void this.loadBitmapSubtitleWindow(subtitleTime);
+          }
+        }, 0);
+      }
       return true;
     } catch (error) {
       if (requestToken === this.bitmapSubtitleLoadToken && this.bitmapSubtitleTrack === track) {
@@ -10272,6 +10354,9 @@ export const PlayerScreen = {
     } finally {
       if (requestToken === this.bitmapSubtitleLoadToken) {
         this.bitmapSubtitleLoading = false;
+      }
+      if (quick) {
+        this.setSubtitleLoadingIndicator(false);
       }
     }
   },
@@ -13300,6 +13385,7 @@ export const PlayerScreen = {
     this.subtitleOverlay?.detach();
     this.clearBitmapSubtitleOverlay({ dispose: true });
     this.bitmapSubtitleDecoderWarmed = false;
+    this.setSubtitleLoadingIndicator(false);
 
     this.clearControlsAutoHide();
     this.skipIntroAutoHidden = false;
