@@ -968,6 +968,18 @@ function formatTime(secondsValue) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+// Signed jump for the seek readouts ("+1:20" / "−0:45"). Empty at zero so the
+// pill's :empty rule hides it rather than showing a meaningless "+0:00".
+// Shared by the seek overlay and the transport's own bar so the two cannot
+// drift apart in format.
+function formatSeekDelta(secondsValue) {
+  const rounded = Math.round(Number(secondsValue) || 0);
+  if (!rounded) {
+    return "";
+  }
+  return `${rounded > 0 ? "+" : "−"}${formatTime(Math.abs(rounded))}`;
+}
+
 function formatClock(date = new Date()) {
   const locale = typeof I18n.getLocale === "function" ? I18n.getLocale() : undefined;
   const localeKey = String(locale || "__default__");
@@ -1937,6 +1949,7 @@ export const PlayerScreen = {
 
     this.episodes = Array.isArray(params.episodes) ? params.episodes : [];
     this.episodePanelVisible = false;
+    this.episodePanelRestoreControls = false;
     const explicitEpisodeIndex = this.episodes.findIndex((entry) => entry.id === params.videoId);
     const fallbackEpisodeIndex = this.episodes.findIndex((entry) => {
       const seasonMatch = params.season == null || Number(entry?.season) === Number(params.season);
@@ -2643,7 +2656,13 @@ export const PlayerScreen = {
     const activeInterval = this.activeSkipInterval;
     const playbackReady = this.isSkipIntroPlaybackReady();
     const shouldShow = Boolean(activeInterval) && playbackReady && !this.skipIntervalDismissed;
-    const isVisible = shouldShow && (!this.skipIntroAutoHidden || this.controlsVisible);
+    // The skip button lives outside the controls overlay, so hiding the
+    // transport does not take it with it — and without the controls up it drops
+    // out of `is-raised` onto the episode rail's cards. It is also unreachable
+    // while the rail is open, since the rail's handler owns OK.
+    const isVisible = shouldShow
+      && (!this.skipIntroAutoHidden || this.controlsVisible)
+      && !this.episodePanelVisible;
     const activeKey = activeInterval ? `${activeInterval.type}:${activeInterval.startTime}:${activeInterval.endTime}` : "none";
     const renderKey = `${activeKey}|ready:${playbackReady ? 1 : 0}|controls:${this.controlsVisible ? 1 : 0}|hidden:${this.skipIntroAutoHidden ? 1 : 0}|dismissed:${this.skipIntervalDismissed ? 1 : 0}`;
     button.classList.toggle("hidden", !isVisible);
@@ -4052,10 +4071,15 @@ export const PlayerScreen = {
         <div id="playerSubtitleLoadingToast" class="player-subtitle-loading-toast hidden" role="status" aria-live="polite"></div>
 
         <div id="playerSeekOverlay" class="player-seek-overlay hidden">
-          <div class="player-seek-overlay-track"><div id="playerSeekFill" class="player-progress-fill"></div></div>
+          <div class="player-seek-overlay-gradient"></div>
+          <div class="player-seek-overlay-track">
+            <div id="playerSeekOrigin" class="player-seek-origin"></div>
+            <div id="playerSeekFill" class="player-progress-fill"></div>
+          </div>
           <div class="player-seek-overlay-bottom">
             <span id="playerSeekDirection" class="player-seek-direction"></span>
             <span id="playerSeekPreview" class="player-time-label">0:00 / 0:00</span>
+            <span id="playerSeekDelta" class="player-seek-delta"></span>
           </div>
         </div>
 
@@ -4091,6 +4115,7 @@ export const PlayerScreen = {
               <div id="playerProgressShell" class="player-progress-shell focusable" tabindex="-1" data-player-pointer-action="progress">
                 <div class="player-progress-track">
                   <div id="playerProgressBuffered" class="player-progress-buffered"></div>
+                  <div id="playerProgressOrigin" class="player-seek-origin hidden"></div>
                   <div id="playerProgressFill" class="player-progress-fill"></div>
                 </div>
               </div>
@@ -4098,6 +4123,7 @@ export const PlayerScreen = {
               <div class="player-controls-row">
                 <div id="playerControlButtons" class="player-control-buttons"></div>
                 <div id="playerTimeLabel" class="player-time-label">0:00 / 0:00</div>
+                <span id="playerProgressDelta" class="player-seek-delta"></span>
               </div>
             </div>
           </div>
@@ -4141,6 +4167,8 @@ export const PlayerScreen = {
       seekOverlay: uiRoot.querySelector("#playerSeekOverlay"),
       seekDirection: uiRoot.querySelector("#playerSeekDirection"),
       seekPreview: uiRoot.querySelector("#playerSeekPreview"),
+      seekDelta: uiRoot.querySelector("#playerSeekDelta"),
+      seekOrigin: uiRoot.querySelector("#playerSeekOrigin"),
       seekFill: uiRoot.querySelector("#playerSeekFill"),
       pauseOverlay: uiRoot.querySelector("#playerPauseOverlay"),
       statsOverlay: uiRoot.querySelector("#playerStatsOverlay"),
@@ -4156,6 +4184,8 @@ export const PlayerScreen = {
       endsAt: uiRoot.querySelector("#playerEndsAt"),
       bitmapSubtitles: uiRoot.querySelector("#playerBitmapSubtitles"),
       progressBuffered: uiRoot.querySelector("#playerProgressBuffered"),
+      progressOrigin: uiRoot.querySelector("#playerProgressOrigin"),
+      progressDelta: uiRoot.querySelector("#playerProgressDelta"),
       progressFill: uiRoot.querySelector("#playerProgressFill"),
       controlButtons: uiRoot.querySelector("#playerControlButtons"),
       timeLabel: uiRoot.querySelector("#playerTimeLabel")
@@ -4528,6 +4558,9 @@ export const PlayerScreen = {
     const hidden = !this.pauseOverlayVisible || this.loadingVisible;
     overlay.classList.toggle("hidden", hidden);
     controlsOverlay?.classList.toggle("pause-overlay-active", !hidden);
+    // Cues stay out of the way while the card is up — see .is-pause-overlay in
+    // components.css, which covers both the text overlay and the bitmap canvas.
+    this.uiRefs?.root?.classList.toggle("is-pause-overlay", !hidden);
     if (hidden) {
       return;
     }
@@ -5574,26 +5607,38 @@ export const PlayerScreen = {
     }
     const hasModal = this.subtitleDialogVisible || this.audioDialogVisible || this.sourcesPanelVisible || this.episodePanelVisible || this.speedDialogVisible;
     modalBackdrop.classList.toggle("hidden", !hasModal);
-    // The subtitle and audio panels are top-anchored and leave the lower band
-    // clear, so the scrim must stay light down there — for subtitles that band
-    // is where the live style preview renders.
     const hasTrackPanel = Boolean(this.subtitleDialogVisible || this.audioDialogVisible);
-    modalBackdrop.classList.toggle("is-track-panel", hasTrackPanel);
-    // Pulls the subtitle overlay clear of the panel so the live style preview
-    // stays visible while it is open — see .player-subtitle-overlay in
-    // components.css.
-    this.uiRefs?.root?.classList.toggle("is-subtitle-panel-open", Boolean(this.subtitleDialogVisible));
-    // The episode rail is a bottom sheet whose own gradient darkens the lower
-    // band; the point of it is that the video stays watchable above. A
-    // full-screen scrim would defeat that, so drop to a light one when the rail
-    // is the only thing open.
-    const episodeRailOnly = Boolean(this.episodePanelVisible)
-      && !this.sourcesPanelVisible
-      && !hasTrackPanel
-      && !this.speedDialogVisible;
-    modalBackdrop.classList.toggle("is-episode-rail", episodeRailOnly);
+    // Sources is the same right-hand panel geometry as subtitles and audio —
+    // same width, same feather, same slide — so it takes the same scrim. Only
+    // the speed dialog (a small centred card) still wants the full one.
+    const hasSidePanel = hasTrackPanel || Boolean(this.sourcesPanelVisible);
+    // Lifts the subtitle overlay above whichever menu is open so cues stay
+    // visible — and, for the subtitle panel, so its live style preview stays
+    // visible — without shifting them off the horizontal centre they play at.
+    // See .player-subtitle-overlay in components.css.
+    this.uiRefs?.root?.classList.toggle("is-menu-open", hasModal);
+
+    // The scrim variants are only re-evaluated while a modal is actually open.
+    // Clearing them on close swapped the backdrop's background — the episode
+    // rail's light bottom gradient back to the default's 0.88 black ramp —
+    // instantly, and *then* faded that much darker scrim out. The result was a
+    // dark flash on every close. Left in place, the fade-out finishes with the
+    // same background it faded in with, and the next open re-evaluates both.
+    if (hasModal) {
+      modalBackdrop.classList.toggle("is-side-panel", hasSidePanel);
+      // The episode rail is a bottom sheet whose own gradient darkens the lower
+      // band; the point of it is that the video stays watchable above. A
+      // full-screen scrim would defeat that, so drop to a light one when the
+      // rail is the only thing open.
+      const episodeRailOnly = Boolean(this.episodePanelVisible)
+        && !this.sourcesPanelVisible
+        && !hasTrackPanel
+        && !this.speedDialogVisible;
+      modalBackdrop.classList.toggle("is-episode-rail", episodeRailOnly);
+    }
+
     controlsOverlay?.classList.toggle("modal-blocked", hasModal);
-    controlsOverlay?.classList.toggle("track-panel-open", hasTrackPanel);
+    controlsOverlay?.classList.toggle("side-panel-open", hasSidePanel);
   },
 
   bindVideoEvents() {
@@ -6740,6 +6785,39 @@ export const PlayerScreen = {
         uiState.progressWidth = nextWidth;
       }
     }
+    // The same seek feedback the seek overlay gives, on the transport's own
+    // bar: where playback still is, and how far this hold has moved you. Which
+    // of the two you get is purely a matter of whether the controls happened to
+    // be up when you pressed left/right, so they have to show the same thing.
+    // Condition matches effectiveProgressSeconds above — the transport only
+    // previews while focus is actually on the bar.
+    const previewingOnTransport = this.controlsVisible
+      && this.controlFocusZone === "progress"
+      && this.seekPreviewSeconds != null;
+    const progressOrigin = uiRefs.progressOrigin;
+    if (progressOrigin) {
+      const originPercent = duration > 0 ? clamp(current / duration, 0, 1) : 0;
+      const nextOriginLeft = previewingOnTransport
+        ? `${Math.round(originPercent * 10000) / 100}%`
+        : "";
+      if (uiState.progressOriginLeft !== nextOriginLeft) {
+        progressOrigin.classList.toggle("hidden", !previewingOnTransport);
+        if (nextOriginLeft) {
+          progressOrigin.style.left = nextOriginLeft;
+        }
+        uiState.progressOriginLeft = nextOriginLeft;
+      }
+    }
+    const progressDelta = uiRefs.progressDelta;
+    if (progressDelta) {
+      const nextDeltaText = previewingOnTransport
+        ? formatSeekDelta(effectiveProgressSeconds - current)
+        : "";
+      if (uiState.progressDeltaText !== nextDeltaText) {
+        progressDelta.textContent = nextDeltaText;
+        uiState.progressDeltaText = nextDeltaText;
+      }
+    }
     this.renderBitmapSubtitleAtCurrentTime();
     if (this.embeddedTextSubtitleTrack) {
       this.ensureEmbeddedTextSubtitleWindow(current);
@@ -6811,9 +6889,13 @@ export const PlayerScreen = {
     }
 
     const duration = this.getPlaybackDurationSeconds();
+    // Playback does not move while a seek is being previewed — only
+    // seekPreviewSeconds does — so this stays put at wherever the hold
+    // started, which is what makes it usable as an origin to measure from.
+    const playbackSeconds = this.getPlaybackCurrentSeconds();
     const currentPreview = this.seekPreviewSeconds != null
       ? Number(this.seekPreviewSeconds)
-      : this.getPlaybackCurrentSeconds();
+      : playbackSeconds;
 
     const shouldShowOverlay = this.seekOverlayVisible && !this.controlsVisible;
     overlay.classList.toggle("hidden", !shouldShowOverlay);
@@ -6829,11 +6911,37 @@ export const PlayerScreen = {
       uiState.seekDirectionIcon = nextDirectionIcon;
     }
 
+    // How far this hold has moved you. The step size escalates the longer you
+    // hold (10s up to 120s), which is invisible from the absolute time alone —
+    // two presses and ten presses both just show a clock ticking.
+    const deltaNode = this.uiRefs?.seekDelta;
+    if (deltaNode) {
+      const nextDeltaText = Number.isFinite(playbackSeconds) && this.seekPreviewSeconds != null
+        ? formatSeekDelta(currentPreview - playbackSeconds)
+        : "";
+      if (uiState.seekDeltaText !== nextDeltaText) {
+        deltaNode.textContent = nextDeltaText;
+        uiState.seekDeltaText = nextDeltaText;
+      }
+    }
+
     const percent = duration > 0 ? clamp(currentPreview / duration, 0, 1) : 0;
     const nextSeekWidth = `${Math.round(percent * 10000) / 100}%`;
     if (uiState.seekWidth !== nextSeekWidth) {
       fillNode.style.width = nextSeekWidth;
       uiState.seekWidth = nextSeekWidth;
+    }
+
+    // Tick showing where playback actually still is, so an overshoot is
+    // visible on the bar rather than something you work out from the numbers.
+    const originNode = this.uiRefs?.seekOrigin;
+    if (originNode) {
+      const originPercent = duration > 0 ? clamp(playbackSeconds / duration, 0, 1) : 0;
+      const nextOriginLeft = `${Math.round(originPercent * 10000) / 100}%`;
+      if (uiState.seekOriginLeft !== nextOriginLeft) {
+        originNode.style.left = nextOriginLeft;
+        uiState.seekOriginLeft = nextOriginLeft;
+      }
     }
   },
 
@@ -12113,6 +12221,12 @@ export const PlayerScreen = {
     const filters = this.getSourceFilters();
     this.sourcesFocus = { zone: "filter", index: clamp(filters.indexOf(this.sourceFilter), 0, Math.max(0, filters.length - 1)) };
 
+    // Same as openSubtitleDialog / openAudioDialog. Without it, opening sources
+    // from a state where the transport had auto-hidden left the controls
+    // overlay hidden — and its bottom gradient with it — so the panel sat on
+    // raw video while the other two side panels always had the ramp under
+    // them.
+    this.setControlsVisible(true, { focus: false });
     this.renderControlButtons();
     this.renderSubtitleDialog();
     this.renderAudioDialog();
@@ -12811,7 +12925,12 @@ export const PlayerScreen = {
     this.speedDialogVisible = false;
     this.sourcesPanelVisible = false;
     this.updateModalBackdrop();
-    this.setControlsVisible(true, { focus: false });
+    // The rail is a bottom sheet and the transport occupies the same band, so
+    // the two would sit on top of each other. Unlike the side panels there is
+    // no fading it back — it has to go. Remember whether it was up so closing
+    // the rail returns to whichever state the user came from.
+    this.episodePanelRestoreControls = Boolean(this.controlsVisible);
+    this.setControlsVisible(false);
     this.renderSubtitleDialog();
     this.renderAudioDialog();
     this.renderSpeedDialog();
@@ -12971,6 +13090,7 @@ export const PlayerScreen = {
   },
 
   hideEpisodePanel() {
+    const wasVisible = this.episodePanelVisible;
     this.episodePanelVisible = false;
     const panel = this.container?.querySelector("#episodeSidePanel");
     if (panel) {
@@ -12984,7 +13104,14 @@ export const PlayerScreen = {
       }, PANEL_EXIT_MS);
     }
     this.updateModalBackdrop();
-    this.resetControlsAutoHide();
+    // Restore whatever the transport was doing before the rail took the band.
+    // Guarded on wasVisible so a defensive call with the rail already closed
+    // cannot resurrect the controls on its own. setControlsVisible(true)
+    // restarts the auto-hide timer itself.
+    if (wasVisible) {
+      this.setControlsVisible(Boolean(this.episodePanelRestoreControls), { focus: false });
+      this.episodePanelRestoreControls = false;
+    }
   },
 
   async playEpisodeFromPanel() {

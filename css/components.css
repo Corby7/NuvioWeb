@@ -11238,11 +11238,11 @@ img[data-lazy-src] {
   pointer-events: none;
 }
 
-/* While a track panel is open the transport is already non-interactive, and it
-   sits in the same band as the subtitle preview. Fade it back so the preview
-   stays legible; the title block keeps enough presence for context. */
-.player-controls-overlay.modal-blocked.track-panel-open .player-controls-bar,
-.player-controls-overlay.modal-blocked.track-panel-open .player-controls-row {
+/* While a side panel is open the transport is already non-interactive, and for
+   subtitles it sits in the same band as the style preview. Fade it back so the
+   preview stays legible; the title block keeps enough presence for context. */
+.player-controls-overlay.modal-blocked.side-panel-open .player-controls-bar,
+.player-controls-overlay.modal-blocked.side-panel-open .player-controls-row {
   opacity: 0.22;
   transition: opacity 160ms ease;
 }
@@ -12378,7 +12378,7 @@ img[data-lazy-src] {
 /* Track panels (subtitles / audio) are top-anchored and deliberately leave the
    lower band of the screen clear. Weight the scrim to the top so the video —
    and, for subtitles, the live style preview — stays readable underneath. */
-.player-modal-backdrop.is-track-panel {
+.player-modal-backdrop.is-side-panel {
   background:
     linear-gradient(
       180deg,
@@ -14182,9 +14182,34 @@ img[data-lazy-src] {
 }
 
 /* Paired with updateModalBackdrop: the rail supplies its own bottom gradient,
-   so the full-screen scrim steps back and the video stays watchable. */
+   so the full-screen scrim steps back and the video stays watchable.
+
+   The first layer is .player-controls-gradient-top reproduced exactly — same
+   stops, same 360px height. Opening the rail hides the whole controls overlay
+   (showEpisodePanel calls setControlsVisible(false)), which took the top ramp
+   with it, so the top of the frame visibly brightened the moment the rail
+   slid in. Carrying the same ramp on the backdrop means the two hand over to
+   each other instead of one just vanishing. Keep these stops in sync with
+   .player-controls-gradient-top. */
 .player-modal-backdrop.is-episode-rail {
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.35) 100%);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.62) 0%,
+      rgba(0, 0, 0, 0.34) 38%,
+      rgba(0, 0, 0, 0.12) 68%,
+      rgba(0, 0, 0, 0) 100%
+    ) 0 0 / 100% min(18.75vw, 360px) no-repeat,
+    linear-gradient(180deg, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.35) 100%) 0 0 / 100% 100% no-repeat;
+}
+
+/* Matched to the rail's own 320ms exit. The backdrop otherwise faded out in
+   200ms, so the scrim was gone while the rail was still sliding off — the
+   scene brightened underneath a panel that had not left yet, which read as a
+   second flicker right after the first. updateModalBackdrop keeps this class
+   through the fade-out so the selector still applies while closing. */
+.player-modal-backdrop.is-episode-rail.hidden {
+  transition-duration: 320ms;
 }
 
 /* ---- Selected-episode detail (above the rail) --------------------------- */
@@ -14664,27 +14689,59 @@ img[data-lazy-src] {
 }
 
 /* The panel's own feather does the separating, so the scrim only needs to take
-   the edge off the left third rather than dim the whole frame. */
-.player-modal-backdrop.is-track-panel {
+   the edge off the left third rather than dim the whole frame. Shared by
+   subtitles, audio and sources — see hasSidePanel in updateModalBackdrop. */
+.player-modal-backdrop.is-side-panel {
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0) 100%);
 }
 
 /* Live subtitle preview: the style controls (size, position, outline) are only
-   meaningful if you can see the cues while adjusting them, which is why this
-   panel used to be top-anchored. As a right panel it would sit on top of the
-   centred cue instead — so while it is open the overlay's right edge is pulled
-   in to the panel, and the cue re-centres in the band that is still visible.
-   Set as a variable rather than a fixed value so the two always agree. */
+   meaningful if you can see the cues while adjusting them.
+
+   Insetting the overlay's right edge to the panel used to be how that was
+   done, but re-centring the cue inside the remaining band moves it off the
+   axis it will actually sit on during playback — you end up setting size and
+   position against a cue that is not where the real one goes. The cue now
+   keeps the full width and stays centred on the screen; it is lifted out of
+   the way vertically instead, which changes nothing about the axis you are
+   judging. */
 .player-subtitle-overlay {
-  right: var(--player-subtitle-safe-right, 0);
-  transition: right 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  right: 0;
+  padding-bottom: calc(
+    7vh
+    + var(--player-subtitle-overlay-offset, 0vh)
+    + var(--player-subtitle-menu-lift, 0vh)
+  );
+  transition: padding-bottom 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Tracks the subtitle panel specifically, not the shared menu width — that
-   panel is narrower than the others now that its lists are collapsed, and
-   using the shared token would push the cue further left than necessary. */
-#playerUiRoot.is-subtitle-panel-open {
-  --player-subtitle-safe-right: var(--player-subtitle-panel-width);
+/* Anything the player puts over the video is bottom-anchored — the transport,
+   the seek overlay, the speed card, the episode rail — and the cue line sits
+   in exactly that band, so cues were rendering straight through the button
+   row. The lift clears the interactive part of the stack and most of the title
+   block above it.
+
+   The sibling selectors read each overlay's own hidden class rather than
+   adding a second source of truth in JS; .player-subtitle-overlay is appended
+   to #playerUiRoot after both of them, so it is always a following sibling.
+   Same idiom as .player-next-episode-card further down. The seek overlay needs
+   its own selector because it only ever shows while the controls are hidden —
+   the first selector is false in exactly the case it covers. */
+#playerControlsOverlay:not(.hidden) ~ .player-subtitle-overlay,
+#playerSeekOverlay:not(.hidden) ~ .player-subtitle-overlay,
+#playerUiRoot.is-menu-open .player-subtitle-overlay {
+  --player-subtitle-menu-lift: 16vh;
+}
+
+/* The pause overlay is a full-screen editorial card over the frozen frame; a
+   cue left hanging on top of it belongs to the paused moment, not to the card,
+   and reads as a rendering bug. Covers both renderers — the text overlay and
+   the bitmap canvas, which sits before the pause overlay in the DOM and so
+   cannot use the sibling idiom above. */
+#playerUiRoot.is-pause-overlay .player-subtitle-overlay,
+#playerUiRoot.is-pause-overlay .player-bitmap-subtitles {
+  opacity: 0;
+  transition: opacity 180ms ease;
 }
 
 /* Speed is a small bottom-left card rather than a sheet; it gets the panel
@@ -15004,6 +15061,583 @@ img[data-lazy-src] {
 .player-audio-support-message {
   border-radius: min(0.63vw, 12px);
   font-size: min(1.04vw, 20px);
+}
+
+/* ==========================================================================
+   Transport — clock, title block, scrubber
+   --------------------------------------------------------------------------
+   Same system as the track menus above: one type scale, surfaces feather
+   instead of ending on a hard edge, and every transition is
+   opacity/transform/colour only so nothing here competes with the video
+   decoder.
+
+   This block deliberately sits last among the non-media player rules — it
+   supersedes the straight ATV dp->px port near the top of the player section,
+   which sized the transport for a phone-sized preview rather than a 1080p
+   screen viewed from a couch. The 720p branch below still overrides it.
+
+   The control buttons keep the port's own icon sizing and below-the-button
+   labels; only the focus circle's diameter and the spacing between buttons
+   change here.
+   ========================================================================== */
+
+#playerUiRoot {
+  /* Resting bar is deliberately thin. The ported 12px read as a progress
+     *widget* stretched across 1792px; at 8px it reads as a hairline the video
+     sits behind, and the focused state still doubles it, so the d-pad
+     affordance does not depend on the resting weight being heavy. */
+  --player-scrub-height: min(0.42vw, 8px);
+  --player-scrub-height-focused: min(0.63vw, 12px);
+  /* Wants to be ~2.5x the focused bar. Closer than that and it reads as a bump
+     in the bar rather than a playhead you are holding. */
+  --player-scrub-knob: min(1.56vw, 30px);
+  /* Air between the title block and the bar, and between the bar and the
+     buttons. */
+  --player-transport-gap: min(2.08vw, 40px);
+  --player-transport-row-gap: min(1.88vw, 36px);
+  /* Only ever seen as the focused button's circle — the resting button is
+     transparent. Pulled in slightly from the port's 96px so the puck sits
+     closer to the glyph. */
+  --player-control-size: min(4.69vw, 90px);
+  /* Puts the seek bar exactly where the transport's progress bar sits — same
+     three tokens the transport stacks below it — so pressing OK mid-seek swaps
+     one bar for the other in place instead of jumping it up the screen. Also
+     exposed as a variable so the overlay's scrim can bleed back past it to the
+     bottom edge. */
+  --player-seek-overlay-bottom: calc(
+    var(--player-controls-x)
+    + var(--player-control-size)
+    + var(--player-transport-row-gap)
+  );
+}
+
+/* column-reverse puts the readout above the bar. Below it, the readout was the
+   lowest thing on screen and sat in the strip a TV's overscan eats; above, it
+   lands in the empty band the transport's title block would otherwise occupy,
+   and the overlay's bottom edge becomes the bar itself, which is what the
+   offset above is aligning. */
+.player-seek-overlay {
+  bottom: var(--player-seek-overlay-bottom);
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+/* ---- Gradients ---------------------------------------------------------- */
+
+/* Both ramps were two-stop, so each ended on a visible band partway up the
+   frame. Extra midpoints spread the falloff over the whole height instead;
+   the bottom one is also tall enough now to cover the full title-through-
+   buttons stack rather than fading out behind the middle of it. */
+.player-controls-gradient-top {
+  height: min(18.75vw, 360px);
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.62) 0%,
+    rgba(0, 0, 0, 0.34) 38%,
+    rgba(0, 0, 0, 0.12) 68%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+.player-controls-gradient-bottom {
+  height: min(31.25vw, 600px);
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.18) 30%,
+    rgba(0, 0, 0, 0.48) 58%,
+    rgba(0, 0, 0, 0.74) 78%,
+    rgba(0, 0, 0, 0.88) 100%
+  );
+}
+
+/* ---- Clock cluster ------------------------------------------------------ */
+
+/* Was a stacked pair — a 26px time over a 20px "Ends at" line — which at couch
+   distance was two small things fighting for the same corner. One row with a
+   hairline between them reads as a single glanceable unit, and lets the clock
+   itself carry real size without the block growing taller. */
+.player-controls-top {
+  display: flex;
+  align-items: center;
+  gap: min(0.83vw, 16px);
+  padding: 0;
+  color: #fff;
+}
+
+.player-clock {
+  font-size: min(1.88vw, 36px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  /* The clock and the elapsed time both tick once a second; without fixed
+     advance widths every tick reflows the digits next to them. */
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.player-ends-at {
+  margin-top: 0;
+  font-size: min(1.25vw, 24px);
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.player-ends-at::before {
+  content: "";
+  display: inline-block;
+  width: min(0.1vw, 2px);
+  height: min(0.83vw, 16px);
+  margin-right: min(0.83vw, 16px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+  vertical-align: -0.15em;
+}
+
+/* ---- Title block -------------------------------------------------------- */
+
+.player-controls-bottom {
+  gap: var(--player-transport-gap);
+}
+
+.player-meta {
+  display: flex;
+  flex-direction: column;
+  gap: min(0.42vw, 8px);
+  max-width: min(100%, 1280px);
+}
+
+/* Scoped to the overlay: .player-title is shared with the dialog/panel titles
+   further up, and those are sized for their own surfaces. */
+.player-controls-overlay .player-title {
+  font-size: min(2.71vw, 52px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+
+.player-controls-overlay .player-subtitle {
+  margin-top: 0;
+  font-size: min(1.56vw, 30px);
+  font-weight: 500;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.player-controls-overlay .player-meta-tertiary {
+  margin-top: 0;
+  font-size: min(1.15vw, 22px);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ---- Scrubber ----------------------------------------------------------- */
+
+.player-progress-shell {
+  /* The gap is owned by .player-controls-bottom now, so the shell does not
+     also add one. */
+  margin-top: 0;
+}
+
+.player-progress-track {
+  height: var(--player-scrub-height);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  /* Was hidden, which clipped the playhead knob below. The children are
+     pill-radiused and inset to the track, so nothing needs clipping. */
+  overflow: visible;
+  transition:
+    height 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease;
+}
+
+.player-progress-shell.focused .player-progress-track {
+  height: var(--player-scrub-height-focused);
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.player-progress-buffered,
+.player-progress-fill {
+  border-radius: 999px;
+}
+
+/* Buffered has to read as lighter than the empty track and darker than the
+   fill; at the old opacity over the old track it landed between the two
+   inconsistently depending on what was underneath. */
+.player-progress-buffered {
+  background: #ffffff;
+}
+
+.player-progress-buffered.is-visible {
+  opacity: 0.3;
+}
+
+.player-progress-fill {
+  background: var(--player-secondary);
+}
+
+/* Playhead. Hidden at rest so the resting bar stays a hairline, and scoped to
+   the transport shell so the seek-preview overlay — which reuses
+   .player-progress-fill inside its own clipped track — does not grow one. */
+.player-progress-shell .player-progress-fill::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: var(--player-scrub-knob);
+  height: var(--player-scrub-knob);
+  margin-top: calc(var(--player-scrub-knob) / -2);
+  margin-right: calc(var(--player-scrub-knob) / -2);
+  border-radius: 999px;
+  background: var(--player-secondary);
+  box-shadow: 0 min(0.1vw, 2px) min(0.63vw, 12px) rgba(0, 0, 0, 0.45);
+  transform: scale(0);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-progress-shell.focused .player-progress-fill::after {
+  transform: scale(1);
+}
+
+/* ==========================================================================
+   Seek overlay (hold-to-seek, controls hidden)
+   --------------------------------------------------------------------------
+   This replaces the transport during a hold, so it has to carry the same
+   furniture the transport does. It previously carried none of it: no scrim
+   (the controls overlay owns that, and it is hidden here — so the bar and the
+   clock sat on raw video), no playhead, and the direction arrow and the time
+   pinned to opposite ends of a 1792px row, which is the width of the screen
+   apart. It also showed only an absolute time, so the escalating step size —
+   10s up to 120s the longer you hold — was invisible: two presses and ten
+   presses both just looked like a clock ticking.
+   ========================================================================== */
+
+/* The scrim the controls overlay would normally provide, reproduced here and
+   bled back out to the screen edges past the overlay's own safe-area inset.
+   Same stops as .player-controls-gradient-bottom — keep them in sync. */
+.player-seek-overlay-gradient {
+  position: absolute;
+  left: calc(-1 * var(--tv-safe-gutter));
+  right: calc(-1 * var(--tv-safe-gutter));
+  bottom: calc(-1 * var(--player-seek-overlay-bottom, 64px));
+  height: min(31.25vw, 600px);
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.18) 30%,
+    rgba(0, 0, 0, 0.48) 58%,
+    rgba(0, 0, 0, 0.74) 78%,
+    rgba(0, 0, 0, 0.88) 100%
+  );
+}
+
+/* Matches the transport's focused bar so the two read as the same bar handing
+   over to each other when the controls hide. */
+.player-seek-overlay-track {
+  position: relative;
+  height: var(--player-scrub-height-focused);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  /* Was hidden, which clipped both the playhead and the origin tick. */
+  overflow: visible;
+}
+
+.player-seek-overlay-track .player-progress-fill {
+  border-radius: 999px;
+}
+
+/* Playhead, same as the transport's — this bar is always "focused" in the
+   sense that you are actively dragging it. */
+.player-seek-overlay-track .player-progress-fill::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: var(--player-scrub-knob);
+  height: var(--player-scrub-knob);
+  margin-top: calc(var(--player-scrub-knob) / -2);
+  margin-right: calc(var(--player-scrub-knob) / -2);
+  border-radius: 999px;
+  background: var(--player-secondary);
+  box-shadow: 0 min(0.1vw, 2px) min(0.63vw, 12px) rgba(0, 0, 0, 0.45);
+}
+
+/* Where playback actually still is. Without it you can pass your starting
+   point and have no way to see it except by remembering the number. Used by
+   both bars — the transport's copy is hidden except while it is previewing. */
+.player-seek-origin {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: min(0.21vw, 4px);
+  height: min(1.46vw, 28px);
+  margin-top: min(-0.73vw, -14px);
+  margin-left: min(-0.1vw, -2px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 min(0.42vw, 8px) rgba(0, 0, 0, 0.7);
+  z-index: 3;
+}
+
+.player-seek-origin.hidden {
+  display: none;
+}
+
+/* The transport's tick is scaled to its own thinner bar. */
+.player-progress-track .player-seek-origin {
+  height: min(1.15vw, 22px);
+  margin-top: min(-0.57vw, -11px);
+}
+
+/* Sits at the right end of the controls row, immediately after the time it
+   qualifies — same order as in the seek overlay. .player-time-label's
+   margin-left:auto absorbs the free space, so both land against the edge. */
+.player-controls-row .player-seek-delta {
+  font-size: min(1.25vw, 24px);
+}
+
+/* One centred cluster instead of two things at opposite screen edges. During a
+   hold your eye is on the bar, not 1700px off to the side. */
+.player-seek-overlay-bottom {
+  justify-content: center;
+  gap: min(1.04vw, 20px);
+  /* Reversed: the readout is above the bar now, so the gap between them is its
+     bottom margin. */
+  margin-top: 0;
+  margin-bottom: min(1.46vw, 28px);
+  text-shadow: 0 min(0.1vw, 2px) min(0.63vw, 12px) rgba(0, 0, 0, 0.7);
+}
+
+.player-seek-overlay .player-time-label {
+  margin-left: 0;
+  font-size: min(1.88vw, 36px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+.player-seek-direction-icon {
+  width: min(1.88vw, 36px);
+  height: min(1.88vw, 36px);
+}
+
+/* The jump this hold has accumulated, as a pill so it reads as a separate
+   quantity from the absolute time next to it rather than more of the clock. */
+.player-seek-delta {
+  min-width: min(6vw, 116px);
+  padding: min(0.31vw, 6px) min(0.83vw, 16px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: min(1.35vw, 26px);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+  text-align: center;
+  text-shadow: none;
+}
+
+.player-seek-delta:empty {
+  display: none;
+}
+
+/* ---- Button row --------------------------------------------------------- */
+
+.player-controls-row {
+  margin-top: var(--player-transport-row-gap);
+}
+
+/* At the port's 8px the focus circles of adjacent buttons very nearly touch,
+   so the focused one read as part of a strip rather than as one button picked
+   out of a row. Both selectors are needed to outweigh the ATV port block. */
+.player-control-buttons,
+.player-controls-row .player-control-buttons {
+  gap: min(0.73vw, 14px);
+}
+
+.player-controls-row .player-time-label {
+  font-size: min(1.56vw, 30px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* ---- While a side panel is open ----------------------------------------- */
+
+/* Subtitles, audio and sources all sit to the right and leave the lower band
+   clear on purpose: for subtitles that band carries the live style preview.
+
+   The transport was faded to 0.22, which is not "stepped back", it is gone —
+   you could no longer tell where you were in the episode while picking a
+   track. 0.55 keeps it subordinate to the panel and still readable. This used
+   to key off track-panel-open, which excluded sources, so that one panel
+   dimmed the transport differently from its two identical siblings.
+
+   The bottom scrim keeps its full weight under all three. It was briefly
+   pulled back so the strip the subtitle preview renders into stayed true to
+   playback, but at 0.55 the transport needs the whole ramp under it to stay
+   readable, and the cue is lifted clear of that strip now anyway. The episode
+   rail is the one case that drops it, by hiding the controls overlay
+   outright. */
+.player-controls-overlay.modal-blocked.side-panel-open .player-controls-bar,
+.player-controls-overlay.modal-blocked.side-panel-open .player-controls-row {
+  opacity: 0.55;
+}
+
+/* ==========================================================================
+   Pause overlay
+   --------------------------------------------------------------------------
+   Same treatment as the transport above, for the same reason: everything but
+   the title was sized off --tv-caption-text / --tv-secondary-text, which
+   resolve to 18px and 21px at 1080p. Against a 58px title that is not a
+   hierarchy, it is a title with footnotes. The scale below is the one the
+   transport and the track menus already use.
+   ========================================================================== */
+
+.player-pause-overlay-shade {
+  /* Extra stops on both ramps, and a firmer left edge — the description sits
+     at 0.62 white and has to survive a bright paused frame behind it. */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.08) 0%,
+      rgba(0, 0, 0, 0.16) 42%,
+      rgba(0, 0, 0, 0.62) 74%,
+      rgba(0, 0, 0, 0.88) 100%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.92) 0%,
+      rgba(0, 0, 0, 0.78) 22%,
+      rgba(0, 0, 0, 0.46) 48%,
+      rgba(0, 0, 0, 0.14) 74%,
+      rgba(0, 0, 0, 0) 100%
+    );
+}
+
+/* Matches the transport clock exactly — this one replaces it while the
+   overlay is up, so a size change between the two reads as the clock jumping
+   when you press pause. */
+.player-pause-overlay-clock {
+  font-size: min(1.88vw, 36px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+.player-pause-overlay-content {
+  max-width: min(52vw, 980px);
+  gap: min(2.5vw, 48px);
+  /* The shade does the legibility work now, so the text does not also need a
+     22px blur under it — at this size that reads as muddy rather than lifted. */
+  text-shadow: 0 min(0.1vw, 2px) min(0.83vw, 16px) rgba(0, 0, 0, 0.55);
+}
+
+.player-pause-identity {
+  gap: min(0.83vw, 16px);
+}
+
+.player-pause-details {
+  gap: min(0.83vw, 16px);
+  margin-top: 0;
+}
+
+.player-pause-kicker {
+  font-size: min(1.15vw, 22px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 0;
+}
+
+.player-pause-title {
+  font-size: min(3.65vw, 70px);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+
+.player-pause-logo {
+  /* Was 300px tall, which put the logo well above the title it stands in for
+     and left the details stranded at the bottom of the column. 180px pulled it
+     back too far — this sits between the two and still keeps the details in
+     the lower band. */
+  max-width: min(29vw, 460px);
+  max-height: min(12.5vw, 240px);
+  filter: drop-shadow(0 min(0.21vw, 4px) min(0.83vw, 16px) rgba(0, 0, 0, 0.6));
+}
+
+.player-pause-meta-line {
+  font-size: min(1.35vw, 26px);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.player-pause-episode-title {
+  font-size: min(1.88vw, 36px);
+  font-weight: 600;
+  line-height: 1.15;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.player-pause-description {
+  max-width: min(44vw, 840px);
+  font-size: min(1.46vw, 28px);
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.62);
+  /* The -webkit-box above was set up to clamp but never given a line count,
+     so a long overview ran to whatever length it wanted and pushed the cast
+     row off the bottom of the screen. */
+  -webkit-line-clamp: 3;
+  margin-top: 0;
+}
+
+/* ---- Cast --------------------------------------------------------------- */
+
+.player-pause-cast-section {
+  margin-top: min(1.25vw, 24px);
+}
+
+.player-pause-cast-label {
+  font-size: min(1.15vw, 22px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.player-pause-cast-row {
+  margin-top: min(0.83vw, 16px);
+  gap: min(0.63vw, 12px);
+  /* Chips used to be flex-shrinkable in a nowrap row, so eight of them each
+     gave up width until every single name was an ellipsis — a cast list where
+     nothing is readable. Now they keep their natural width and the row simply
+     runs out of space; the mask turns that overflow into a fade instead of a
+     chip sliced down the middle. */
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - min(4.17vw, 80px)), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - min(4.17vw, 80px)), transparent 100%);
+}
+
+.player-pause-cast-chip {
+  flex: none;
+  min-height: min(2.92vw, 56px);
+  max-width: min(18vw, 340px);
+  padding: 0 min(1.15vw, 22px);
+  border-radius: min(0.83vw, 16px);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: min(1.25vw, 24px);
+  font-weight: 500;
+  text-shadow: none;
 }
 
 @media (max-width: 1280px), (max-height: 760px) {
@@ -18379,10 +19013,14 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   .player-seek-overlay {
     left: 48px;
     right: 48px;
-    bottom: 40px;
+    /* Set through the variable, not `bottom` directly, so the scrim's bleed
+       offset tracks it — see .player-seek-overlay-gradient. Same alignment as
+       at 1080p, against this branch's own control sizes. */
+    --player-seek-overlay-bottom: 128px;
   }
 
   .player-seek-overlay-bottom {
+    margin-bottom: 20px;
     gap: 16px;
   }
 
