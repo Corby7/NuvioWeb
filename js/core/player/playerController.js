@@ -7,6 +7,7 @@ import { hlsJsEngine } from "./engines/hlsJsEngine.js";
 import { dashJsEngine } from "./engines/dashJsEngine.js";
 import { resolvePlatformAvplayEngine } from "./engines/platformAvplayEngine.js";
 import { WebOsLunaService } from "../../platform/webos/webosLunaService.js";
+import { DesktopMediaBridge } from "../../platform/desktop/desktopMediaBridge.js";
 import {
   applyWebOsAudioCodecOverrides,
   detectWebOsAudioCapabilities
@@ -39,6 +40,7 @@ export const PlayerController = {
   visibilityFlushHandler: null,
   hlsInstance: null,
   dashInstance: null,
+  desktopTranscodeSource: null,
   playbackEngine: "none",
   avplayActive: false,
   avplayUrl: "",
@@ -2014,6 +2016,19 @@ export const PlayerController = {
   },
 
   applyNativeSource(url, mimeType = null, engineName = "native-file") {
+    // Desktop: when the probe found an undecodable audio codec, the element gets the
+    // local ffmpeg stream instead and the bridge keeps currentTime/duration truthful.
+    const transcode = this.desktopTranscodeSource;
+    if (transcode && transcode.sourceUrl === String(url || "").trim()) {
+      if (!nativeVideoEngine.load(this.video, transcode.streamUrl, null)) {
+        return false;
+      }
+      DesktopMediaBridge.attach(this.video, transcode);
+      this.playbackEngine = String(engineName || "native-file");
+      return true;
+    }
+    DesktopMediaBridge.detach(this.video);
+
     const normalizedMimeType = this.normalizeMimeType(mimeType);
     const sourceMimeType = Platform.isWebOS() && (
       this.isEngineFsPlaybackUrl(url)
@@ -3110,6 +3125,19 @@ export const PlayerController = {
     const playToken = Number(this.playRequestToken || 0) + 1;
     this.playRequestToken = playToken;
 
+    // Desktop only: probe direct files for a codec Chromium cannot decode before an
+    // engine is chosen, so the native path can be pointed at the transcode proxy.
+    // currentPlaybackUrl deliberately stays the original — progress, resume and engine
+    // memory are all keyed on it.
+    this.desktopTranscodeSource = null;
+    if (DesktopMediaBridge.isAvailable() && this.isLikelyDirectFileUrl(url)) {
+      const resolved = await DesktopMediaBridge.resolvePlaybackSource(url);
+      if (Number(this.playRequestToken || 0) !== playToken) {
+        return;
+      }
+      this.desktopTranscodeSource = resolved;
+    }
+
     const sourceType = this.currentPlaybackMediaSourceType || this.resolveRuntimeSourceType(this.guessMediaMimeType(url)) || null;
     const preferredEngine = forceEngine || this.choosePlaybackEngine(url, sourceType, itemType);
     await this.ensureAdaptiveLibrariesForSource(sourceType, preferredEngine);
@@ -3344,6 +3372,9 @@ export const PlayerController = {
     this.setStartupAudioGate(false, { resume: false });
 
     this.video.pause();
+    // Must come off before the element is reset, so the shadowed currentTime/duration
+    // do not outlive the transcoded source.
+    DesktopMediaBridge.detach(this.video);
     this.teardownAdaptiveInstances();
     this.teardownAvPlay();
     this.resetNativeMediaState();
@@ -3364,6 +3395,7 @@ export const PlayerController = {
     this.currentPlaybackUrl = "";
     this.currentPlaybackHeaders = {};
     this.currentPlaybackMediaSourceType = null;
+    this.desktopTranscodeSource = null;
     this.playbackEngine = "none";
     this.lastPlaybackErrorCode = 0;
     this.playRequestToken = Number(this.playRequestToken || 0) + 1;

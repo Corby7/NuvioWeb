@@ -1,0 +1,44 @@
+appId: space.nuvio.desktop
+productName: Nuvio TV
+copyright: Nuvio
+
+directories:
+  output: release
+  buildResources: build
+
+# Everything the renderer needs is already bundled into dist/app.bundle.js, so the
+# npm dependencies never have to ship.
+files:
+  - electron/**/*
+  - dist/**/*
+  - package.json
+  - "!node_modules/**/*"
+
+# ffmpeg re-encodes Dolby/DTS audio that Chromium refuses to decode. The binaries live
+# outside the asar because they have to be spawned as executables.
+extraResources:
+  - from: node_modules/ffmpeg-static/ffmpeg
+    to: bin/ffmpeg
+  - from: node_modules/ffprobe-static/bin/darwin/${arch}/ffprobe
+    to: bin/ffprobe
+
+mac:
+  category: public.app-category.entertainment
+  icon: build/icon.png
+  darkModeSupport: true
+  # Local builds are ad-hoc signed by scripts/package-macos.mjs. Set an identity here
+  # (and remove CSC_IDENTITY_AUTO_DISCOVERY=false in that script) to sign for real.
+  identity: null
+  extendInfo:
+    NSHumanReadableCopyright: Nuvio
+    LSApplicationCategoryType: public.app-category.entertainment
+
+dmg:
+  title: Nuvio TV ${version}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

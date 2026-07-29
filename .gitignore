@@ -8,6 +8,8 @@ node_modules/
 *.ipk
 *.wgt
 dist/
+release/
+build/icon.png
 .cache/
 .pm2/
 logs/

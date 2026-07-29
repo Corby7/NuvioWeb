@@ -23,7 +23,7 @@ export default [
     ]
   },
   {
-    files: ["js/**/*.{js,mjs,cjs}", "scripts/**/*.{js,mjs,cjs}"],
+    files: ["js/**/*.{js,mjs,cjs}", "scripts/**/*.{js,mjs,cjs}", "electron/**/*.{js,mjs,cjs}"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
