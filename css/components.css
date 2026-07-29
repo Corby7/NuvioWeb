@@ -15502,23 +15502,28 @@ img[data-lazy-src] {
    ========================================================================== */
 
 .player-pause-overlay-shade {
-  /* Extra stops on both ramps, and a firmer left edge — the description sits
-     at 0.62 white and has to survive a bright paused frame behind it. */
+  /* A full-height left ramp darkened the top-left corner too, where nothing is
+     drawn — the frame you paused on is the point of this screen, so the shade
+     is now a pool anchored to the bottom-left block it exists to make legible.
+     The radial does the work the old 90deg ramp did; the linear under it is a
+     shallow full-width floor so the bottom edge still resolves rather than
+     ending on a hard line to the right of the pool. */
   background:
-    linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.08) 0%,
-      rgba(0, 0, 0, 0.16) 42%,
-      rgba(0, 0, 0, 0.62) 74%,
-      rgba(0, 0, 0, 0.88) 100%
+    radial-gradient(
+      ellipse 125% 100% at 0% 100%,
+      rgba(0, 0, 0, 0.95) 0%,
+      rgba(0, 0, 0, 0.92) 30%,
+      rgba(0, 0, 0, 0.78) 50%,
+      rgba(0, 0, 0, 0.5) 68%,
+      rgba(0, 0, 0, 0.22) 84%,
+      rgba(0, 0, 0, 0) 100%
     ),
     linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.92) 0%,
-      rgba(0, 0, 0, 0.78) 22%,
-      rgba(0, 0, 0, 0.46) 48%,
-      rgba(0, 0, 0, 0.14) 74%,
-      rgba(0, 0, 0, 0) 100%
+      180deg,
+      rgba(0, 0, 0, 0) 40%,
+      rgba(0, 0, 0, 0.16) 64%,
+      rgba(0, 0, 0, 0.44) 84%,
+      rgba(0, 0, 0, 0.66) 100%
     );
 }
 
