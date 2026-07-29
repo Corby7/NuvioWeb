@@ -1857,6 +1857,7 @@ export const PlayerScreen = {
     this.subtitleStyleRailIndex = 0;
     this.subtitleStyleControlSide = "minus";
     this.subtitleFocusedRail = "language";
+    this.subtitleOpenSelect = "";
     this.subtitleDialogScrollMode = "nearest";
     this.selectedSubtitleTrackIndex = -1;
     this.selectedEmbeddedSubtitleTrackIndex = -1;
@@ -1895,6 +1896,7 @@ export const PlayerScreen = {
     this.audioDialogIndex = 0;
     this.audioMixFocusIndex = 0;
     this.audioFocusedColumn = "tracks";
+    this.audioOpenSelect = "";
     this.selectedAudioTrackIndex = -1;
     this.embeddedAudioTracks = [];
     this.selectedEmbeddedAudioTrackIndex = -1;
@@ -5577,6 +5579,10 @@ export const PlayerScreen = {
     // is where the live style preview renders.
     const hasTrackPanel = Boolean(this.subtitleDialogVisible || this.audioDialogVisible);
     modalBackdrop.classList.toggle("is-track-panel", hasTrackPanel);
+    // Pulls the subtitle overlay clear of the panel so the live style preview
+    // stays visible while it is open — see .player-subtitle-overlay in
+    // components.css.
+    this.uiRefs?.root?.classList.toggle("is-subtitle-panel-open", Boolean(this.subtitleDialogVisible));
     // The episode rail is a bottom sheet whose own gradient darkens the lower
     // band; the point of it is that the video stays watchable above. A
     // full-screen scrim would defeat that, so drop to a light one when the rail
@@ -9311,7 +9317,7 @@ export const PlayerScreen = {
     if (!(node instanceof HTMLElement)) {
       return;
     }
-    const rail = node.closest(".player-subtitle-rail");
+    const rail = node.closest(".player-select-menu, .player-subtitle-rail");
     if (!(rail instanceof HTMLElement)) {
       return;
     }
@@ -9338,19 +9344,12 @@ export const PlayerScreen = {
     if (!dialog || !this.subtitleDialogVisible) {
       return;
     }
-    const selectedLanguageNode = dialog.querySelector(".player-subtitle-language-rail .player-dialog-item.selected");
-    const focusedLanguageNode = dialog.querySelector(".player-subtitle-language-rail .player-dialog-item.focused");
-    const languageNode = focusedLanguageNode || selectedLanguageNode;
-    const optionNode = dialog.querySelector(".player-subtitle-options-rail .player-dialog-item.focused");
-    const styleNode = dialog.querySelector(".player-subtitle-style-rail .player-dialog-item.focused");
-
-    if (this.subtitleFocusedRail === "language") {
-      this.scrollSubtitleRailNodeIntoView(languageNode);
-    } else if (this.subtitleFocusedRail === "options") {
-      this.scrollSubtitleRailNodeIntoView(optionNode);
-    } else {
-      this.scrollSubtitleRailNodeIntoView(styleNode);
-    }
+    // Only an expanded select scrolls internally; the collapsed stack is short
+    // enough to fit, and its rows are laid out by the panel itself.
+    const focusedNode = this.subtitleOpenSelect
+      ? dialog.querySelector(".player-select-menu .player-select-option.focused")
+      : dialog.querySelector(".player-select-row.focused, .player-dialog-style-item.focused");
+    this.scrollSubtitleRailNodeIntoView(focusedNode);
     this.subtitleDialogScrollMode = "nearest";
   },
 
@@ -9955,6 +9954,116 @@ export const PlayerScreen = {
   getSubtitleStyleControlDelta(side = this.subtitleStyleControlSide) {
     return String(side || "").toLowerCase() === "plus" ? 1 : -1;
   },
+
+  /* --- Vertical row model -------------------------------------------------
+     The panel is one column of rows: Language, Subtitle, then the style
+     controls. Language and Subtitle are collapsed selects that expand in place,
+     so the long lists only occupy the screen while they are actually being
+     used. The existing subtitleFocusedRail / subtitleStyleRailIndex state is
+     reused as the cursor rather than replaced — pointer handling, the startup
+     preference path and applySubtitleEntry all read it. */
+
+  isSubtitleTrackRowVisible() {
+    const languages = this.getSubtitleLanguageRailItems();
+    const activeLanguage = languages[this.subtitleLanguageRailIndex]?.key || SUBTITLE_LANGUAGE_OFF_KEY;
+    const loading = this.embeddedSubtitleLoading && this.canDiscoverEmbeddedSubtitleTracks();
+    return activeLanguage !== SUBTITLE_LANGUAGE_OFF_KEY || loading;
+  },
+
+  getSubtitleStyleRowOffset() {
+    return this.isSubtitleTrackRowVisible() ? 2 : 1;
+  },
+
+  getSubtitleRowCount() {
+    return this.getSubtitleStyleRowOffset() + this.getSubtitleStyleControls().length;
+  },
+
+  getSubtitleFocusRowIndex() {
+    if (this.subtitleFocusedRail === "language") {
+      return 0;
+    }
+    if (this.subtitleFocusedRail === "options") {
+      return this.isSubtitleTrackRowVisible() ? 1 : 0;
+    }
+    return this.getSubtitleStyleRowOffset() + clamp(this.subtitleStyleRailIndex, 0, Math.max(0, this.getSubtitleStyleControls().length - 1));
+  },
+
+  setSubtitleFocusRowIndex(rowIndex) {
+    const offset = this.getSubtitleStyleRowOffset();
+    const next = clamp(Number(rowIndex || 0), 0, Math.max(0, this.getSubtitleRowCount() - 1));
+    if (next === 0) {
+      this.subtitleFocusedRail = "language";
+      return;
+    }
+    if (next < offset) {
+      this.subtitleFocusedRail = "options";
+      return;
+    }
+    this.subtitleFocusedRail = "style";
+    this.subtitleStyleRailIndex = clamp(next - offset, 0, Math.max(0, this.getSubtitleStyleControls().length - 1));
+  },
+
+  // Options shown inside whichever select is currently expanded.
+  getOpenSubtitleSelectItems() {
+    if (this.subtitleOpenSelect === "language") {
+      return this.getSubtitleLanguageRailItems();
+    }
+    if (this.subtitleOpenSelect === "options") {
+      const languages = this.getSubtitleLanguageRailItems();
+      const activeLanguage = languages[this.subtitleLanguageRailIndex]?.key || SUBTITLE_LANGUAGE_OFF_KEY;
+      return this.getSubtitleOptionsForLanguage(activeLanguage);
+    }
+    return [];
+  },
+
+  getOpenSubtitleSelectCursor() {
+    return this.subtitleOpenSelect === "language"
+      ? this.subtitleLanguageRailIndex
+      : this.subtitleOptionRailIndex;
+  },
+
+  setOpenSubtitleSelectCursor(index) {
+    const items = this.getOpenSubtitleSelectItems();
+    const next = clamp(Number(index || 0), 0, Math.max(0, items.length - 1));
+    if (this.subtitleOpenSelect === "language") {
+      this.subtitleLanguageRailIndex = next;
+      return;
+    }
+    this.subtitleOptionRailIndex = next;
+  },
+
+  openSubtitleSelect(which) {
+    this.subtitleOpenSelect = which === "language" ? "language" : "options";
+    // Enter the list on the current value rather than at the top.
+    if (this.subtitleOpenSelect === "options") {
+      this.syncSubtitleOptionIndexForFocusedLanguage();
+    }
+    this.renderSubtitleDialog();
+  },
+
+  closeSubtitleSelect({ restoreLanguage = null } = {}) {
+    if (restoreLanguage != null) {
+      this.subtitleLanguageRailIndex = restoreLanguage;
+    }
+    this.subtitleOpenSelect = "";
+    this.renderSubtitleDialog();
+  },
+
+  getSubtitleSelectSummary(which) {
+    const languages = this.getSubtitleLanguageRailItems();
+    if (which === "language") {
+      return languages[this.subtitleLanguageRailIndex]?.label || t("subtitle_none", {}, "Off");
+    }
+    const activeLanguage = languages[this.subtitleLanguageRailIndex]?.key || SUBTITLE_LANGUAGE_OFF_KEY;
+    const options = this.getSubtitleOptionsForLanguage(activeLanguage);
+    const selected = options.find((option) => option.selected) || options[clamp(this.subtitleOptionRailIndex, 0, Math.max(0, options.length - 1))];
+    if (!selected) {
+      return this.embeddedSubtitleLoading && this.canDiscoverEmbeddedSubtitleTracks()
+        ? t("subtitle_loading_builtin", {}, "Loading subtitle tracks...")
+        : t("subtitle_none", {}, "No subtitles");
+    }
+    return [selected.title, selected.secondary].filter(Boolean).join(" · ");
+  },
   openSubtitleDialog() {
     this.cancelSeekPreview({ commit: false });
     this.syncTrackState();
@@ -9968,6 +10077,7 @@ export const PlayerScreen = {
     this.syncSubtitleOptionIndexForFocusedLanguage();
     this.subtitleStyleRailIndex = 0;
     this.subtitleStyleControlSide = "minus";
+    this.subtitleOpenSelect = "";
     this.subtitleFocusedRail = selectedLanguageKey === SUBTITLE_LANGUAGE_OFF_KEY ? "language" : "options";
     this.subtitleDialogScrollMode = "start";
     this.setControlsVisible(true, { focus: false });
@@ -9982,6 +10092,7 @@ export const PlayerScreen = {
     this.subtitleDialogVisible = false;
     this.subtitleFocusedRail = "language";
     this.subtitleStyleControlSide = "minus";
+    this.subtitleOpenSelect = "";
     this.renderSubtitleDialog();
     this.updateModalBackdrop();
     this.resetControlsAutoHide();
@@ -10886,32 +10997,46 @@ export const PlayerScreen = {
     if (!dialog || !this.subtitleDialogVisible || !dialog.childNodes.length) {
       return false;
     }
-    const focusedRail = this.subtitleFocusedRail;
-    const railIndex = focusedRail === "language"
-      ? this.subtitleLanguageRailIndex
-      : focusedRail === "options"
-        ? this.subtitleOptionRailIndex
-        : this.subtitleStyleRailIndex;
-    const focusedSide = this.subtitleStyleControlSide === "plus" ? "plus" : "minus";
-
     let focusedNode = null;
-    dialog.querySelectorAll("[data-subtitle-rail]").forEach((node) => {
-      const rail = node.getAttribute("data-subtitle-rail");
-      const index = Number(node.getAttribute("data-subtitle-index"));
-      const action = node.getAttribute("data-subtitle-style-action");
-      const isFocusedRow = rail === focusedRail && index === railIndex;
-      // A style row and its two steppers all carry data-subtitle-rail. The row
-      // highlights whenever it is current; each stepper only when its side is.
-      const isFocused = isFocusedRow && (
-        !action || action === (focusedSide === "plus" ? "increase" : "decrease")
-      );
-      if (isFocusedRow && !action) {
-        focusedNode = node;
-      }
-      if (node.classList.contains("focused") !== isFocused) {
-        node.classList.toggle("focused", isFocused);
-      }
-    });
+
+    // With a select expanded, the cursor lives inside its list and nothing in
+    // the collapsed stack is focused.
+    if (this.subtitleOpenSelect) {
+      const cursor = this.getOpenSubtitleSelectCursor();
+      dialog.querySelectorAll(".player-select-option").forEach((node) => {
+        const isFocused = Number(node.getAttribute("data-subtitle-index")) === cursor;
+        if (isFocused) {
+          focusedNode = node;
+        }
+        if (node.classList.contains("focused") !== isFocused) {
+          node.classList.toggle("focused", isFocused);
+        }
+      });
+      dialog.querySelectorAll(".player-select-row.focused").forEach((node) => node.classList.remove("focused"));
+    } else {
+      const focusedRail = this.subtitleFocusedRail;
+      dialog.querySelectorAll(".player-select-row").forEach((node) => {
+        const isFocused = node.getAttribute("data-subtitle-select") === focusedRail;
+        if (isFocused) {
+          focusedNode = node;
+        }
+        if (node.classList.contains("focused") !== isFocused) {
+          node.classList.toggle("focused", isFocused);
+        }
+      });
+      // Steppers are affordances rather than focus targets now — left/right act
+      // on the row directly — so only the row itself carries `.focused`.
+      dialog.querySelectorAll(".player-dialog-style-item").forEach((node) => {
+        const isFocused = focusedRail === "style"
+          && Number(node.getAttribute("data-subtitle-index")) === this.subtitleStyleRailIndex;
+        if (isFocused) {
+          focusedNode = node;
+        }
+        if (node.classList.contains("focused") !== isFocused) {
+          node.classList.toggle("focused", isFocused);
+        }
+      });
+    }
 
     if (!focusedNode) {
       return false;
@@ -10927,42 +11052,12 @@ export const PlayerScreen = {
       return emptyMarkup;
     }
     return options.map((item, index) => `
-      <div class="player-dialog-item focusable${item.selected ? " selected" : ""}${item.unavailable ? " disabled" : ""}${this.subtitleFocusedRail === "options" && index === this.subtitleOptionRailIndex ? " focused" : ""}" data-subtitle-rail="options" data-subtitle-index="${index}">
-        <div class="player-dialog-item-main">${escapeHtml(item.title || "")}</div>
-        <div class="player-dialog-item-sub">${escapeHtml(item.secondary || "")}</div>
-        <div class="player-dialog-item-check">${item.selected ? "&#10003;" : ""}</div>
+      <div class="player-select-option focusable${item.selected ? " selected" : ""}${item.unavailable ? " disabled" : ""}${index === this.subtitleOptionRailIndex ? " focused" : ""}" data-subtitle-rail="options" data-subtitle-index="${index}">
+        <div class="player-select-option-main">${escapeHtml(item.title || "")}</div>
+        <div class="player-select-option-sub">${escapeHtml(item.secondary || "")}</div>
+        <div class="player-select-option-check">${item.selected ? "&#10003;" : ""}</div>
       </div>
     `).join("");
-  },
-
-  // Moving through the language rail only changes which sources are listed, so
-  // swap that one rail instead of rebuilding all three. The language list is
-  // the longest and most-navigated, and a full rebuild there cost ~160 dropped
-  // frames per 5s of scrolling.
-  refreshSubtitleOptionsRailOnly() {
-    const dialog = this.uiRefs?.subtitleDialog;
-    if (!dialog || !this.subtitleDialogVisible || !dialog.childNodes.length) {
-      return false;
-    }
-    const optionsRail = dialog.querySelector(".player-subtitle-options-rail");
-    const styleRail = dialog.querySelector(".player-subtitle-style-rail");
-    if (!optionsRail) {
-      return false;
-    }
-    const languages = this.getSubtitleLanguageRailItems();
-    const activeLanguage = languages[this.subtitleLanguageRailIndex]?.key || SUBTITLE_LANGUAGE_OFF_KEY;
-    const options = this.getSubtitleOptionsForLanguage(activeLanguage);
-    const subtitleLoadingVisible = this.embeddedSubtitleLoading && this.canDiscoverEmbeddedSubtitleTracks();
-    const showOptionsRail = activeLanguage !== SUBTITLE_LANGUAGE_OFF_KEY || subtitleLoadingVisible;
-    const emptyMarkup = subtitleLoadingVisible
-      ? `<div class="player-dialog-empty">${escapeHtml(t("subtitle_loading_builtin", {}, "Loading subtitle tracks..."))}</div>`
-      : `<div class="player-dialog-empty">${escapeHtml(t("subtitle_none", {}, "No subtitles"))}</div>`;
-
-    this.subtitleOptionRailIndex = clamp(this.subtitleOptionRailIndex, 0, Math.max(0, options.length - 1));
-    optionsRail.innerHTML = this.buildSubtitleOptionsRailMarkup(options, emptyMarkup);
-    optionsRail.classList.toggle("hidden", !showOptionsRail);
-    styleRail?.classList.toggle("hidden", !showOptionsRail);
-    return true;
   },
 
   renderSubtitleDialog() {
@@ -10985,36 +11080,59 @@ export const PlayerScreen = {
     const styleItems = this.getSubtitleStyleControls();
     this.subtitleStyleRailIndex = clamp(this.subtitleStyleRailIndex, 0, Math.max(0, styleItems.length - 1));
     const subtitleLoadingVisible = this.embeddedSubtitleLoading && this.canDiscoverEmbeddedSubtitleTracks();
-    const showOptionsRail = activeLanguage !== SUBTITLE_LANGUAGE_OFF_KEY || subtitleLoadingVisible;
-    const focusedStyleSide = this.subtitleStyleControlSide === "plus" ? "plus" : "minus";
+    const showTrackRow = this.isSubtitleTrackRowVisible();
+    const openSelect = this.subtitleOpenSelect || "";
     const emptySubtitleOptionsMarkup = subtitleLoadingVisible
       ? `<div class="player-dialog-empty">${escapeHtml(t("subtitle_loading_builtin", {}, "Loading subtitle tracks..."))}</div>`
       : `<div class="player-dialog-empty">${escapeHtml(t("subtitle_none", {}, "No subtitles"))}</div>`;
 
-    dialog.innerHTML = `
-      <div class="player-dialog-title">${escapeHtml(t("subtitle_dialog_title", {}, "Subtitles"))}</div>
-      <div class="player-subtitle-overlay-grid">
-        <div class="player-subtitle-rail player-subtitle-language-rail">
+    // A collapsed select shows only its current value; the list is rendered
+    // beneath it, and only while open.
+    const selectRow = (key, label) => {
+      const focused = this.subtitleFocusedRail === key && !openSelect;
+      const isOpen = openSelect === key;
+      return `
+        <div class="player-select-row focusable${focused ? " focused" : ""}${isOpen ? " is-open" : ""}" data-subtitle-select="${key}">
+          <div class="player-select-label">${escapeHtml(label)}</div>
+          <div class="player-select-value">${escapeHtml(this.getSubtitleSelectSummary(key))}</div>
+          <div class="player-select-caret" aria-hidden="true"></div>
+        </div>
+      `;
+    };
+
+    const languageMenu = openSelect === "language"
+      ? `<div class="player-select-menu">
           ${languages.map((item, index) => `
-          <div class="player-dialog-item focusable${item.selected ? " selected" : ""}${this.subtitleFocusedRail === "language" && index === this.subtitleLanguageRailIndex ? " focused" : ""}" data-subtitle-rail="language" data-subtitle-index="${index}">
-              <div class="player-dialog-item-main">${escapeHtml(item.label)}</div>
-              <div class="player-dialog-item-sub">${item.key === SUBTITLE_LANGUAGE_OFF_KEY && subtitleLoadingVisible ? escapeHtml(t("subtitle_loading_builtin", {}, "Loading subtitle tracks...")) : ""}</div>
-              <div class="player-dialog-item-check">${item.selected ? "&#10003;" : ""}</div>
+            <div class="player-select-option focusable${item.selected ? " selected" : ""}${index === this.subtitleLanguageRailIndex ? " focused" : ""}" data-subtitle-rail="language" data-subtitle-index="${index}">
+              <div class="player-select-option-main">${escapeHtml(item.label)}</div>
+              <div class="player-select-option-check">${item.selected ? "&#10003;" : ""}</div>
             </div>
           `).join("")}
-        </div>
-        <div class="player-subtitle-rail player-subtitle-options-rail${showOptionsRail ? "" : " hidden"}">
+        </div>`
+      : "";
+
+    const trackMenu = openSelect === "options"
+      ? `<div class="player-select-menu">
           ${this.buildSubtitleOptionsRailMarkup(options, emptySubtitleOptionsMarkup)}
-        </div>
-        <div class="player-subtitle-rail player-subtitle-style-rail${showOptionsRail ? "" : " hidden"}">
+        </div>`
+      : "";
+
+    dialog.innerHTML = `
+      <div class="player-dialog-title">${escapeHtml(t("subtitle_dialog_title", {}, "Subtitles"))}</div>
+      <div class="player-subtitle-stack">
+        ${selectRow("language", t("subtitle_language", {}, "Language"))}
+        ${languageMenu}
+        ${showTrackRow ? selectRow("options", t("subtitle_dialog_title", {}, "Subtitles")) : ""}
+        ${showTrackRow ? trackMenu : ""}
+        <div class="player-subtitle-style-rail${openSelect ? " is-dimmed" : ""}">
           ${styleItems.map((item, index) => `
-            <div class="player-dialog-item player-dialog-style-item${this.subtitleFocusedRail === "style" && index === this.subtitleStyleRailIndex ? " focused" : ""}" data-subtitle-rail="style" data-subtitle-index="${index}">
-              <button class="player-dialog-step player-dialog-step-minus focusable${this.subtitleFocusedRail === "style" && index === this.subtitleStyleRailIndex && focusedStyleSide === "minus" ? " focused" : ""}" type="button" data-subtitle-style-action="decrease" data-subtitle-rail="style" data-subtitle-index="${index}" data-style-id="${escapeAttribute(item.id)}" aria-label="${escapeAttribute(`${item.label} -`)}">&#8722;</button>
+            <div class="player-dialog-item player-dialog-style-item${this.subtitleFocusedRail === "style" && !openSelect && index === this.subtitleStyleRailIndex ? " focused" : ""}" data-subtitle-rail="style" data-subtitle-index="${index}">
+              <button class="player-dialog-step player-dialog-step-minus focusable" type="button" data-subtitle-style-action="decrease" data-subtitle-rail="style" data-subtitle-index="${index}" data-style-id="${escapeAttribute(item.id)}" aria-label="${escapeAttribute(`${item.label} -`)}">&#8722;</button>
               <div class="player-dialog-item-center">
                 <div class="player-dialog-item-main">${escapeHtml(item.label)}</div>
                 <div class="player-dialog-item-sub">${escapeHtml(item.value || "")}</div>
               </div>
-              <button class="player-dialog-step player-dialog-step-plus focusable${this.subtitleFocusedRail === "style" && index === this.subtitleStyleRailIndex && focusedStyleSide === "plus" ? " focused" : ""}" type="button" data-subtitle-style-action="increase" data-subtitle-rail="style" data-subtitle-index="${index}" data-style-id="${escapeAttribute(item.id)}" aria-label="${escapeAttribute(`${item.label} +`)}">&#43;</button>
+              <button class="player-dialog-step player-dialog-step-plus focusable" type="button" data-subtitle-style-action="increase" data-subtitle-rail="style" data-subtitle-index="${index}" data-style-id="${escapeAttribute(item.id)}" aria-label="${escapeAttribute(`${item.label} +`)}">&#43;</button>
             </div>
           `).join("")}
         </div>
@@ -11025,119 +11143,131 @@ export const PlayerScreen = {
 
   handleSubtitleDialogKey(event) {
     const keyCode = Number(event?.keyCode || 0);
-    const languages = this.getSubtitleLanguageRailItems();
-    const activeLanguage = languages[this.subtitleLanguageRailIndex]?.key || SUBTITLE_LANGUAGE_OFF_KEY;
-    const options = this.getSubtitleOptionsForLanguage(activeLanguage);
-    const styleItems = this.getSubtitleStyleControls();
-    const styleItem = styleItems[this.subtitleStyleRailIndex];
-    
-    if (keyCode === 38 || keyCode === 40) {
-      const step = keyCode === 38 ? -1 : 1;
-      // Moving in the language rail swaps the options rail contents, so that
-      // case still needs a real render; the other rails only move focus.
-      let contentChanged = false;
-      if (this.subtitleFocusedRail === "language") {
-        this.subtitleLanguageRailIndex = clamp(this.subtitleLanguageRailIndex + step, 0, Math.max(0, languages.length - 1));
-        this.syncSubtitleOptionIndexForFocusedLanguage();
-        // Swap just the options rail, then move the focus ring.
-        contentChanged = !(this.refreshSubtitleOptionsRailOnly() && this.updateSubtitleDialogFocusOnly());
-      } else if (this.subtitleFocusedRail === "options") {
-        this.subtitleOptionRailIndex = clamp(this.subtitleOptionRailIndex + step, 0, Math.max(0, options.length - 1));
-      } else {
-        this.subtitleStyleRailIndex = clamp(this.subtitleStyleRailIndex + step, 0, Math.max(0, styleItems.length - 1));
+    const isBack = keyCode === 10009 || keyCode === 461;
+
+    // --- Expanded select: the list owns every key until it is dismissed ------
+    if (this.subtitleOpenSelect) {
+      if (keyCode === 38 || keyCode === 40) {
+        if (this.shouldThrottleHeldPanelKey(event)) {
+          return true;
+        }
+        this.setOpenSubtitleSelectCursor(this.getOpenSubtitleSelectCursor() + (keyCode === 38 ? -1 : 1));
+        if (!this.updateSubtitleDialogFocusOnly()) {
+          this.renderSubtitleDialog();
+        }
+        return true;
       }
-      if (contentChanged || !this.updateSubtitleDialogFocusOnly()) {
-        this.renderSubtitleDialog();
+      if (keyCode === 13) {
+        this.commitOpenSubtitleSelect();
+        return true;
+      }
+      if (isBack || keyCode === 37) {
+        // Dismiss without applying. The language cursor doubles as the applied
+        // value, so it has to be put back to whatever is actually selected.
+        const languages = this.getSubtitleLanguageRailItems();
+        const restore = this.subtitleOpenSelect === "language"
+          ? Math.max(0, languages.findIndex((item) => item.key === this.getSelectedSubtitleLanguageKey()))
+          : null;
+        this.closeSubtitleSelect({ restoreLanguage: restore });
+        return true;
       }
       return true;
     }
-    // Horizontal moves only change which rail (or which stepper side) is
-    // focused — never the content — so they take the focus-only path too.
-    const applyFocusMove = () => {
+
+    // --- Collapsed: one vertical walk over Language / Subtitle / style ------
+    if (keyCode === 38 || keyCode === 40) {
+      if (this.shouldThrottleHeldPanelKey(event)) {
+        return true;
+      }
+      this.setSubtitleFocusRowIndex(this.getSubtitleFocusRowIndex() + (keyCode === 38 ? -1 : 1));
       if (!this.updateSubtitleDialogFocusOnly()) {
         this.renderSubtitleDialog();
       }
       return true;
-    };
+    }
 
-    if (keyCode === 37) {
-      if (this.subtitleFocusedRail === "style") {
-        if (this.subtitleStyleControlSide === "plus") {
-          this.subtitleStyleControlSide = "minus";
-        } else {
-          this.subtitleFocusedRail = options.length ? "options" : "language";
-          this.subtitleStyleControlSide = "minus";
-        }
-        return applyFocusMove();
-      }
-      if (this.subtitleFocusedRail === "options") {
-        this.subtitleFocusedRail = "language";
-        return applyFocusMove();
-      }
-      return false;
-    }
-    if (keyCode === 39) {
-      if (this.subtitleFocusedRail === "language" && activeLanguage !== SUBTITLE_LANGUAGE_OFF_KEY && options.length) {
-        this.subtitleFocusedRail = "options";
-        return applyFocusMove();
-      }
-      if (this.subtitleFocusedRail === "options") {
-        this.subtitleFocusedRail = "style";
-        this.subtitleStyleControlSide = "minus";
-        return applyFocusMove();
-      }
-      if (this.subtitleFocusedRail === "style" && this.subtitleStyleControlSide === "minus") {
-        this.subtitleStyleControlSide = "plus";
-        return applyFocusMove();
-      }
-      return true;
-    }
-    if (keyCode === 13) {
-      if (this.subtitleFocusedRail === "language") {
-        const language = languages[this.subtitleLanguageRailIndex];
-        if (!language) {
-          return true;
-        }
-        if (language.key === SUBTITLE_LANGUAGE_OFF_KEY) {
-          this.applySubtitleEntry(this.getSubtitleEntries("builtIn").find((entry) => entry.id === "subtitle-off") || { trackIndex: -1 });
-          this.saveItemSubtitlePreferences({ languageKey: SUBTITLE_LANGUAGE_OFF_KEY });
-        } else {
-          const selected = this.selectFirstSubtitleOptionForLanguage(language.key, { focusOptions: true });
-          if (!selected) {
-            const nextOptions = this.getSubtitleOptionsForLanguage(language.key);
-            if (nextOptions.length) {
-              this.subtitleFocusedRail = "options";
-              this.subtitleOptionRailIndex = 0;
-            }
-          }
-        }
-        this.renderSubtitleDialog();
+    const styleItems = this.getSubtitleStyleControls();
+    const styleItem = styleItems[this.subtitleStyleRailIndex];
+
+    // Left/right now adjust the focused style control directly. With the rails
+    // collapsed there is no horizontal navigation left for them to do, and a
+    // direct nudge is one press instead of "pick a side, then confirm".
+    if (keyCode === 37 || keyCode === 39) {
+      if (this.subtitleFocusedRail !== "style" || !styleItem) {
         return true;
       }
-      if (this.subtitleFocusedRail === "options") {
-        const option = options[this.subtitleOptionRailIndex];
-        if (option?.entry) {
-          this.applySubtitleEntry(option.entry);
-          if (option.languageKey && option.languageKey !== SUBTITLE_LANGUAGE_OFF_KEY) {
-            this.saveItemSubtitlePreferences({ languageKey: option.languageKey });
-          }
-          this.subtitleFocusedRail = "style";
-          this.subtitleStyleControlSide = "minus";
-        }
+      if (this.shouldThrottleHeldPanelKey(event)) {
+        return true;
+      }
+      this.subtitleStyleControlSide = keyCode === 39 ? "plus" : "minus";
+      this.adjustSubtitleStyleControl(styleItem.id, keyCode === 39 ? 1 : -1);
+      return true;
+    }
+
+    if (keyCode === 13) {
+      if (this.subtitleFocusedRail === "language" || this.subtitleFocusedRail === "options") {
+        this.openSubtitleSelect(this.subtitleFocusedRail);
         return true;
       }
       if (styleItem) {
-        this.adjustSubtitleStyleControl(styleItem.id, this.getSubtitleStyleControlDelta(this.subtitleStyleControlSide));
+        // Toggles and "Reset defaults" only act on a non-zero delta, so OK
+        // behaves as an increment for the stepped controls and as "activate"
+        // for the rest.
+        this.adjustSubtitleStyleControl(styleItem.id, 1);
       }
       return true;
     }
-    if (this.subtitleFocusedRail === "style" && (keyCode === 10009 || keyCode === 461)) {
-      this.subtitleFocusedRail = options.length ? "options" : "language";
-      this.subtitleStyleControlSide = "minus";
-      this.renderSubtitleDialog();
+
+    // Back from a style row returns to the top of the panel before it closes.
+    if (isBack && this.subtitleFocusedRail === "style") {
+      this.setSubtitleFocusRowIndex(0);
+      if (!this.updateSubtitleDialogFocusOnly()) {
+        this.renderSubtitleDialog();
+      }
       return true;
     }
+
     return keyCode === 37 || keyCode === 38 || keyCode === 39 || keyCode === 40 || keyCode === 13;
+  },
+
+  commitOpenSubtitleSelect() {
+    const which = this.subtitleOpenSelect;
+    if (which === "language") {
+      const languages = this.getSubtitleLanguageRailItems();
+      const language = languages[this.subtitleLanguageRailIndex];
+      if (!language) {
+        this.closeSubtitleSelect();
+        return;
+      }
+      if (language.key === SUBTITLE_LANGUAGE_OFF_KEY) {
+        this.applySubtitleEntry(this.getSubtitleEntries("builtIn").find((entry) => entry.id === "subtitle-off") || { trackIndex: -1 });
+        this.saveItemSubtitlePreferences({ languageKey: SUBTITLE_LANGUAGE_OFF_KEY });
+        this.subtitleOpenSelect = "";
+        this.subtitleFocusedRail = "language";
+        this.renderSubtitleDialog();
+        return;
+      }
+      this.selectFirstSubtitleOptionForLanguage(language.key, { focusOptions: false });
+      this.syncSubtitleOptionIndexForFocusedLanguage();
+      this.subtitleOpenSelect = "";
+      // Land on the track row: having picked a language, choosing which of its
+      // subtitles to use is the natural next step.
+      this.subtitleFocusedRail = this.isSubtitleTrackRowVisible() ? "options" : "language";
+      this.renderSubtitleDialog();
+      return;
+    }
+
+    const items = this.getOpenSubtitleSelectItems();
+    const option = items[this.subtitleOptionRailIndex];
+    if (option?.entry && !option.entry.unavailable) {
+      this.applySubtitleEntry(option.entry);
+      if (option.languageKey && option.languageKey !== SUBTITLE_LANGUAGE_OFF_KEY) {
+        this.saveItemSubtitlePreferences({ languageKey: option.languageKey });
+      }
+    }
+    this.subtitleOpenSelect = "";
+    this.subtitleFocusedRail = "options";
+    this.renderSubtitleDialog();
   },
 
   getMergedAudioTrackEntries(audioTracks = []) {
@@ -11372,6 +11502,9 @@ export const PlayerScreen = {
     }
     const selectedEntry = entries.findIndex((entry) => entry.selected);
     this.audioDialogIndex = Math.max(0, selectedEntry >= 0 ? selectedEntry : 0);
+    this.audioOpenSelect = "";
+    this.audioFocusedColumn = entries.length ? "tracks" : "controls";
+    this.audioMixFocusIndex = 0;
     this.setControlsVisible(true, { focus: false });
     this.renderSubtitleDialog();
     this.renderAudioDialog();
@@ -11382,6 +11515,7 @@ export const PlayerScreen = {
 
   closeAudioDialog() {
     this.audioDialogVisible = false;
+    this.audioOpenSelect = "";
     this.renderAudioDialog();
     this.updateModalBackdrop();
     this.resetControlsAutoHide();
@@ -11586,11 +11720,14 @@ export const PlayerScreen = {
       const loading = this.embeddedAudioLoading
         || (this.isCurrentSourceAdaptiveManifest() && (this.manifestLoading || this.trackDiscoveryInProgress));
       const emptyMessage = loading ? "Loading audio tracks..." : this.getUnavailableTrackMessage("audio");
+      this.audioOpenSelect = "";
       dialog.innerHTML = `
         <div class="player-dialog-title">${escapeHtml(t("audio_dialog_title", {}, "Audio"))}</div>
-        <div class="player-dialog-empty">${emptyMessage}</div>
-        <div class="player-audio-controls-list">
-          ${audioControls.map((control, index) => this.renderAudioControlItem(control, index)).join("")}
+        <div class="player-subtitle-stack">
+          <div class="player-dialog-empty">${emptyMessage}</div>
+          <div class="player-audio-controls-list">
+            ${audioControls.map((control, index) => this.renderAudioControlItem(control, index)).join("")}
+          </div>
         </div>
       `;
       return;
@@ -11598,16 +11735,15 @@ export const PlayerScreen = {
 
     this.audioDialogIndex = clamp(this.audioDialogIndex, 0, entries.length - 1);
     const hasSupportedEntries = entries.some((entry) => entry?.supported !== false);
-    dialog.innerHTML = `
-      <div class="player-dialog-title">${escapeHtml(t("audio_dialog_title", {}, "Audio"))}</div>
-      ${hasSupportedEntries ? "" : `<div class="player-audio-support-message">${escapeHtml(t("player.audio.noSupportedTracks", {}, "No supported audio tracks available"))}</div>`}
-      <div class="player-audio-overlay-grid">
-        <div class="player-dialog-list player-audio-track-list">
+    const trackOpen = Boolean(this.audioOpenSelect);
+    const trackRowFocused = this.audioFocusedColumn === "tracks" && !trackOpen;
+
+    const trackMenu = trackOpen
+      ? `<div class="player-select-menu">
           ${entries.map((entry, index) => {
             const unsupported = entry?.supported === false;
             const disabled = unsupported || Boolean(entry.unavailable);
             const selected = entry.selected && !unsupported;
-            const focused = this.audioFocusedColumn === "tracks" && index === this.audioDialogIndex;
             const itemLabel = unsupported
               ? [entry.label || "", t("player.audio.unsupported", {}, "Unsupported")].filter(Boolean).join(" · ")
               : entry.label || "";
@@ -11615,20 +11751,53 @@ export const PlayerScreen = {
               ? [entry.secondary, t("player.audio.unsupportedCodec", {}, "Codec not supported by this device")].filter(Boolean).join(" · ")
               : entry.secondary || "";
             return `
-              <div class="player-dialog-item focusable${selected ? " selected" : ""}${focused ? " focused" : ""}${disabled ? " disabled" : ""}" data-audio-column="tracks" data-audio-index="${index}" aria-disabled="${disabled ? "true" : "false"}">
-                <div class="player-dialog-item-main">${escapeHtml(itemLabel)}</div>
-                <div class="player-dialog-item-sub">${escapeHtml(itemSecondary)}</div>
-                <div class="player-dialog-item-check">${selected ? "&#10003;" : ""}</div>
+              <div class="player-select-option focusable${selected ? " selected" : ""}${index === this.audioDialogIndex ? " focused" : ""}${disabled ? " disabled" : ""}" data-audio-column="tracks" data-audio-index="${index}" aria-disabled="${disabled ? "true" : "false"}">
+                <div class="player-select-option-main">${escapeHtml(itemLabel)}</div>
+                <div class="player-select-option-sub">${escapeHtml(itemSecondary)}</div>
+                <div class="player-select-option-check">${selected ? "&#10003;" : ""}</div>
               </div>
             `;
           }).join("")}
+        </div>`
+      : "";
+
+    dialog.innerHTML = `
+      <div class="player-dialog-title">${escapeHtml(t("audio_dialog_title", {}, "Audio"))}</div>
+      ${hasSupportedEntries ? "" : `<div class="player-audio-support-message">${escapeHtml(t("player.audio.noSupportedTracks", {}, "No supported audio tracks available"))}</div>`}
+      <div class="player-subtitle-stack">
+        <div class="player-select-row focusable${trackRowFocused ? " focused" : ""}${trackOpen ? " is-open" : ""}" data-audio-select="tracks">
+          <!-- "Track", not "Audio" — the panel is already titled Audio. -->
+          <div class="player-select-label">${escapeHtml(t("audio_track_label", {}, "Track"))}</div>
+          <div class="player-select-value">${escapeHtml(this.getAudioSelectSummary())}</div>
+          <div class="player-select-caret" aria-hidden="true"></div>
         </div>
-        <div class="player-audio-controls-list">
+        ${trackMenu}
+        <div class="player-audio-controls-list${trackOpen ? " is-dimmed" : ""}">
           ${audioControls.map((control, index) => this.renderAudioControlItem(control, index)).join("")}
         </div>
       </div>
     `;
     this.scrollAudioDialogIntoView();
+  },
+
+  getAudioSelectSummary() {
+    const entries = this.getAudioEntries();
+    const selected = entries.find((entry) => entry.selected && entry?.supported !== false)
+      || entries[clamp(this.audioDialogIndex, 0, Math.max(0, entries.length - 1))];
+    if (!selected) {
+      return this.getUnavailableTrackMessage("audio");
+    }
+    return [selected.label, selected.secondary].filter(Boolean).join(" · ");
+  },
+
+  openAudioSelect() {
+    this.audioOpenSelect = "tracks";
+    this.renderAudioDialog();
+  },
+
+  closeAudioSelect() {
+    this.audioOpenSelect = "";
+    this.renderAudioDialog();
   },
 
   renderAudioControlItem(control, index) {
@@ -11670,68 +11839,82 @@ export const PlayerScreen = {
     if (!dialog || !this.audioDialogVisible) {
       return;
     }
-    const target = dialog.querySelector(".player-audio-track-list .player-dialog-item.focused");
+    const target = this.audioOpenSelect
+      ? dialog.querySelector(".player-select-menu .player-select-option.focused")
+      : dialog.querySelector(".player-select-row.focused, .player-audio-control-card.focused");
     target?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   },
 
+  // Mirrors handleSubtitleDialogKey: one vertical walk over [track select,
+  // boost, save-boost], with the track list expanding in place.
   handleAudioDialogKey(event) {
     const keyCode = Number(event?.keyCode || 0);
     const entries = this.getAudioEntries();
     const isNavigationKey = keyCode === 37 || keyCode === 38 || keyCode === 39 || keyCode === 40 || keyCode === 13;
+    const isBack = keyCode === 10009 || keyCode === 461;
 
-    if (keyCode === 37) {
-      if (this.audioFocusedColumn === "controls") {
-        if (this.audioMixFocusIndex === 0) {
-          this.activateAudioControl(-1);
-        } else if (entries.length) {
-          this.audioFocusedColumn = "tracks";
-          this.renderAudioDialog();
-        }
-      }
-      return true;
-    }
-
-    if (keyCode === 39) {
-      if (this.audioFocusedColumn === "tracks") {
-        if (!entries.length) {
-          this.audioFocusedColumn = "controls";
-          this.renderAudioDialog();
+    // --- Expanded track list ------------------------------------------------
+    if (this.audioOpenSelect) {
+      if (keyCode === 38 || keyCode === 40) {
+        if (this.shouldThrottleHeldPanelKey(event)) {
           return true;
         }
-        this.audioFocusedColumn = "controls";
+        this.audioDialogIndex = clamp(this.audioDialogIndex + (keyCode === 38 ? -1 : 1), 0, Math.max(0, entries.length - 1));
         this.renderAudioDialog();
-      } else if (this.audioMixFocusIndex === 0) {
-        this.activateAudioControl(1);
+        return true;
+      }
+      if (keyCode === 13) {
+        this.applyAudioTrack(this.audioDialogIndex);
+        this.audioOpenSelect = "";
+        this.renderAudioDialog();
+        return true;
+      }
+      if (isBack || keyCode === 37) {
+        this.closeAudioSelect();
+        return true;
       }
       return true;
     }
 
-    if (keyCode === 38) {
-      if (this.audioFocusedColumn === "tracks") {
-        this.audioDialogIndex = clamp(this.audioDialogIndex - 1, 0, entries.length - 1);
+    // --- Collapsed stack ----------------------------------------------------
+    const hasTrackRow = entries.length > 0;
+    const rowCount = (hasTrackRow ? 1 : 0) + 2;
+    const currentRow = this.audioFocusedColumn === "tracks" && hasTrackRow
+      ? 0
+      : (hasTrackRow ? 1 : 0) + clamp(this.audioMixFocusIndex, 0, 1);
+
+    if (keyCode === 38 || keyCode === 40) {
+      if (this.shouldThrottleHeldPanelKey(event)) {
+        return true;
+      }
+      const nextRow = clamp(currentRow + (keyCode === 38 ? -1 : 1), 0, rowCount - 1);
+      if (hasTrackRow && nextRow === 0) {
+        this.audioFocusedColumn = "tracks";
       } else {
-        this.audioMixFocusIndex = clamp(this.audioMixFocusIndex - 1, 0, 1);
+        this.audioFocusedColumn = "controls";
+        this.audioMixFocusIndex = clamp(nextRow - (hasTrackRow ? 1 : 0), 0, 1);
       }
       this.renderAudioDialog();
       return true;
     }
 
-    if (keyCode === 40) {
-      if (this.audioFocusedColumn === "tracks") {
-        this.audioDialogIndex = clamp(this.audioDialogIndex + 1, 0, entries.length - 1);
-      } else {
-        this.audioMixFocusIndex = clamp(this.audioMixFocusIndex + 1, 0, 1);
+    // Left/right adjust the boost directly, matching the subtitle style rows.
+    if (keyCode === 37 || keyCode === 39) {
+      if (this.audioFocusedColumn === "controls" && this.audioMixFocusIndex === 0) {
+        if (this.shouldThrottleHeldPanelKey(event)) {
+          return true;
+        }
+        this.activateAudioControl(keyCode === 39 ? 1 : -1);
       }
-      this.renderAudioDialog();
       return true;
     }
 
     if (keyCode === 13) {
-      if (this.audioFocusedColumn === "tracks") {
-        this.applyAudioTrack(this.audioDialogIndex);
-      } else {
-        this.activateAudioControl(this.audioMixFocusIndex === 0 ? 1 : 0);
+      if (this.audioFocusedColumn === "tracks" && hasTrackRow) {
+        this.openAudioSelect();
+        return true;
       }
+      this.activateAudioControl(this.audioMixFocusIndex === 0 ? 1 : 0);
       return true;
     }
 
@@ -11787,7 +11970,9 @@ export const PlayerScreen = {
         ${PLAYER_SPEEDS.map((speed, index) => `
           <div class="player-dialog-item focusable${speed === currentSpeed ? " selected" : ""}${index === this.speedDialogIndex ? " focused" : ""}" data-speed-index="${index}">
             <div class="player-dialog-item-main">${escapeHtml(`${speed}x`)}</div>
-            <div class="player-dialog-item-sub">${escapeHtml(speed === 1 ? t("common.normal", {}, "Normal") : t("player_playback_speed", {}, "Playback speed"))}</div>
+            <!-- Only 1x carries a caption; the others repeated the panel title
+                 verbatim on every row, which read as seven identical labels. -->
+            <div class="player-dialog-item-sub">${speed === 1 ? escapeHtml(t("common.normal", {}, "Normal")) : ""}</div>
             <div class="player-dialog-item-check">${speed === currentSpeed ? "&#10003;" : ""}</div>
           </div>
         `).join("")}
@@ -13083,24 +13268,46 @@ export const PlayerScreen = {
       return;
     }
 
+    // Hovering a collapsed select row moves the cursor to it without opening.
+    const subtitleSelectRow = target?.closest?.("[data-subtitle-select]");
+    if (subtitleSelectRow && this.subtitleDialogVisible && !this.subtitleOpenSelect) {
+      this.subtitleFocusedRail = subtitleSelectRow.dataset.subtitleSelect === "options" ? "options" : "language";
+      return;
+    }
+
     const subtitleNode = target?.closest?.("[data-subtitle-rail]");
     if (subtitleNode && this.subtitleDialogVisible) {
-      this.subtitleFocusedRail = subtitleNode.dataset.subtitleRail || "language";
+      const rail = subtitleNode.dataset.subtitleRail || "language";
       const index = Number(subtitleNode.dataset.subtitleIndex || 0);
-      if (this.subtitleFocusedRail === "language") {
-        this.subtitleLanguageRailIndex = index;
-        this.syncSubtitleOptionIndexForFocusedLanguage();
-      } else if (this.subtitleFocusedRail === "options") {
-        this.subtitleOptionRailIndex = index;
-      } else {
+      if (rail === "style") {
+        this.subtitleFocusedRail = "style";
         this.subtitleStyleRailIndex = index;
         this.subtitleStyleControlSide = String(subtitleNode.dataset.subtitleStyleAction || "").toLowerCase() === "increase" ? "plus" : "minus";
+        return;
       }
+      // The language and track lists only exist while their select is open, so
+      // hovering one moves that select's cursor rather than the panel's.
+      if (this.subtitleOpenSelect === "language" && rail === "language") {
+        this.subtitleLanguageRailIndex = index;
+      } else if (this.subtitleOpenSelect === "options" && rail === "options") {
+        this.subtitleOptionRailIndex = index;
+      }
+      return;
+    }
+
+    const audioSelectRow = target?.closest?.("[data-audio-select]");
+    if (audioSelectRow && this.audioDialogVisible && !this.audioOpenSelect) {
+      this.audioFocusedColumn = "tracks";
       return;
     }
 
     const audioNode = target?.closest?.("[data-audio-column]");
     if (audioNode && this.audioDialogVisible) {
+      // Track rows only exist while the select is open, so hovering one moves
+      // that list's cursor rather than the panel's row focus.
+      if (audioNode.dataset.audioColumn === "tracks" && !this.audioOpenSelect) {
+        return;
+      }
       this.audioFocusedColumn = audioNode.dataset.audioColumn || "tracks";
       const index = Number(audioNode.dataset.audioIndex || 0);
       if (this.audioFocusedColumn === "tracks") {
@@ -13180,6 +13387,13 @@ export const PlayerScreen = {
       return true;
     }
 
+    // Clicking a collapsed select row expands it, matching OK on the remote.
+    const subtitleSelectRow = target.closest?.("[data-subtitle-select]");
+    if (subtitleSelectRow && this.subtitleDialogVisible) {
+      this.openSubtitleSelect(subtitleSelectRow.dataset.subtitleSelect === "options" ? "options" : "language");
+      return true;
+    }
+
     const subtitleStep = target.closest?.("[data-subtitle-style-action]");
     if (subtitleStep && this.subtitleDialogVisible) {
       const styleItems = this.getSubtitleStyleControls();
@@ -13197,6 +13411,13 @@ export const PlayerScreen = {
       return this.handleSubtitleDialogKey({ keyCode: 13 });
     }
 
+    // Clicking the collapsed track row expands it, matching OK on the remote.
+    const audioSelectRow = target.closest?.("[data-audio-select]");
+    if (audioSelectRow && this.audioDialogVisible) {
+      this.openAudioSelect();
+      return true;
+    }
+
     const audioStep = target.closest?.("[data-audio-step]");
     if (audioStep && this.audioDialogVisible) {
       this.activateAudioControl(Number(audioStep.dataset.audioStep || 1));
@@ -13205,8 +13426,10 @@ export const PlayerScreen = {
 
     const audioNode = target.closest?.("[data-audio-column]");
     if (audioNode && this.audioDialogVisible) {
-      if (this.audioFocusedColumn === "tracks") {
+      if (audioNode.dataset.audioColumn === "tracks") {
         this.applyAudioTrack(this.audioDialogIndex);
+        this.audioOpenSelect = "";
+        this.renderAudioDialog();
       } else {
         this.activateAudioControl(this.audioMixFocusIndex === 0 ? 1 : 0);
       }

@@ -13086,9 +13086,10 @@ img[data-lazy-src] {
   transition-duration: 200ms;
 }
 
-/* Top-anchored so the bottom band stays clear: for subtitles that is the live
-   style preview, for audio it keeps the transport controls readable. The
-   min() floor stops the panel collapsing on short viewports. */
+/* Superseded: these are right-hand side panels now (see the track-menus block
+   further down), and the live subtitle preview is kept clear by insetting the
+   overlay rather than by anchoring the panel to the top. Left in place because
+   the width floor below still applies before that block overrides the rest. */
 .player-subtitle-modal,
 .player-audio-modal {
   top: 0;
@@ -13794,6 +13795,10 @@ img[data-lazy-src] {
   --player-menu-focus-fill: #ffffff;
   --player-menu-focus-ink: #0b0d10;
   --player-menu-feather: min(10.4vw, 200px);
+  /* One width for every right-hand menu. The subtitle overlay's safe area is
+     derived from this same value, so the panel and the live preview can never
+     drift apart at a breakpoint. */
+  --player-track-panel-width: min(62vw, 1200px);
 }
 
 .player-sources-panel {
@@ -13811,7 +13816,7 @@ img[data-lazy-src] {
   border-radius: 0;
   /* Wider than the inherited panel width: the feather is dead space, and at
      1040px the usable column truncated most release names mid-token. */
-  width: min(62vw, 1200px);
+  width: var(--player-track-panel-width);
   padding: min(4.17vw, 80px) min(3.33vw, 64px) 0 var(--player-menu-feather);
   opacity: 1;
   transform: translateX(0);
@@ -14361,6 +14366,646 @@ img[data-lazy-src] {
   font-weight: 700;
 }
 
+/* ==========================================================================
+   Track menus — subtitles, audio, speed
+   --------------------------------------------------------------------------
+   Same system as the two panels above: no nested boxes, focus is a fill
+   inversion rather than an outline, tabs are underlined text rather than
+   pills, and the surface feathers into the video instead of ending on a hard
+   edge. The column structure of these dialogs is left alone — a rail per
+   concern (language / track / style) is the right shape for a d-pad, unlike
+   the episode list, which was genuinely the wrong structure.
+   ========================================================================== */
+
+/* Side panels, matching the sources panel exactly — same edge, same width, same
+   feather, same slide. Four menus previously used four different geometries
+   (right drawer, top sheet, bottom rail, corner card); collapsing subtitles and
+   audio onto the sources geometry means "menus come from the right" is a single
+   thing to learn, and the one menu that keeps its own shape (the episode rail)
+   does so because its content is pictures rather than text.
+
+   These override the top-sheet positioning inherited from the ATV block. */
+.player-subtitle-modal,
+.player-audio-modal {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: var(--player-track-panel-width);
+  height: 100%;
+  max-height: none;
+  background: linear-gradient(
+    90deg,
+    rgba(11, 13, 16, 0) 0%,
+    rgba(11, 13, 16, 0.72) calc(var(--player-menu-feather) * 0.55),
+    rgba(11, 13, 16, 0.97) var(--player-menu-feather),
+    rgba(11, 13, 16, 0.99) 100%
+  );
+  border-radius: 0;
+  padding: min(4.17vw, 80px) min(3.33vw, 64px) min(2.5vw, 48px) var(--player-menu-feather);
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 200ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-subtitle-modal.hidden,
+.player-audio-modal.hidden {
+  opacity: 0;
+  transform: translateX(6%);
+}
+
+/* ---- Subtitle panel: collapsed selects ---------------------------------
+   Language and track are selects rather than always-open rails, so the panel
+   is one narrow column instead of three side-by-side lists. Long language
+   lists only take screen while they are being used. */
+
+/* Audio uses the identical stack, so both collapse to the same narrow column. */
+.player-subtitle-modal,
+.player-audio-modal {
+  width: var(--player-subtitle-panel-width);
+}
+
+#playerUiRoot {
+  --player-subtitle-panel-width: min(38vw, 730px);
+}
+
+/* The audio panel reuses .player-subtitle-stack, so its controls column becomes
+   a plain block in that stack rather than a grid column. */
+.player-subtitle-stack > .player-audio-controls-list {
+  width: 100%;
+  max-height: none;
+  margin-top: min(0.63vw, 12px);
+  transition: opacity 180ms ease;
+  /* The inherited "more below" fade belongs to the old scrolling column; here
+     the list is a short block in a scrolling stack, so the mask just clipped
+     the bottom off the last card. */
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.player-audio-controls-list.is-dimmed {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.player-subtitle-stack {
+  display: flex;
+  flex-direction: column;
+  gap: min(0.63vw, 12px);
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.player-subtitle-stack::-webkit-scrollbar {
+  display: none;
+}
+
+/* Nothing in the stack may shrink. It is a height-constrained flex column, and
+   with an expanded select plus eight style controls the content is taller than
+   the panel — the default flex-shrink:1 then compresses every row and menu
+   option instead of letting the stack scroll, which reads as the whole panel
+   being squashed. Fixed heights + overflow on the stack is the intent. */
+.player-subtitle-stack > * {
+  flex: none;
+}
+
+.player-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: min(1.04vw, 20px);
+  padding: min(0.94vw, 18px) min(1.15vw, 22px);
+  border: none;
+  border-radius: min(0.83vw, 16px);
+  background: rgba(255, 255, 255, 0.06);
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+.player-select-label {
+  font-size: min(1.25vw, 24px);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+}
+
+.player-select-value {
+  font-size: min(1.35vw, 26px);
+  font-weight: 700;
+  color: #fff;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Chevron drawn in CSS so it inherits the row's ink colour on inversion. */
+.player-select-caret {
+  width: min(0.73vw, 14px);
+  height: min(0.73vw, 14px);
+  border-right: min(0.16vw, 3px) solid currentColor;
+  border-bottom: min(0.16vw, 3px) solid currentColor;
+  transform: rotate(45deg) translate(-0.1em, -0.1em);
+  color: rgba(255, 255, 255, 0.5);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), color 130ms ease;
+}
+
+.player-select-row.is-open .player-select-caret {
+  transform: rotate(225deg) translate(-0.1em, -0.1em);
+}
+
+.player-select-row.focused {
+  background: var(--player-menu-focus-fill);
+}
+
+.player-select-row.focused .player-select-label {
+  color: rgba(11, 13, 16, 0.55);
+}
+
+.player-select-row.focused .player-select-value {
+  color: var(--player-menu-focus-ink);
+}
+
+.player-select-row.focused .player-select-caret {
+  color: var(--player-menu-focus-ink);
+}
+
+/* ---- Expanded select list ---------------------------------------------- */
+
+.player-select-menu {
+  display: flex;
+  flex-direction: column;
+  gap: min(0.21vw, 4px);
+  /* Runs most of the way to the bottom of the panel: these lists are the whole
+     point of opening the select, and a short window meant scrolling through a
+     long language list a few rows at a time. */
+  max-height: min(72vh, 820px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: min(0.42vw, 8px);
+  border-radius: min(0.83vw, 16px);
+  background: rgba(255, 255, 255, 0.04);
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 40px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 40px), transparent 100%);
+}
+
+.player-select-menu::-webkit-scrollbar {
+  display: none;
+}
+
+/* Same reasoning as the stack: the menu is a capped-height flex column, so its
+   options must keep their natural height and let the menu scroll. */
+.player-select-option {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: min(0.63vw, 12px);
+  padding: min(0.73vw, 14px) min(1.04vw, 20px);
+  border-radius: min(0.63vw, 12px);
+  background: transparent;
+  transition: background-color 130ms ease, color 130ms ease;
+  scroll-margin-block: min(0.63vw, 12px);
+}
+
+.player-select-option-main {
+  grid-column: 1 / 2;
+  font-size: min(1.25vw, 24px);
+  font-weight: 600;
+  color: #fff;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-select-option-sub {
+  grid-column: 1 / 2;
+  grid-row: 2 / 3;
+  font-size: min(1.04vw, 20px);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-select-option-check {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  width: min(0.63vw, 12px);
+  height: min(0.63vw, 12px);
+  border-radius: 50%;
+  font-size: 0;
+}
+
+.player-select-option.selected .player-select-option-check:not(:empty) {
+  background: var(--secondary-color);
+}
+
+.player-select-option.focused {
+  background: var(--player-menu-focus-fill);
+}
+
+.player-select-option.focused .player-select-option-main {
+  color: var(--player-menu-focus-ink);
+}
+
+.player-select-option.focused .player-select-option-sub {
+  color: rgba(11, 13, 16, 0.62);
+}
+
+.player-select-option.selected.focused .player-select-option-check:not(:empty) {
+  background: var(--player-menu-focus-ink);
+}
+
+.player-select-option.disabled {
+  opacity: 0.4;
+}
+
+/* Style controls recede while a select is expanded — they are still visible
+   for context but are not reachable until the list is dismissed. */
+.player-subtitle-style-rail.is-dimmed {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.player-subtitle-style-rail {
+  display: flex;
+  flex-direction: column;
+  gap: min(0.42vw, 8px);
+  margin-top: min(0.63vw, 12px);
+  transition: opacity 180ms ease;
+}
+
+.player-subtitle-style-rail > .player-dialog-style-item {
+  flex: none;
+}
+
+/* Full-height panels now, so the content grids take the remaining space and
+   scroll internally rather than sizing to their content. */
+.player-audio-overlay-grid {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+/* The controls column carried a fixed 536px width from the full-width sheet
+   layout; inside the side panel's grid column it overflowed the panel and cut
+   off the stepper's + button. Both columns now size to their grid track. */
+.player-audio-track-list,
+.player-audio-controls-list {
+  width: 100%;
+  min-width: 0;
+  max-height: 100%;
+}
+
+/* The panel's own feather does the separating, so the scrim only needs to take
+   the edge off the left third rather than dim the whole frame. */
+.player-modal-backdrop.is-track-panel {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0) 100%);
+}
+
+/* Live subtitle preview: the style controls (size, position, outline) are only
+   meaningful if you can see the cues while adjusting them, which is why this
+   panel used to be top-anchored. As a right panel it would sit on top of the
+   centred cue instead — so while it is open the overlay's right edge is pulled
+   in to the panel, and the cue re-centres in the band that is still visible.
+   Set as a variable rather than a fixed value so the two always agree. */
+.player-subtitle-overlay {
+  right: var(--player-subtitle-safe-right, 0);
+  transition: right 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Tracks the subtitle panel specifically, not the shared menu width — that
+   panel is narrower than the others now that its lists are collapsed, and
+   using the shared token would push the cue further left than necessary. */
+#playerUiRoot.is-subtitle-panel-open {
+  --player-subtitle-safe-right: var(--player-subtitle-panel-width);
+}
+
+/* Speed is a small bottom-left card rather than a sheet; it gets the panel
+   fill directly instead of a feather, which would have nothing to fade into
+   at that size. */
+.player-speed-modal {
+  background: rgba(11, 13, 16, 0.97);
+  border-radius: min(1.25vw, 24px);
+  padding: min(1.88vw, 36px) min(1.67vw, 32px);
+  width: min(19vw, 366px);
+}
+
+/* ---- Titles ------------------------------------------------------------- */
+
+.player-dialog-title {
+  font-size: min(2.4vw, 46px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: #fff;
+  margin-bottom: min(1.67vw, 32px);
+}
+
+.player-speed-modal .player-dialog-title {
+  font-size: min(1.67vw, 32px);
+  margin-bottom: min(1.04vw, 20px);
+}
+
+/* Rail captions sit above their column as quiet labels, not headings. */
+.player-subtitle-rail::before {
+  font-size: min(1.04vw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+/* ---- Tabs --------------------------------------------------------------- */
+
+.player-dialog-tabs {
+  gap: min(1.88vw, 36px);
+  margin-bottom: min(1.46vw, 28px);
+}
+
+.player-dialog-tab {
+  position: relative;
+  height: auto;
+  padding: min(0.42vw, 8px) min(0.63vw, 12px) min(0.73vw, 14px);
+  border: none;
+  border-radius: min(0.42vw, 8px);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: min(1.25vw, 24px);
+  font-weight: 600;
+}
+
+.player-dialog-tab::after {
+  content: "";
+  position: absolute;
+  left: min(0.63vw, 12px);
+  right: min(0.63vw, 12px);
+  bottom: 0;
+  height: min(0.16vw, 3px);
+  border-radius: 3px;
+  background: #fff;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-dialog-tab.selected {
+  background: transparent;
+  border: none;
+  color: #fff;
+}
+
+.player-dialog-tab.selected::after {
+  transform: scaleX(1);
+}
+
+/* ---- Rows --------------------------------------------------------------- */
+
+/* Bare by default; the fill inversion below is the only focus signal, which is
+   what makes it readable across a room.
+
+   display:grid is a restoration, not a new choice: every child here is already
+   authored with grid-column/grid-row (sub at row 2, check spanning both rows,
+   the style rail's centre cell at column 2), but a later `display: flex` in the
+   base turned the row into a single line and left those declarations inert. In
+   a wide top sheet that merely looked odd; in a narrow side-panel rail the
+   label and its sub ran into each other. */
+.player-dialog-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: min(0.63vw, 12px);
+  border: none;
+  border-radius: min(0.83vw, 16px);
+  background: transparent;
+  padding: min(0.83vw, 16px) min(1.15vw, 22px);
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+/* Three columns for the stepper rows: minus, value, plus. Tracks the stepper
+   size set below so the buttons are never clipped. */
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item {
+  grid-template-columns: min(2.92vw, 56px) minmax(0, 1fr) min(2.92vw, 56px);
+  column-gap: min(0.73vw, 14px);
+}
+
+/* Selection is carried by the accent dot alone, so a selected-but-unfocused row
+   stays bare and cannot be mistaken for the cursor. Declared before the focused
+   rules below: a row that is both selected and focused must read as focused,
+   and .selected / .focused have equal specificity, so source order decides. */
+.player-dialog-item.selected,
+.player-subtitle-modal .player-dialog-item.selected {
+  border: none;
+  background: transparent;
+}
+
+/* The :not(.selected) form is required, not redundant: the ATV block styles
+   focus with `.player-dialog-item.focused:not(.selected)`, and the argument to
+   :not() counts toward specificity — so a plain `.player-dialog-item.focused`
+   here loses to it and unselected rows keep the old grey box. */
+.player-dialog-item.focused,
+.player-dialog-item.focused:not(.selected),
+.player-dialog-item.selected.focused,
+.player-subtitle-modal .player-dialog-item.focused,
+.player-subtitle-modal .player-dialog-item.focused:not(.selected),
+.player-subtitle-modal .player-dialog-item.selected.focused {
+  border: none;
+  background: var(--player-menu-focus-fill);
+}
+
+.player-dialog-item-main {
+  font-size: min(1.35vw, 26px);
+  font-weight: 600;
+  line-height: 1.25;
+  color: #fff;
+}
+
+.player-dialog-item-sub {
+  margin-top: min(0.16vw, 3px);
+  font-size: min(1.04vw, 20px);
+  font-weight: 500;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.player-dialog-item.focused .player-dialog-item-main,
+.player-dialog-item.focused:not(.selected) .player-dialog-item-main,
+.player-dialog-item.selected.focused .player-dialog-item-main,
+.player-subtitle-modal .player-dialog-item.focused .player-dialog-item-main,
+.player-subtitle-modal .player-dialog-item.focused:not(.selected) .player-dialog-item-main,
+.player-subtitle-modal .player-dialog-item.selected.focused .player-dialog-item-main {
+  color: var(--player-menu-focus-ink);
+}
+
+.player-dialog-item.focused .player-dialog-item-sub,
+.player-dialog-item.focused:not(.selected) .player-dialog-item-sub,
+.player-dialog-item.selected.focused .player-dialog-item-sub,
+.player-subtitle-modal .player-dialog-item.focused .player-dialog-item-sub,
+.player-subtitle-modal .player-dialog-item.focused:not(.selected) .player-dialog-item-sub,
+.player-subtitle-modal .player-dialog-item.selected.focused .player-dialog-item-sub {
+  color: rgba(11, 13, 16, 0.62);
+}
+
+.player-dialog-item.disabled {
+  opacity: 0.4;
+}
+
+/* The check is a dot; on the inverted fill the accent would be low-contrast, so
+   it flips to the dark ink colour. */
+.player-dialog-item-check {
+  width: min(0.63vw, 12px);
+  height: min(0.63vw, 12px);
+}
+
+.player-dialog-item.selected.focused .player-dialog-item-check:not(:empty) {
+  background: var(--player-menu-focus-ink);
+}
+
+.player-dialog-empty {
+  padding: min(1.04vw, 20px) min(1.15vw, 22px);
+  font-size: min(1.25vw, 24px);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ---- Steppers ----------------------------------------------------------- */
+
+.player-dialog-step,
+.player-subtitle-modal .player-dialog-step {
+  width: min(2.92vw, 56px);
+  min-width: min(2.92vw, 56px);
+  height: min(2.92vw, 56px);
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: min(1.46vw, 28px);
+  font-weight: 700;
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+.player-dialog-step.focused,
+.player-subtitle-modal .player-dialog-step.focused {
+  background: var(--player-menu-focus-fill);
+  border: none;
+  color: var(--player-menu-focus-ink);
+}
+
+.player-dialog-step.disabled {
+  opacity: 0.3;
+}
+
+/* The style rail's rows are stepper containers, not targets themselves — the
+   two buttons inside carry the focus. The row must not take the inverted fill:
+   its label sits between the buttons, so on a white row it turns dark text on
+   light while the adjacent focused button is light on dark, which reads as two
+   different focus states at once. A quiet surface marks the active row instead.
+
+   These selectors are scoped to .player-subtitle-modal deliberately — the
+   generic .player-dialog-item.focused rules above are themselves scoped that
+   way, and an unscoped rule here would lose to them. */
+/* Both .player-dialog-item and .player-dialog-style-item are matched so these
+   reach four classes — the generic focus rules above use
+   `.player-subtitle-modal .player-dialog-item.focused:not(.selected)`, which is
+   itself four, and a three-class exception here would silently lose to it. */
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item,
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item.focused {
+  border: none;
+  background: transparent;
+}
+
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item.focused {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item .player-dialog-item-main,
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item.focused .player-dialog-item-main {
+  color: #fff;
+}
+
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item .player-dialog-item-sub,
+.player-subtitle-modal .player-dialog-item.player-dialog-style-item.focused .player-dialog-item-sub {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+/* ---- Audio control cards ------------------------------------------------ */
+
+.player-audio-control-card {
+  border: none;
+  border-radius: min(0.83vw, 16px);
+  background: transparent;
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+/* The stepper card keeps a surface: it groups a label, a value and two buttons,
+   and without one those read as four unrelated things. */
+.player-audio-control-stepper {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: min(0.83vw, 16px);
+}
+
+.player-audio-control-card.focused:not(.selected),
+.player-audio-control-card.focused {
+  border: none;
+  background: var(--player-menu-focus-fill);
+}
+
+.player-audio-control-card.selected {
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.player-audio-control-card.selected.focused {
+  background: var(--player-menu-focus-fill);
+}
+
+.player-audio-control-title {
+  font-size: min(1.35vw, 26px);
+  font-weight: 600;
+  color: #fff;
+}
+
+.player-audio-control-value {
+  font-size: min(1.46vw, 28px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+.player-audio-control-card.focused .player-audio-control-title,
+.player-audio-control-card.focused .player-audio-control-value,
+.player-audio-control-card.focused .player-dialog-item-main,
+.player-audio-control-card.selected.focused .player-dialog-item-main {
+  color: var(--player-menu-focus-ink);
+}
+
+.player-audio-control-card.focused .player-dialog-item-sub,
+.player-audio-control-card.selected.focused .player-dialog-item-sub {
+  color: rgba(11, 13, 16, 0.62);
+}
+
+/* A focused stepper card inverts, so its buttons must invert the other way to
+   stay visible against it. */
+.player-audio-control-card.focused .player-dialog-step {
+  background: rgba(11, 13, 16, 0.14);
+  color: var(--player-menu-focus-ink);
+}
+
+.player-audio-control-card.focused .player-dialog-step.focused {
+  background: var(--player-menu-focus-ink);
+  color: var(--player-menu-focus-fill);
+}
+
+.player-audio-support-message {
+  border-radius: min(0.63vw, 12px);
+  font-size: min(1.04vw, 20px);
+}
+
 @media (max-width: 1280px), (max-height: 760px) {
   #playerUiRoot {
     --player-panel-width: min(60vw, 760px);
@@ -14374,23 +15019,25 @@ img[data-lazy-src] {
     --player-menu-feather: min(7vw, 96px);
     --player-episode-rail-gutter: min(4vw, 64px);
     --player-episode-card-w: min(24vw, 300px);
+    --player-track-panel-width: min(88vw, 900px);
   }
 
-  .player-subtitle-modal,
-  .player-audio-modal {
-    width: min(92vw, 724px);
-  }
-
+  /* The three subtitle rails have to fit inside the panel minus its feather and
+     right padding; at the full-size column widths they overflow a 900px panel.
+     Sized to land just under that budget. */
   .player-subtitle-overlay-grid {
-    grid-template-columns: 200px 300px 280px;
+    grid-template-columns: minmax(150px, 180px) minmax(170px, max-content) minmax(220px, 250px);
+    gap: 20px;
   }
 
   .player-audio-overlay-grid {
-    grid-template-columns: 444px 268px;
+    grid-template-columns: minmax(280px, 1fr) minmax(220px, 280px);
+    gap: 24px;
   }
 
-  .player-audio-track-list {
-    width: 444px;
+  .player-audio-track-list,
+  .player-audio-controls-list {
+    width: 100%;
   }
 }
 
