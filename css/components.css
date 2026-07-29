@@ -13764,6 +13764,603 @@ img[data-lazy-src] {
   transition: opacity 200ms ease;
 }
 
+/* ==========================================================================
+   Player side menus — streaming-service treatment
+   --------------------------------------------------------------------------
+   Applies to the sources and episode panels only. Three things separate a
+   streaming UI from an app UI at 10 feet, and the previous styling had all
+   three the app way:
+
+     1. Nested boxes. A #1a1a1a panel holding #242424 cards reads as chrome.
+        Rows here sit directly on the panel and are separated by rhythm alone.
+     2. Focus by outline. A 2-4px border is invisible across a room. Focus is
+        a full fill inversion instead, which is what the row-based streaming
+        UIs (and this app's own play buttons) use.
+     3. A hard drawer edge. The panel now feathers into the video instead of
+        butting against it with a hairline.
+
+   Everything animates on background-color/color/transform/opacity only, so
+   nothing here reintroduces the per-frame compositor cost that the
+   backdrop-filter removal above was meant to fix. Notably the focused row no
+   longer scales: scaling a ~1000px-wide row forces a full text re-raster
+   every focus move, which is exactly the kind of work this panel cannot
+   afford while video decodes.
+   ========================================================================== */
+
+#playerUiRoot {
+  /* Swap these two to soften the focus treatment (e.g. #d8dce3 / #101216 for a
+     dimmer fill, or var(--secondary-color) for a brand-tinted one). Every
+     inversion rule below is expressed in terms of them. */
+  --player-menu-focus-fill: #ffffff;
+  --player-menu-focus-ink: #0b0d10;
+  --player-menu-feather: min(10.4vw, 200px);
+}
+
+.player-sources-panel {
+  /* Feathered left edge: opaque under the content, fading to nothing over the
+     leftmost --player-menu-feather so the panel dissolves into the video
+     rather than sitting on it as a drawer. Costs one gradient, no blur. */
+  background: linear-gradient(
+    90deg,
+    rgba(11, 13, 16, 0) 0%,
+    rgba(11, 13, 16, 0.72) calc(var(--player-menu-feather) * 0.55),
+    rgba(11, 13, 16, 0.97) var(--player-menu-feather),
+    rgba(11, 13, 16, 0.99) 100%
+  );
+  border-left: none;
+  border-radius: 0;
+  /* Wider than the inherited panel width: the feather is dead space, and at
+     1040px the usable column truncated most release names mid-token. */
+  width: min(62vw, 1200px);
+  padding: min(4.17vw, 80px) min(3.33vw, 64px) 0 var(--player-menu-feather);
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 200ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-sources-panel.hidden {
+  opacity: 0;
+  transform: translateX(6%);
+}
+
+/* ---- Headings ---------------------------------------------------------- */
+
+.player-sources-title,
+.player-episode-panel-title {
+  font-size: min(2.4vw, 46px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: #fff;
+}
+
+.player-sources-header,
+.player-episode-panel-header {
+  padding: 0;
+  margin-bottom: min(1.25vw, 24px);
+  gap: min(1.25vw, 24px);
+}
+
+/* Secondary to the title — these are utility actions, not the point of the
+   panel, and at their inherited ATV size they crowd the heading. */
+.player-sources-top-btn {
+  height: min(2.92vw, 56px);
+  padding: 0 min(1.15vw, 22px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: min(1.04vw, 20px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.player-sources-top-btn.focused {
+  background: var(--player-menu-focus-fill);
+  color: var(--player-menu-focus-ink);
+  box-shadow: none;
+}
+
+.player-source-current-meta {
+  padding: 0;
+  margin-top: min(0.63vw, 12px);
+  margin-bottom: min(1.88vw, 36px);
+  font-size: min(1.15vw, 22px);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ---- Filter tabs (sources) --------------------------------------------- */
+
+/* Pills read as form controls; underlined text tabs read as content nav. */
+.player-sources-filters {
+  gap: min(1.88vw, 36px);
+  padding: 0;
+  margin: 0 0 min(1.67vw, 32px);
+}
+
+.player-sources-filter {
+  position: relative;
+  height: auto;
+  padding: min(0.42vw, 8px) min(0.63vw, 12px) min(0.73vw, 14px);
+  border: none;
+  border-radius: min(0.42vw, 8px);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: min(1.25vw, 24px);
+  font-weight: 600;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.player-sources-filter::after {
+  content: "";
+  position: absolute;
+  left: min(0.63vw, 12px);
+  right: min(0.63vw, 12px);
+  bottom: 0;
+  height: min(0.16vw, 3px);
+  border-radius: 3px;
+  background: #fff;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-sources-filter.selected,
+.player-sources-filter.focused {
+  background: transparent;
+  color: #fff;
+  border-color: transparent;
+}
+
+.player-sources-filter.selected::after {
+  transform: scaleX(1);
+}
+
+/* Focus is the cursor, selection is the active filter — they must stay
+   distinguishable when they land on different chips. */
+.player-sources-filter.focused {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* ---- Lists ------------------------------------------------------------- */
+
+/* A clipped last row should read as "more below" rather than a broken layout.
+   Same idiom the subtitle/audio rails already use. */
+.player-sources-list,
+.player-episode-panel-list {
+  padding: 0;
+  margin: 0;
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 72px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 72px), transparent 100%);
+}
+
+/* ---- Source rows ------------------------------------------------------- */
+
+/* Row layout: fixed quality tile, flexible copy, optional playing flag. The
+   tile column is a fixed width so the headlines line up down the list — that
+   vertical alignment is what makes the list scannable. */
+.player-source-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  margin: 0 0 min(0.42vw, 8px);
+  padding: min(1.04vw, 20px) min(1.46vw, 28px);
+  border: none;
+  border-width: 0;
+  border-radius: min(0.83vw, 16px);
+  background: transparent;
+  gap: min(1.25vw, 24px);
+  transform: none;
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+/* ---- Quality tile ------------------------------------------------------- */
+
+.player-source-quality {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: min(0.16vw, 3px);
+  width: min(6.25vw, 120px);
+  padding: min(0.52vw, 10px) min(0.42vw, 8px);
+  border-radius: min(0.63vw, 12px);
+  background: rgba(255, 255, 255, 0.09);
+  transition: background-color 130ms ease;
+}
+
+.player-source-quality-res {
+  font-size: min(1.35vw, 26px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: #fff;
+}
+
+.player-source-quality-hdr {
+  font-size: min(0.83vw, 16px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: var(--secondary-color);
+}
+
+.player-source-card.focused .player-source-quality {
+  background: rgba(11, 13, 16, 0.1);
+}
+
+.player-source-card.focused .player-source-quality-res {
+  color: var(--player-menu-focus-ink);
+}
+
+.player-source-card.focused .player-source-quality-hdr {
+  color: rgba(11, 13, 16, 0.7);
+}
+
+/* ---- Meta strip --------------------------------------------------------- */
+
+/* The base rule spaces this column by 16px, which is tuned for the old
+   title+description pair; the title and meta strip carry their own spacing. */
+.player-source-main {
+  gap: 0;
+}
+
+/* One line, never wrapping: a wrapping strip gives every row a different height
+   and destroys the vertical rhythm that makes the list scannable. Items are
+   emitted in priority order (cache state, size, seeders, then codec/audio/addon)
+   so when a narrow panel clips the tail, what's lost is the least useful. The
+   mask fades the cut rather than chopping a glyph in half. */
+.player-source-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: min(1.04vw, 20px);
+  margin-top: min(0.42vw, 8px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
+}
+
+/* flex: none matters — the default lets items shrink, and in a nowrap strip
+   that squeezes them until their own gaps collapse and values run together
+   ("8.2 GB↑1204H.264"). Fixed items clip at the mask instead. */
+.player-source-meta-item {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: min(0.31vw, 6px);
+  font-size: min(1.15vw, 22px);
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.62);
+  white-space: nowrap;
+}
+
+.player-source-meta-item svg {
+  width: min(1.15vw, 22px);
+  height: min(1.15vw, 22px);
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.player-source-meta-item.is-cached {
+  color: #58d68d;
+}
+
+.player-source-meta-item.is-addon {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.player-source-card.focused .player-source-meta-item {
+  color: rgba(11, 13, 16, 0.66);
+}
+
+.player-source-card.focused .player-source-meta-item.is-cached {
+  color: #0f7a3d;
+}
+
+.player-source-card.focused .player-source-meta-item.is-addon {
+  color: rgba(11, 13, 16, 0.5);
+}
+
+/* ---- Playing flag ------------------------------------------------------- */
+
+.player-source-playing-flag {
+  padding: min(0.31vw, 6px) min(0.63vw, 12px);
+  border-radius: min(0.42vw, 8px);
+  background: var(--secondary-color);
+  color: #0b0d10;
+  font-size: min(0.94vw, 18px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.player-source-card.focused,
+.player-source-card.selected.focused {
+  border: none;
+  background: var(--player-menu-focus-fill);
+  transform: none;
+}
+
+/* Currently-playing is carried by the "Playing" flag in the third column, so
+   the row itself stays unmarked — a second indicator here would compete with
+   the focus fill. */
+.player-source-card.selected {
+  border: none;
+  background: transparent;
+}
+
+/* Release names are long and their distinguishing part (resolution, group,
+   edition) is usually at the end, so keep it to one line and ellipsise rather
+   than wrapping to two and pushing the meta strip around. */
+.player-source-title {
+  font-size: min(1.46vw, 28px);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: #fff;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-source-card.focused .player-source-title {
+  color: var(--player-menu-focus-ink);
+}
+
+/* Badge artwork is authored for dark rows — most addon logos are white
+   knockouts, which would disappear on the inverted fill. Give them back a dark
+   chip so they stay legible without touching the inline colours the rules set. */
+.player-source-card.focused .stream-route-stream-badge.image {
+  background: #14171c;
+  padding: 0 min(0.42vw, 8px);
+  border-radius: min(0.42vw, 8px);
+}
+
+.player-source-card.focused .stream-route-stream-badge.size {
+  background: rgba(11, 13, 16, 0.9);
+  border-color: transparent;
+  color: #fff;
+}
+
+.player-sources-empty {
+  padding: min(1.25vw, 24px) 0;
+  font-size: min(1.25vw, 24px);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ---- Episode picker: bottom rail ---------------------------------------
+   A right-hand drawer of text rows hides the video and buries the one thing
+   that identifies an episode — its thumbnail. This is a bottom overlay: the
+   video stays visible above it, episodes are large 16:9 cards on a horizontal
+   rail, and the full title/overview for the selected card sits above the rail
+   instead of being clamped inside every row.
+
+   Navigation is left/right (see onKeyDown) and the track moves by transform,
+   so a move never touches layout. */
+
+.player-episode-panel {
+  /* Overrides the shared right-drawer geometry inherited from the base and ATV
+     blocks — this panel is now a full-width bottom sheet. */
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  top: auto;
+  width: 100%;
+  height: auto;
+  z-index: 37;
+  display: block;
+  padding: min(3.75vw, 72px) 0 min(2.5vw, 48px);
+  border: none;
+  border-radius: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 10, 13, 0) 0%,
+    rgba(8, 10, 13, 0.72) 22%,
+    rgba(8, 10, 13, 0.94) 48%,
+    rgba(8, 10, 13, 0.98) 100%
+  );
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 200ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+
+.player-episode-panel.hidden {
+  opacity: 0;
+  transform: translateY(14%);
+}
+
+/* Paired with updateModalBackdrop: the rail supplies its own bottom gradient,
+   so the full-screen scrim steps back and the video stays watchable. */
+.player-modal-backdrop.is-episode-rail {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+/* ---- Selected-episode detail (above the rail) --------------------------- */
+
+.player-episode-detail {
+  padding: 0 var(--player-episode-rail-gutter);
+  margin-bottom: min(1.67vw, 32px);
+  max-width: min(58vw, 1120px);
+}
+
+.player-episode-detail-meta {
+  font-size: min(1.15vw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--secondary-color);
+  min-height: min(1.4vw, 27px);
+}
+
+.player-episode-detail-title {
+  margin-top: min(0.42vw, 8px);
+  font-size: min(2.3vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: #fff;
+}
+
+.player-episode-detail-overview {
+  margin-top: min(0.63vw, 12px);
+  font-size: min(1.15vw, 22px);
+  font-weight: 500;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.62);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: min(3.2vw, 62px);
+}
+
+/* ---- The rail ----------------------------------------------------------- */
+
+#playerUiRoot {
+  --player-episode-rail-gutter: min(5.42vw, 104px);
+  --player-episode-card-w: min(20.8vw, 400px);
+}
+
+.player-episode-viewport {
+  overflow: hidden;
+  padding: min(0.83vw, 16px) 0 min(0.83vw, 16px) var(--player-episode-rail-gutter);
+  /* Faded on both edges: cards run past the right rather than stopping dead, so
+     the rail reads as continuing off-screen, and the partially-visible previous
+     card on the left dissolves instead of being sliced down its middle. */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, transparent 28px, #000 var(--player-episode-rail-gutter), #000 calc(100% - 120px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, transparent 28px, #000 var(--player-episode-rail-gutter), #000 calc(100% - 120px), transparent 100%);
+}
+
+.player-episode-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px; /* must match EPISODE_RAIL_GAP_PX in playerScreen.js */
+  will-change: transform;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-episode-item {
+  flex: 0 0 var(--player-episode-card-w);
+  width: var(--player-episode-card-w);
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  transform: none;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-episode-item.selected {
+  background: transparent;
+  border: none;
+  transform: scale(1.06);
+}
+
+.player-episode-thumb-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border-radius: min(0.83vw, 16px);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+  transition: box-shadow 180ms ease;
+}
+
+/* The ring is an overlay rather than an inset box-shadow: an inset shadow is
+   painted beneath child content, so the thumbnail <img> covered it entirely.
+   Drawn as a positioned pseudo-element it sits above the image, and because it
+   is absolutely positioned it still costs no layout — which matters, as the
+   rail offset is computed from card width arithmetic. */
+.player-episode-thumb-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: min(0.21vw, 4px) solid transparent;
+  transition: border-color 180ms ease;
+  pointer-events: none;
+}
+
+.player-episode-item.selected .player-episode-thumb-wrap::after {
+  border-color: #fff;
+}
+
+.player-episode-item.selected .player-episode-thumb-wrap {
+  box-shadow: 0 min(0.83vw, 16px) min(2.5vw, 48px) rgba(0, 0, 0, 0.6);
+}
+
+.player-episode-card-scrim {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 55%;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.78) 100%);
+  pointer-events: none;
+}
+
+.player-episode-code {
+  left: min(0.63vw, 12px);
+  bottom: min(0.63vw, 12px);
+  top: auto;
+  right: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: min(1.25vw, 24px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+/* Reused as a "Playing" pill on the card that is currently on screen. */
+.player-episode-current {
+  top: min(0.63vw, 12px);
+  right: min(0.63vw, 12px);
+  left: auto;
+  bottom: auto;
+  width: auto;
+  height: auto;
+  padding: min(0.31vw, 6px) min(0.63vw, 12px);
+  border-radius: min(0.42vw, 8px);
+  background: var(--secondary-color);
+  color: #0b0d10;
+  font-size: min(1.04vw, 20px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.player-episode-card-title {
+  margin-top: min(0.63vw, 12px);
+  font-size: min(1.25vw, 24px);
+  font-weight: 600;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 160ms ease;
+}
+
+.player-episode-item.selected .player-episode-card-title {
+  color: #fff;
+  font-weight: 700;
+}
+
 @media (max-width: 1280px), (max-height: 760px) {
   #playerUiRoot {
     --player-panel-width: min(60vw, 760px);
@@ -13771,6 +14368,12 @@ img[data-lazy-src] {
     --player-overlay-bottom: 64px;
     --player-control-size: 48px;
     --player-control-icon: 24px;
+    /* The feather is dead space inside a panel that is now 760px rather than
+       1040px; at the full 200px it ate a quarter of the row and truncated every
+       release name. Scale it (and the episode cards) with the panel. */
+    --player-menu-feather: min(7vw, 96px);
+    --player-episode-rail-gutter: min(4vw, 64px);
+    --player-episode-card-w: min(24vw, 300px);
   }
 
   .player-subtitle-modal,

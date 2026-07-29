@@ -337,6 +337,13 @@ const NEXT_EPISODE_THRESHOLD_PERCENT = 0.985;
 const NEXT_EPISODE_PREFETCH_PERCENT = 0.9;
 const SKIP_INTERVAL_CHECK_MS = 250;
 const PANEL_ARROW_DIRECTIONS = { 37: "left", 38: "up", 39: "right", 40: "down" };
+// Matches the transform transition on the player side panels in components.css.
+const PANEL_EXIT_MS = 320;
+// Must match the gap between .player-episode-item cards in components.css — the
+// rail offset is computed from index arithmetic rather than measured, so the two
+// values have to agree.
+const EPISODE_RAIL_GAP_PX = 24;
+const EPISODE_RAIL_MAX_CARDS = 80;
 // Only applies to auto-repeat from a held key (TV remotes send discrete presses
 // with `repeat` unset, so their input is never dropped).
 const PANEL_HELD_KEY_MIN_INTERVAL_MS = 60;
@@ -1080,7 +1087,7 @@ function escapeAttribute(value) {
 }
 
 function buildEpisodePanelHint() {
-  return `UP/DOWN ${t("discover_select_catalog", {}, "Select")} | OK ${t("episodes_play", {}, "Play")} | BACK ${t("episodes_panel_close", {}, "Close")}`;
+  return `LEFT/RIGHT ${t("discover_select_catalog", {}, "Select")} | OK ${t("episodes_play", {}, "Play")} | BACK ${t("episodes_panel_close", {}, "Close")}`;
 }
 
 function episodeDisplayCode(episode = {}) {
@@ -1195,6 +1202,112 @@ function renderPlayerSourceBadges(stream = {}, badgeSettings = StreamBadgeSettin
 function resolvePlayerSourceBadgePlacement(badgeSettings = StreamBadgeSettingsStore.snapshot()) {
   return String(badgeSettings.badgePlacement || "BOTTOM").trim().toUpperCase() === "TOP" ? "TOP" : "BOTTOM";
 }
+
+/* --- Source row presentation --------------------------------------------
+   Addons hand us one unstructured text blob per stream (name/title/description,
+   each possibly multi-line, no agreed schema). The panel used to print that blob
+   verbatim, which meant the things you actually choose on — resolution, HDR,
+   size, seeders — were buried mid-sentence at the same weight as everything
+   else. These helpers pull those out so the row can lead with them.
+
+   Everything is best-effort by nature: when a field can't be found it is simply
+   omitted and the row degrades to headline-only, which is what it was before. */
+
+const SOURCE_ALL_TEXT_FIELDS = ["name", "title", "description"];
+
+function streamSearchText(stream = {}) {
+  return [
+    ...SOURCE_ALL_TEXT_FIELDS.map((field) => stream?.[field]),
+    stream?.behaviorHints?.filename,
+    stream?.sourceType
+  ].map((value) => String(value || "")).join(" ");
+}
+
+// The most specific resolution wins, so test 2160 before 1080 etc.
+function sourceResolutionLabel(stream = {}) {
+  const text = streamSearchText(stream);
+  if (/\b(2160p?|4k|uhd)\b/i.test(text)) return "4K";
+  if (/\b1440p?\b/i.test(text)) return "1440p";
+  if (/\b1080p?\b/i.test(text)) return "1080p";
+  if (/\b720p?\b/i.test(text)) return "720p";
+  if (/\b(480p?|sd)\b/i.test(text)) return "480p";
+  const height = Number(stream?.behaviorHints?.videoHeight || 0);
+  return height > 0 ? resolutionLabelFromHeight(height) : "";
+}
+
+// Dolby Vision outranks HDR10+ outranks HDR10 — a stream carrying DV is
+// described as DV even when the blob also mentions its HDR10 fallback layer.
+function sourceDynamicRangeLabel(stream = {}) {
+  const text = streamSearchText(stream);
+  if (/\b(dolby\s*vision|dovi|\bdv\b)\b/i.test(text)) return "DV";
+  if (/\bhdr\s*10\s*\+|\bhdr\+\b/i.test(text)) return "HDR10+";
+  if (/\bhdr\b/i.test(text)) return "HDR";
+  return "";
+}
+
+function sourceCodecLabel(stream = {}) {
+  const text = streamSearchText(stream);
+  if (/\b(av1)\b/i.test(text)) return "AV1";
+  if (/\b(hevc|h\.?265|x265)\b/i.test(text)) return "HEVC";
+  if (/\b(avc|h\.?264|x264)\b/i.test(text)) return "H.264";
+  return "";
+}
+
+function sourceAudioLabel(stream = {}) {
+  const text = streamSearchText(stream);
+  if (/\batmos\b/i.test(text)) return "Atmos";
+  if (/\b(dts[-\s]?x)\b/i.test(text)) return "DTS:X";
+  if (/\b(truehd)\b/i.test(text)) return "TrueHD";
+  if (/\b(dts([-\s]?hd)?)\b/i.test(text)) return "DTS";
+  if (/\b(e[-\s]?ac[-\s]?3|ddp|dd\+)\b/i.test(text)) return "DD+";
+  return "";
+}
+
+function sourceSeederCount(stream = {}) {
+  const text = streamSearchText(stream);
+  const patterns = [
+    /\bseed(?:ers?)?\s*[:-]?\s*(\d{1,6})\b/i,
+    /\b(\d{1,6})\s*seed(?:ers?)?\b/i,
+    /👤\s*(\d{1,6})/
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return "";
+}
+
+// Debrid addons front-load cache state, which decides whether playback starts
+// instantly or waits on a download — worth surfacing as its own signal.
+function sourceCacheState(stream = {}) {
+  const text = streamSearchText(stream);
+  if (/\bnot\s*cached\b/i.test(text)) return "uncached";
+  if (/\bcached\b|⚡/i.test(text)) return "cached";
+  return "";
+}
+
+// The headline should be the release name, not whatever line happened to be
+// first. Prefer a line that looks like a scene release (dots, year, tags) and
+// fall back to the first non-empty line.
+function sourceHeadline(stream = {}) {
+  const lines = SOURCE_ALL_TEXT_FIELDS
+    .flatMap((field) => String(stream?.[field] || "").split(/\r?\n/))
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const releaseLike = lines.find((line) => /\.(mkv|mp4|avi)$/i.test(line))
+    || lines.find((line) => /\b(19|20)\d{2}\b/.test(line) && /[.\s_-]/.test(line));
+  const headline = releaseLike || lines[0] || stream?.behaviorHints?.filename || "";
+  return cleanDisplayText(headline) || String(stream?.addonName || "Stream");
+}
+
+// Phosphor paths, matching the icon set used elsewhere in the app.
+const SOURCE_META_ICONS = {
+  size: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31Z"></path></svg>',
+  seeders: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M205.66,117.66a8,8,0,0,1-11.32,0L136,59.31V216a8,8,0,0,1-16,0V59.31L61.66,117.66a8,8,0,0,1-11.32-11.32l72-72a8,8,0,0,1,11.32,0l72,72A8,8,0,0,1,205.66,117.66Z"></path></svg>',
+  cached: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M215.79,118.17a8,8,0,0,0-5-5.66L153.18,90.9l14.66-73.33a8,8,0,0,0-13.69-7l-112,120a8,8,0,0,0,3,13l57.63,21.61L88.16,238.43a8,8,0,0,0,13.69,7l112-120A8,8,0,0,0,215.79,118.17Z"></path></svg>'
+};
 
 // Badge matching runs every compiled regex rule against every candidate field of
 // every stream, so re-deriving it for the whole list on each sources-panel render
@@ -1811,7 +1924,9 @@ export const PlayerScreen = {
     this.filteredSourcesCache = null;
     this.sourceBadgeSettingsCache = null;
     this.sourcesRenderFrame = null;
+    this.sourcesClearTimer = null;
     this.lastHeldPanelKeyAt = 0;
+    this.episodePanelExitTimer = null;
 
     this.aspectModeIndex = 0;
     this.aspectToastTimer = null;
@@ -5462,6 +5577,15 @@ export const PlayerScreen = {
     // is where the live style preview renders.
     const hasTrackPanel = Boolean(this.subtitleDialogVisible || this.audioDialogVisible);
     modalBackdrop.classList.toggle("is-track-panel", hasTrackPanel);
+    // The episode rail is a bottom sheet whose own gradient darkens the lower
+    // band; the point of it is that the video stays watchable above. A
+    // full-screen scrim would defeat that, so drop to a light one when the rail
+    // is the only thing open.
+    const episodeRailOnly = Boolean(this.episodePanelVisible)
+      && !this.sourcesPanelVisible
+      && !hasTrackPanel
+      && !this.speedDialogVisible;
+    modalBackdrop.classList.toggle("is-episode-rail", episodeRailOnly);
     controlsOverlay?.classList.toggle("modal-blocked", hasModal);
     controlsOverlay?.classList.toggle("track-panel-open", hasTrackPanel);
   },
@@ -11887,9 +12011,18 @@ export const PlayerScreen = {
 
     panel.classList.toggle("hidden", !this.sourcesPanelVisible);
     if (!this.sourcesPanelVisible) {
-      panel.innerHTML = "";
+      // Hold the markup until the panel has finished sliding out — clearing it
+      // here would empty the panel in place while it is still on screen.
+      this.cancelScheduledSourcesPanelClear();
+      this.sourcesClearTimer = setTimeout(() => {
+        this.sourcesClearTimer = null;
+        if (!this.sourcesPanelVisible) {
+          panel.innerHTML = "";
+        }
+      }, PANEL_EXIT_MS);
       return;
     }
+    this.cancelScheduledSourcesPanelClear();
 
     this.cancelScheduledSourcesPanelRender();
 
@@ -11931,24 +12064,7 @@ export const PlayerScreen = {
         ${this.sourcesError ? `<div class="player-sources-empty">${escapeHtml(this.sourcesError)}</div>` : ""}
         ${!this.sourcesLoading && !filtered.length
           ? `<div class="player-sources-empty">${escapeHtml(t("sources_no_streams", {}, "No streams found"))}</div>`
-          : filtered.map((stream, index) => {
-            const focused = this.sourcesFocus.zone === "list" && this.sourcesFocus.index === index;
-            const isCurrent = this.streamCandidates[this.currentStreamIndex]?.url === stream.url;
-            const badges = renderCachedPlayerSourceBadges(stream, badgeSettings);
-            const topBadges = badgePlacement === "TOP" ? badges : "";
-            const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
-            const addonLogoUrl = normalizeImageUrl(stream.addonLogo);
-            return `
-              <article class="player-source-card focusable${focused ? " focused" : ""}${isCurrent ? " selected" : ""}" data-sources-zone="list" data-sources-index="${index}">
-                <div class="player-source-main">
-                  ${topBadges}
-                  <div class="player-source-title">${escapeHtml(stream.label || "Stream")}</div>
-                  <div class="player-source-desc">${escapeHtml(stream.description || stream.addonName || "")}</div>
-                  ${bottomBadges}
-                </div>
-              </article>
-            `;
-          }).join("")}
+          : filtered.map((stream, index) => this.renderSourceCard(stream, index, badgeSettings, badgePlacement)).join("")}
       </div>
     `;
 
@@ -11956,6 +12072,59 @@ export const PlayerScreen = {
     if (focusedCard) {
       focusedCard.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+  },
+
+  // Leads with the two things a choice is actually made on — resolution and
+  // dynamic range — then the release name, then a metadata strip. Anything that
+  // can't be parsed out of the addon's text blob is dropped rather than guessed,
+  // so a sparse stream just renders fewer chips.
+  renderSourceCard(stream, index, badgeSettings, badgePlacement) {
+    const focused = this.sourcesFocus.zone === "list" && this.sourcesFocus.index === index;
+    const isCurrent = this.streamCandidates[this.currentStreamIndex]?.url === stream.url;
+    const badges = renderCachedPlayerSourceBadges(stream, badgeSettings);
+    const topBadges = badgePlacement === "TOP" ? badges : "";
+    const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
+
+    const resolution = sourceResolutionLabel(stream);
+    const dynamicRange = sourceDynamicRangeLabel(stream);
+    const headline = sourceHeadline(stream);
+    const sizeLabel = formatBytes(stream.behaviorHints?.videoSize);
+    const seeders = sourceSeederCount(stream);
+    const cacheState = sourceCacheState(stream);
+    const codec = sourceCodecLabel(stream);
+    const audio = sourceAudioLabel(stream);
+    const addonName = cleanDisplayText(stream.addonName || "");
+
+    const metaItems = [
+      cacheState === "cached"
+        ? `<span class="player-source-meta-item is-cached">${SOURCE_META_ICONS.cached}${escapeHtml(t("stream_cached", {}, "Instant"))}</span>`
+        : "",
+      sizeLabel
+        ? `<span class="player-source-meta-item">${SOURCE_META_ICONS.size}${escapeHtml(sizeLabel)}</span>`
+        : "",
+      seeders
+        ? `<span class="player-source-meta-item">${SOURCE_META_ICONS.seeders}${escapeHtml(seeders)}</span>`
+        : "",
+      codec ? `<span class="player-source-meta-item is-plain">${escapeHtml(codec)}</span>` : "",
+      audio ? `<span class="player-source-meta-item is-plain">${escapeHtml(audio)}</span>` : "",
+      addonName ? `<span class="player-source-meta-item is-addon">${escapeHtml(addonName)}</span>` : ""
+    ].filter(Boolean).join("");
+
+    return `
+      <article class="player-source-card focusable${focused ? " focused" : ""}${isCurrent ? " selected" : ""}" data-sources-zone="list" data-sources-index="${index}">
+        <div class="player-source-quality">
+          <span class="player-source-quality-res">${escapeHtml(resolution || "SD")}</span>
+          ${dynamicRange ? `<span class="player-source-quality-hdr">${escapeHtml(dynamicRange)}</span>` : ""}
+        </div>
+        <div class="player-source-main">
+          ${topBadges}
+          <div class="player-source-title">${escapeHtml(headline)}</div>
+          ${metaItems ? `<div class="player-source-meta">${metaItems}</div>` : ""}
+          ${bottomBadges}
+        </div>
+        ${isCurrent ? `<div class="player-source-playing-flag">${escapeHtml(t("sources_playing", {}, "Playing"))}</div>` : ""}
+      </article>
+    `;
   },
 
   // Caps how fast a held-down key can walk a panel list. Discrete presses always
@@ -11995,6 +12164,13 @@ export const PlayerScreen = {
       cancelAnimationFrame(this.sourcesRenderFrame);
     }
     this.sourcesRenderFrame = null;
+  },
+
+  cancelScheduledSourcesPanelClear() {
+    if (this.sourcesClearTimer) {
+      clearTimeout(this.sourcesClearTimer);
+      this.sourcesClearTimer = null;
+    }
   },
 
   // Moving focus only changes which node carries `.focused`, so mutate those two
@@ -12467,10 +12643,9 @@ export const PlayerScreen = {
     this.syncEpisodePanelSelection();
   },
 
-  // The panel used to be torn down and rebuilt — 80 cards and their <img> tags —
-  // for every d-pad press. Only the `.selected` class actually changes, so move
-  // it between the two affected nodes. Keeping the nodes alive also lets the
-  // .player-episode-item transition run, which it never could on fresh elements.
+  // Moving along the rail changes three things: which card is selected, how far
+  // the track is translated, and the detail line above it. All three are direct
+  // node mutations — the 80 cards and their <img> tags are never rebuilt.
   syncEpisodePanelSelection() {
     const panel = this.container?.querySelector("#episodeSidePanel");
     if (!panel) {
@@ -12478,15 +12653,65 @@ export const PlayerScreen = {
       return;
     }
     const next = panel.querySelector(`.player-episode-item[data-episode-index="${this.episodePanelIndex}"]`);
-    if (!next || next.classList.contains("selected")) {
+    if (!next) {
       return;
     }
-    panel.querySelector(".player-episode-item.selected")?.classList.remove("selected");
-    next.classList.add("selected");
-    next.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (!next.classList.contains("selected")) {
+      panel.querySelector(".player-episode-item.selected")?.classList.remove("selected");
+      next.classList.add("selected");
+    }
+    this.updateEpisodeRailOffset(panel, next);
+    this.updateEpisodeRailDetail(panel);
+  },
+
+  // Cards are a fixed width, so the offset comes from index arithmetic rather
+  // than a layout read — no forced reflow per keypress, and the transform keeps
+  // the whole move on the compositor.
+  updateEpisodeRailOffset(panel, selectedCard) {
+    const track = panel.querySelector(".player-episode-track");
+    const viewport = panel.querySelector(".player-episode-viewport");
+    if (!track || !viewport || !selectedCard) {
+      return;
+    }
+    const cardWidth = selectedCard.offsetWidth;
+    if (!(cardWidth > 0)) {
+      return;
+    }
+    const gap = EPISODE_RAIL_GAP_PX;
+    const stride = cardWidth + gap;
+    const viewportWidth = viewport.clientWidth;
+    const total = Math.min(this.episodes.length, EPISODE_RAIL_MAX_CARDS);
+    const maxOffset = Math.max(0, (stride * total) - gap - viewportWidth);
+    // Keep the selected card one slot in from the left so there is always
+    // visible context behind it, except at the ends of the rail.
+    const desired = (stride * this.episodePanelIndex) - stride;
+    const offset = clamp(desired, 0, maxOffset);
+    track.style.transform = `translate3d(${-offset}px, 0, 0)`;
+  },
+
+  updateEpisodeRailDetail(panel) {
+    const episode = this.episodes[this.episodePanelIndex];
+    if (!episode) {
+      return;
+    }
+    const titleNode = panel.querySelector(".player-episode-detail-title");
+    const metaNode = panel.querySelector(".player-episode-detail-meta");
+    const overviewNode = panel.querySelector(".player-episode-detail-overview");
+    const code = episodeDisplayCode(episode);
+    const released = episode.released ? String(episode.released).slice(0, 10) : "";
+    if (titleNode) {
+      titleNode.textContent = episode.title || t("episodes_episode", {}, "Episode");
+    }
+    if (metaNode) {
+      metaNode.textContent = [code, released].filter(Boolean).join("  ·  ");
+    }
+    if (overviewNode) {
+      overviewNode.textContent = episode.overview || "";
+    }
   },
 
   renderEpisodePanel() {
+    this.cancelEpisodePanelExit();
     this.container.querySelector("#episodeSidePanel")?.remove();
     if (!this.episodePanelVisible) {
       return;
@@ -12495,47 +12720,84 @@ export const PlayerScreen = {
     panel.id = "episodeSidePanel";
     panel.className = "player-episode-panel";
 
-    const cards = this.episodes.slice(0, 80).map((episode, index) => {
+    const cards = this.episodes.slice(0, EPISODE_RAIL_MAX_CARDS).map((episode, index) => {
       const selected = index === this.episodePanelIndex;
-      const selectedClass = selected ? " selected" : "";
       const current = Number(episode?.season) === Number(this.params?.season) && Number(episode?.episode) === Number(this.params?.episode);
       const code = episodeDisplayCode(episode);
       const thumbnail = episodeThumbnailUrl(episode);
       return `
-        <div class="player-episode-item focusable${selectedClass}" data-episode-index="${index}">
+        <div class="player-episode-item focusable${selected ? " selected" : ""}${current ? " is-current" : ""}" data-episode-index="${index}">
           <div class="player-episode-thumb-wrap">
             ${thumbnail ? `<img class="player-episode-thumb" src="${escapeAttribute(thumbnail)}" alt="" loading="lazy" decoding="async" />` : `<div class="player-episode-thumb-fallback"></div>`}
+            <div class="player-episode-card-scrim"></div>
             ${code ? `<div class="player-episode-code">${escapeHtml(code)}</div>` : ""}
-            ${current ? `<div class="player-episode-current">&#10003;</div>` : ""}
+            ${current ? `<div class="player-episode-current">${escapeHtml(t("sources_playing", {}, "Playing"))}</div>` : ""}
           </div>
-          <div class="player-episode-copy">
-            <div class="player-episode-item-title">${escapeHtml(episode.title || t("episodes_episode", {}, "Episode"))}</div>
-            ${episode.released ? `<div class="player-episode-date">${escapeHtml(String(episode.released).slice(0, 10))}</div>` : ""}
-            <div class="player-episode-item-subtitle">${escapeHtml(episode.overview || "")}</div>
-          </div>
+          <div class="player-episode-card-title">${escapeHtml(episode.title || t("episodes_episode", {}, "Episode"))}</div>
         </div>
       `;
     }).join("");
 
+    // The detail block is populated by updateEpisodeRailDetail so the rail and
+    // the text stay in sync through a single code path.
     panel.innerHTML = `
-      <div class="player-episode-panel-header">
-        <div class="player-episode-panel-title">${escapeHtml(t("episodes_panel_title", {}, "Episodes"))}</div>
+      <div class="player-episode-detail">
+        <div class="player-episode-detail-meta"></div>
+        <div class="player-episode-detail-title"></div>
+        <div class="player-episode-detail-overview"></div>
       </div>
-      <div class="player-episode-panel-list">
-        ${cards}
+      <div class="player-episode-viewport">
+        <div class="player-episode-track">
+          ${cards}
+        </div>
       </div>
     `;
     const uiRoot = this.container.querySelector("#playerUiRoot") || this.container;
+    // Insert in the offscreen state so the slide-in has something to animate
+    // from — the panel is built fresh on every open, and a node inserted at its
+    // final state has no starting value for the transition to run against.
+    panel.classList.add("hidden");
     uiRoot.appendChild(panel);
+    this.updateEpisodeRailDetail(panel);
     const selectedCard = panel.querySelector(".player-episode-item.selected");
     if (selectedCard) {
-      selectedCard.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // Jump straight to position on open rather than animating from card 0.
+      const track = panel.querySelector(".player-episode-track");
+      if (track) {
+        track.style.transition = "none";
+      }
+      this.updateEpisodeRailOffset(panel, selectedCard);
+      void panel.offsetHeight;
+      if (track) {
+        track.style.transition = "";
+      }
+    }
+    // Force the offscreen state to be computed before flipping it, otherwise
+    // both class changes collapse into one style recalc and nothing animates.
+    void panel.offsetHeight;
+    panel.classList.remove("hidden");
+  },
+
+  cancelEpisodePanelExit() {
+    if (this.episodePanelExitTimer) {
+      clearTimeout(this.episodePanelExitTimer);
+      this.episodePanelExitTimer = null;
     }
   },
 
   hideEpisodePanel() {
     this.episodePanelVisible = false;
-    this.container?.querySelector("#episodeSidePanel")?.remove();
+    const panel = this.container?.querySelector("#episodeSidePanel");
+    if (panel) {
+      // Keep the node alive for the exit transition; an instant removal after an
+      // animated entrance reads worse than no animation at all.
+      this.cancelEpisodePanelExit();
+      panel.classList.add("hidden");
+      this.episodePanelExitTimer = setTimeout(() => {
+        this.episodePanelExitTimer = null;
+        panel.remove();
+      }, PANEL_EXIT_MS);
+    }
     this.updateModalBackdrop();
     this.resetControlsAutoHide();
   },
@@ -13141,10 +13403,16 @@ export const PlayerScreen = {
     }
 
     if (this.episodePanelVisible) {
-      if (keyCode === 38 || keyCode === 40) {
+      // The rail is horizontal, so left/right walk it. Up/down are swallowed
+      // rather than passed through: they would otherwise reach the transport
+      // controls hidden behind the panel.
+      if (keyCode === 37 || keyCode === 39) {
         if (!this.shouldThrottleHeldPanelKey(event)) {
-          this.moveEpisodePanel(keyCode === 38 ? -1 : 1);
+          this.moveEpisodePanel(keyCode === 37 ? -1 : 1);
         }
+        return;
+      }
+      if (keyCode === 38 || keyCode === 40) {
         return;
       }
       if (keyCode === 13) {
@@ -13610,6 +13878,10 @@ export const PlayerScreen = {
       clearTimeout(this.subtitleSelectionTimer);
       this.subtitleSelectionTimer = null;
     }
+
+    this.cancelEpisodePanelExit();
+    this.cancelScheduledSourcesPanelRender();
+    this.cancelScheduledSourcesPanelClear();
 
     this.unbindVideoEvents();
     this.clearMediaSessionHandlers();
