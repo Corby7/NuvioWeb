@@ -13794,24 +13794,42 @@ img[data-lazy-src] {
      inversion rule below is expressed in terms of them. */
   --player-menu-focus-fill: #ffffff;
   --player-menu-focus-ink: #0b0d10;
-  --player-menu-feather: min(10.4vw, 200px);
-  /* One width for every right-hand menu. The subtitle overlay's safe area is
-     derived from this same value, so the panel and the live preview can never
-     drift apart at a breakpoint. */
-  --player-track-panel-width: min(62vw, 1200px);
+  --player-menu-feather: min(17vw, 330px);
+  /* One width for every right-hand menu, expressed as content + feather. The
+     feather is dead space, so widening it must not eat the text column: with
+     this form the content edge lands in exactly the same place it did at the
+     old 200px feather, and stays put if the feather is retuned again. */
+  --player-track-panel-width: calc(min(52.08vw, 1000px) + var(--player-menu-feather));
+
+  /* Feathered left edge, shared by every right-hand menu: opaque under the
+     content, fading to nothing over the leftmost --player-menu-feather so the
+     panel dissolves into the video rather than sitting on it as a drawer.
+     Costs one gradient, no blur.
+
+     The stops trace a smoothstep rather than a straight line. A two-stop ramp
+     put 73% of the alpha range in the first 55% of the distance, which is a
+     steep leading edge followed by a flat tail — it read as an airbrushed
+     stripe with a visible knee where the steep part ended, and the linear
+     segments banded against dark video on OLED. Eased in and out, there is no
+     knee to see and the step between stops stays under ~0.2 alpha throughout.
+     It also resolves to a true 1, not 0.97: the last 3% let bright motion
+     ghost faintly under the text column. */
+  --player-menu-surface: linear-gradient(
+    90deg,
+    rgba(11, 13, 16, 0) 0,
+    rgba(11, 13, 16, 0.03) calc(var(--player-menu-feather) * 0.15),
+    rgba(11, 13, 16, 0.13) calc(var(--player-menu-feather) * 0.3),
+    rgba(11, 13, 16, 0.33) calc(var(--player-menu-feather) * 0.45),
+    rgba(11, 13, 16, 0.58) calc(var(--player-menu-feather) * 0.6),
+    rgba(11, 13, 16, 0.79) calc(var(--player-menu-feather) * 0.75),
+    rgba(11, 13, 16, 0.93) calc(var(--player-menu-feather) * 0.88),
+    rgba(11, 13, 16, 1) var(--player-menu-feather),
+    rgba(11, 13, 16, 1) 100%
+  );
 }
 
 .player-sources-panel {
-  /* Feathered left edge: opaque under the content, fading to nothing over the
-     leftmost --player-menu-feather so the panel dissolves into the video
-     rather than sitting on it as a drawer. Costs one gradient, no blur. */
-  background: linear-gradient(
-    90deg,
-    rgba(11, 13, 16, 0) 0%,
-    rgba(11, 13, 16, 0.72) calc(var(--player-menu-feather) * 0.55),
-    rgba(11, 13, 16, 0.97) var(--player-menu-feather),
-    rgba(11, 13, 16, 0.99) 100%
-  );
+  background: var(--player-menu-surface);
   border-left: none;
   border-radius: 0;
   /* Wider than the inherited panel width: the feather is dead space, and at
@@ -14419,13 +14437,7 @@ img[data-lazy-src] {
   width: var(--player-track-panel-width);
   height: 100%;
   max-height: none;
-  background: linear-gradient(
-    90deg,
-    rgba(11, 13, 16, 0) 0%,
-    rgba(11, 13, 16, 0.72) calc(var(--player-menu-feather) * 0.55),
-    rgba(11, 13, 16, 0.97) var(--player-menu-feather),
-    rgba(11, 13, 16, 0.99) 100%
-  );
+  background: var(--player-menu-surface);
   border-radius: 0;
   padding: min(4.17vw, 80px) min(3.33vw, 64px) min(2.5vw, 48px) var(--player-menu-feather);
   opacity: 1;
@@ -14688,11 +14700,20 @@ img[data-lazy-src] {
   max-height: 100%;
 }
 
-/* The panel's own feather does the separating, so the scrim only needs to take
-   the edge off the left third rather than dim the whole frame. Shared by
-   subtitles, audio and sources — see hasSidePanel in updateModalBackdrop. */
+/* The panel's own feather does the separating, so the scrim only has to take
+   the edge off the exposed video rather than dim the whole frame. Shared by
+   subtitles, audio and sources — see hasSidePanel in updateModalBackdrop.
+
+   Critically it ramps in the *same* direction as that feather. It used to run
+   the other way — 0.34 at the left edge down to 0 at the right — while the
+   panel ramps 0 up to opaque starting at ~38% across. Composited, the frame
+   went 0.34 → 0.19 → 0.97 left to right: it got lighter for the first 720px
+   and only then slammed dark, so the brightest band in the picture was a
+   vertical strip sitting immediately left of the panel. That reads as a glow
+   behind the panel edge, not as a scrim. Running both ramps the same way makes
+   the composite monotonic, which is the only thing the eye needs here. */
 .player-modal-backdrop.is-side-panel {
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0) 100%);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.1) 42%, rgba(0, 0, 0, 0.26) 100%);
 }
 
 /* Live subtitle preview: the style controls (size, position, outline) are only
@@ -15099,23 +15120,22 @@ img[data-lazy-src] {
      transparent. Pulled in slightly from the port's 96px so the puck sits
      closer to the glyph. */
   --player-control-size: min(4.69vw, 90px);
-  /* Puts the seek bar exactly where the transport's progress bar sits — same
-     three tokens the transport stacks below it — so pressing OK mid-seek swaps
-     one bar for the other in place instead of jumping it up the screen. Also
-     exposed as a variable so the overlay's scrim can bleed back past it to the
-     bottom edge. */
-  --player-seek-overlay-bottom: calc(
-    var(--player-controls-x)
-    + var(--player-control-size)
-    + var(--player-transport-row-gap)
-  );
+  /* Sits on the same bottom inset as the transport's own lowest row rather
+     than up at the transport's bar line. Aligning it with the bar bought an
+     in-place handoff on OK, but that handoff is a fraction of a second at the
+     end of a seek, and the price was paid the whole time you were holding:
+     bar and readout parked a fifth of the way up the frame, over the picture
+     you are scrubbing through. This is the lowest line that still clears TV
+     overscan. Exposed as a variable so the overlay's scrim bleeds past it to
+     the bottom edge. */
+  --player-seek-overlay-bottom: var(--player-controls-x);
 }
 
 /* column-reverse puts the readout above the bar. Below it, the readout was the
-   lowest thing on screen and sat in the strip a TV's overscan eats; above, it
-   lands in the empty band the transport's title block would otherwise occupy,
-   and the overlay's bottom edge becomes the bar itself, which is what the
-   offset above is aligning. */
+   lowest thing on screen and sat in the strip a TV's overscan eats — more so
+   now that the whole overlay sits at the bottom inset. It also makes the
+   overlay's bottom edge the bar itself, which is what the offset above
+   aligns. */
 .player-seek-overlay {
   bottom: var(--player-seek-overlay-bottom);
   display: flex;
@@ -15324,7 +15344,11 @@ img[data-lazy-src] {
   left: calc(-1 * var(--tv-safe-gutter));
   right: calc(-1 * var(--tv-safe-gutter));
   bottom: calc(-1 * var(--player-seek-overlay-bottom, 64px));
-  height: min(31.25vw, 600px);
+  /* Was 600px, sized against the old bar line ~190px up. The bar sits at the
+     bottom inset now, so the same height would push the scrim's top edge
+     higher up the frame than before while the thing it covers moved down.
+     This keeps roughly the old headroom above the readout. */
+  height: min(18.75vw, 360px);
   pointer-events: none;
   background: linear-gradient(
     180deg,
@@ -15653,9 +15677,15 @@ img[data-lazy-src] {
     --player-control-size: 48px;
     --player-control-icon: 24px;
     /* The feather is dead space inside a panel that is now 760px rather than
-       1040px; at the full 200px it ate a quarter of the row and truncated every
-       release name. Scale it (and the episode cards) with the panel. */
-    --player-menu-feather: min(7vw, 96px);
+       1040px; at the full-size value it ate a quarter of the row and truncated
+       every release name. Scale it (and the episode cards) with the panel.
+
+       Unlike the full-size case the panel width is not grown to match, because
+       its 88vw term is what keeps the compacted rails fitting on narrow
+       viewports. 130px is the most the row can give up and still clear the
+       ~580px the three-column subtitle grid below needs, and it is enough
+       distance for the eased ramp not to band. */
+    --player-menu-feather: min(10vw, 130px);
     --player-episode-rail-gutter: min(4vw, 64px);
     --player-episode-card-w: min(24vw, 300px);
     --player-track-panel-width: min(88vw, 900px);
@@ -19020,8 +19050,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
     right: 48px;
     /* Set through the variable, not `bottom` directly, so the scrim's bleed
        offset tracks it — see .player-seek-overlay-gradient. Same alignment as
-       at 1080p, against this branch's own control sizes. */
-    --player-seek-overlay-bottom: 128px;
+       at 1080p: this branch's own bottom inset. */
+    --player-seek-overlay-bottom: 48px;
   }
 
   .player-seek-overlay-bottom {

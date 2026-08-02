@@ -6752,10 +6752,6 @@ export const PlayerScreen = {
     this.updateActiveSkipInterval(current);
     this.updateSkipIntroCountdown(Date.now());
     const duration = this.getPlaybackDurationSeconds();
-    const effectiveProgressSeconds = this.controlsVisible && this.controlFocusZone === "progress" && this.seekPreviewSeconds != null
-      ? Number(this.seekPreviewSeconds)
-      : current;
-    const progress = duration > 0 ? clamp(effectiveProgressSeconds / duration, 0, 1) : 0;
     const uiRefs = this.uiRefs || {};
     const uiState = this.lastUiTickState || (this.lastUiTickState = {});
     const progressBuffered = uiRefs.progressBuffered;
@@ -6777,47 +6773,7 @@ export const PlayerScreen = {
         uiState.bufferedVisible = bufferedVisible;
       }
     }
-    const progressFill = uiRefs.progressFill;
-    if (progressFill) {
-      const nextWidth = `${Math.round(progress * 10000) / 100}%`;
-      if (uiState.progressWidth !== nextWidth) {
-        progressFill.style.width = nextWidth;
-        uiState.progressWidth = nextWidth;
-      }
-    }
-    // The same seek feedback the seek overlay gives, on the transport's own
-    // bar: where playback still is, and how far this hold has moved you. Which
-    // of the two you get is purely a matter of whether the controls happened to
-    // be up when you pressed left/right, so they have to show the same thing.
-    // Condition matches effectiveProgressSeconds above — the transport only
-    // previews while focus is actually on the bar.
-    const previewingOnTransport = this.controlsVisible
-      && this.controlFocusZone === "progress"
-      && this.seekPreviewSeconds != null;
-    const progressOrigin = uiRefs.progressOrigin;
-    if (progressOrigin) {
-      const originPercent = duration > 0 ? clamp(current / duration, 0, 1) : 0;
-      const nextOriginLeft = previewingOnTransport
-        ? `${Math.round(originPercent * 10000) / 100}%`
-        : "";
-      if (uiState.progressOriginLeft !== nextOriginLeft) {
-        progressOrigin.classList.toggle("hidden", !previewingOnTransport);
-        if (nextOriginLeft) {
-          progressOrigin.style.left = nextOriginLeft;
-        }
-        uiState.progressOriginLeft = nextOriginLeft;
-      }
-    }
-    const progressDelta = uiRefs.progressDelta;
-    if (progressDelta) {
-      const nextDeltaText = previewingOnTransport
-        ? formatSeekDelta(effectiveProgressSeconds - current)
-        : "";
-      if (uiState.progressDeltaText !== nextDeltaText) {
-        progressDelta.textContent = nextDeltaText;
-        uiState.progressDeltaText = nextDeltaText;
-      }
-    }
+    this.renderTransportProgress(current, duration);
     this.renderBitmapSubtitleAtCurrentTime();
     if (this.embeddedTextSubtitleTrack) {
       this.ensureEmbeddedTextSubtitleWindow(current);
@@ -6860,15 +6816,6 @@ export const PlayerScreen = {
       }
     }
 
-    const timeLabel = uiRefs.timeLabel;
-    if (timeLabel) {
-      const nextTimeLabel = `${formatTime(effectiveProgressSeconds)} / ${formatTime(duration)}`;
-      if (uiState.timeLabelText !== nextTimeLabel) {
-        timeLabel.textContent = nextTimeLabel;
-        uiState.timeLabelText = nextTimeLabel;
-      }
-    }
-
     this.syncPauseOverlayState();
     if (this.statsOverlayVisible) {
       this.renderStatsOverlay();
@@ -6879,6 +6826,73 @@ export const PlayerScreen = {
       this.renderSeekOverlay();
     }
   },
+  // Transport twin of renderSeekOverlay: the fill, the origin tick, the delta
+  // and the time label. Split out of updateUiTick because that runs on a 1s
+  // interval — with the controls up, a seek press moved seekPreviewSeconds but
+  // nothing on screen until the next tick, so the same key that felt instant
+  // against the seek overlay (which renders per press) felt up to a second
+  // behind against the transport. Same work either way; only the rate differed.
+  renderTransportProgress(currentSeconds, durationSeconds) {
+    const uiRefs = this.uiRefs || {};
+    const uiState = this.lastUiTickState || (this.lastUiTickState = {});
+    const current = Number.isFinite(currentSeconds) ? Number(currentSeconds) : this.getPlaybackCurrentSeconds();
+    const duration = Number.isFinite(durationSeconds) ? Number(durationSeconds) : this.getPlaybackDurationSeconds();
+    // The transport only previews while focus is actually on the bar.
+    const previewing = this.controlsVisible
+      && this.controlFocusZone === "progress"
+      && this.seekPreviewSeconds != null;
+    const effectiveProgressSeconds = previewing ? Number(this.seekPreviewSeconds) : current;
+    const progress = duration > 0 ? clamp(effectiveProgressSeconds / duration, 0, 1) : 0;
+
+    const progressFill = uiRefs.progressFill;
+    if (progressFill) {
+      const nextWidth = `${Math.round(progress * 10000) / 100}%`;
+      if (uiState.progressWidth !== nextWidth) {
+        progressFill.style.width = nextWidth;
+        uiState.progressWidth = nextWidth;
+      }
+    }
+
+    // The same seek feedback the seek overlay gives, on the transport's own
+    // bar: where playback still is, and how far this hold has moved you. Which
+    // of the two you get is purely a matter of whether the controls happened to
+    // be up when you pressed left/right, so they have to show the same thing.
+    const progressOrigin = uiRefs.progressOrigin;
+    if (progressOrigin) {
+      const originPercent = duration > 0 ? clamp(current / duration, 0, 1) : 0;
+      const nextOriginLeft = previewing
+        ? `${Math.round(originPercent * 10000) / 100}%`
+        : "";
+      if (uiState.progressOriginLeft !== nextOriginLeft) {
+        progressOrigin.classList.toggle("hidden", !previewing);
+        if (nextOriginLeft) {
+          progressOrigin.style.left = nextOriginLeft;
+        }
+        uiState.progressOriginLeft = nextOriginLeft;
+      }
+    }
+
+    const progressDelta = uiRefs.progressDelta;
+    if (progressDelta) {
+      const nextDeltaText = previewing
+        ? formatSeekDelta(effectiveProgressSeconds - current)
+        : "";
+      if (uiState.progressDeltaText !== nextDeltaText) {
+        progressDelta.textContent = nextDeltaText;
+        uiState.progressDeltaText = nextDeltaText;
+      }
+    }
+
+    const timeLabel = uiRefs.timeLabel;
+    if (timeLabel) {
+      const nextTimeLabel = `${formatTime(effectiveProgressSeconds)} / ${formatTime(duration)}`;
+      if (uiState.timeLabelText !== nextTimeLabel) {
+        timeLabel.textContent = nextTimeLabel;
+        uiState.timeLabelText = nextTimeLabel;
+      }
+    }
+  },
+
   renderSeekOverlay() {
     const overlay = this.uiRefs?.seekOverlay;
     const directionNode = this.uiRefs?.seekDirection;
@@ -6981,6 +6995,10 @@ export const PlayerScreen = {
     this.seekPreviewSeconds = next;
     this.seekOverlayVisible = !this.controlsVisible;
     this.renderSeekOverlay();
+    // Whichever surface is up gets its feedback on this press, not on the tick.
+    if (this.controlsVisible) {
+      this.renderTransportProgress(currentTime, duration);
+    }
 
     if (this.seekOverlayTimer) {
       clearTimeout(this.seekOverlayTimer);
@@ -13114,6 +13132,40 @@ export const PlayerScreen = {
     }
   },
 
+  // The stream lookup for the picked episode is a cold addon fetch on anything
+  // but the prefetched next episode, so the rail has to hand over to the startup
+  // overlay immediately — otherwise OK looks like it did nothing for seconds.
+  beginEpisodePanelSwitchFeedback(selected) {
+    this.hideEpisodePanel();
+    this.nextEpisodeTransitionMeta = {
+      title: this.params?.playerTitle || this.params?.itemTitle || this.params?.itemId || "Nuvio",
+      subtitle: `${selected?.title || ""}`.trim() || episodeDisplayCode(selected),
+      logoUrl: this.params?.playerLogoUrl || this.params?.logo || "",
+      backdropUrl: this.params?.playerBackdropUrl || this.params?.backdrop || this.params?.poster || ""
+    };
+    // Reset the presented-frame flag so the full identity overlay takes over
+    // instead of the small buffering spinner over the outgoing episode's frame.
+    this.hasPresentedPlaybackFrame = false;
+    this.loadingVisible = true;
+    this.updateLoadingVisibility();
+    this.refreshLoadingOverlayPresentation();
+    this.setControlsVisible(false, { focus: false });
+    this.renderNextEpisodeCard();
+  },
+
+  // No playable stream (or an outright failure) still has to land somewhere the
+  // user can act on — the stream screen for that episode, same as autoplay-next.
+  abandonEpisodePanelSwitch(selected) {
+    this.loadingVisible = false;
+    this.nextEpisodeTransitionMeta = null;
+    this.updateLoadingVisibility();
+    this.refreshLoadingOverlayPresentation();
+    void Router.navigate("stream", this.buildStreamRouteParamsForEpisode(selected), {
+      skipStackPush: true,
+      replaceHistory: true
+    });
+  },
+
   async playEpisodeFromPanel() {
     if (this.switchingEpisode || !this.episodes.length) {
       return;
@@ -13123,10 +13175,14 @@ export const PlayerScreen = {
       return;
     }
     this.switchingEpisode = true;
+    this.beginEpisodePanelSwitchFeedback(selected);
     try {
       const itemType = this.params?.itemType || "series";
+      await PlayerController.flushCurrentProgress({ forceCloudSync: true });
+      await PlayerController.stop();
       const streamItems = await this.getPlayableStreamsForVideo(selected.id, itemType);
       if (!streamItems.length) {
+        this.abandonEpisodePanelSwitch(selected);
         return;
       }
       // Same source-continuity ladder as autoplay-next: binge group, then provider
@@ -13140,7 +13196,6 @@ export const PlayerScreen = {
         || streamItems[0];
       const bestStream = bestStreamCandidate?.url || bestStreamCandidate?.externalUrl || null;
       const nextEpisode = this.episodes[this.episodePanelIndex + 1] || null;
-      await PlayerController.flushCurrentProgress({ forceCloudSync: true });
       await this.releaseCurrentEngineFsStream("episode-change", { removeTorrent: true });
       Router.navigate("player", {
         streamUrl: bestStream,
@@ -13166,6 +13221,9 @@ export const PlayerScreen = {
       }, {
         replaceHistory: true
       });
+    } catch (error) {
+      console.warn("Episode switch failed", error);
+      this.abandonEpisodePanelSwitch(selected);
     } finally {
       this.switchingEpisode = false;
     }
@@ -13811,7 +13869,14 @@ export const PlayerScreen = {
     }
 
     if (!this.paused && this.controlsVisible && !this.isDialogOpen() && Boolean(event?.repeat) && (keyCode === 37 || keyCode === 39)) {
-      this.focusProgressBar();
+      // focusProgressBar rebuilds the whole control row (innerHTML + mask
+      // icons + a blur pass) and re-focuses the shell. Unconditionally, that
+      // ran on every key repeat of a hold — tens of full row rebuilds a second
+      // over a playing video, which is what made held seeks judder with the
+      // controls up and not with them down. Focus only needs moving once.
+      if (this.controlFocusZone !== "progress" || !this.stickyProgressFocus) {
+        this.focusProgressBar();
+      }
       this.beginSeekPreview(keyCode === 37 ? -1 : 1, true);
       return;
     }
