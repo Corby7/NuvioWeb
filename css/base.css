@@ -12,6 +12,10 @@
     --secondary-color-rgb: 245 245 245;
     --secondary-variant: #e0e0e0;
     --on-secondary: #111111;
+    /* "Instant" (debrid-cached) flag. One token because the sources page and
+       the player's sources panel show the same flag on the same streams. */
+    --instant-color: #58d68d;
+    --instant-color-ink: #0f7a3d;
     --error-color: #cf6679;
     --error-bg: rgba(207, 102, 121, 0.18);
     --text-color: #ffffff;

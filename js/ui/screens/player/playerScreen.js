@@ -16,6 +16,10 @@ import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { parentalGuideRepository } from "../../../data/repository/parentalGuideRepository.js";
 import { skipIntroRepository } from "../../../data/repository/skipIntroRepository.js";
 import {
+  isOutroSegmentType,
+  shouldShowNextEpisodeCard as evaluateNextEpisodeCardThreshold
+} from "./playerNextEpisodeRules.js";
+import {
   PlayerSettingsStore,
   DEFAULT_SUBTITLE_STYLE,
   normalizeSubtitleSourcePreference
@@ -333,8 +337,18 @@ const SUBTITLE_VERTICAL_OFFSET_STEP = 1;
 const AUDIO_AMPLIFICATION_MIN_DB = 0;
 const AUDIO_AMPLIFICATION_MAX_DB = 10;
 const PLAYER_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-const NEXT_EPISODE_THRESHOLD_PERCENT = 0.985;
-const NEXT_EPISODE_PREFETCH_PERCENT = 0.9;
+// The card cannot appear until the next episode's streams have resolved, so the
+// prefetch lead is what actually decides whether it is on time. At 0.9 a 22
+// minute episode only got ~2 minutes of lead, which a slow addon sweep eats
+// whole. Percentage alone is the wrong unit for this — a fixed lead in seconds
+// is what matters — so the two run as a whichever-comes-first pair.
+const NEXT_EPISODE_PREFETCH_PERCENT = 0.7;
+const NEXT_EPISODE_PREFETCH_LEAD_SECONDS = 480;
+// A resolution that comes back empty is cached as [], which is a permanent
+// "no" for that episode unless it is retried. Bounded so a genuinely
+// stream-less episode costs a handful of sweeps, not one per UI tick.
+const NEXT_EPISODE_PREFETCH_RETRY_MS = 20000;
+const NEXT_EPISODE_PREFETCH_MAX_ATTEMPTS = 4;
 const SKIP_INTERVAL_CHECK_MS = 250;
 const PANEL_ARROW_DIRECTIONS = { 37: "left", 38: "up", 39: "right", 40: "down" };
 // Matches the transform transition on the player side panels in components.css.
@@ -1235,60 +1249,12 @@ function streamSearchText(stream = {}) {
   ].map((value) => String(value || "")).join(" ");
 }
 
-// The most specific resolution wins, so test 2160 before 1080 etc.
-function sourceResolutionLabel(stream = {}) {
-  const text = streamSearchText(stream);
-  if (/\b(2160p?|4k|uhd)\b/i.test(text)) return "4K";
-  if (/\b1440p?\b/i.test(text)) return "1440p";
-  if (/\b1080p?\b/i.test(text)) return "1080p";
-  if (/\b720p?\b/i.test(text)) return "720p";
-  if (/\b(480p?|sd)\b/i.test(text)) return "480p";
-  const height = Number(stream?.behaviorHints?.videoHeight || 0);
-  return height > 0 ? resolutionLabelFromHeight(height) : "";
-}
-
-// Dolby Vision outranks HDR10+ outranks HDR10 — a stream carrying DV is
-// described as DV even when the blob also mentions its HDR10 fallback layer.
-function sourceDynamicRangeLabel(stream = {}) {
-  const text = streamSearchText(stream);
-  if (/\b(dolby\s*vision|dovi|\bdv\b)\b/i.test(text)) return "DV";
-  if (/\bhdr\s*10\s*\+|\bhdr\+\b/i.test(text)) return "HDR10+";
-  if (/\bhdr\b/i.test(text)) return "HDR";
-  return "";
-}
-
-function sourceCodecLabel(stream = {}) {
-  const text = streamSearchText(stream);
-  if (/\b(av1)\b/i.test(text)) return "AV1";
-  if (/\b(hevc|h\.?265|x265)\b/i.test(text)) return "HEVC";
-  if (/\b(avc|h\.?264|x264)\b/i.test(text)) return "H.264";
-  return "";
-}
-
-function sourceAudioLabel(stream = {}) {
-  const text = streamSearchText(stream);
-  if (/\batmos\b/i.test(text)) return "Atmos";
-  if (/\b(dts[-\s]?x)\b/i.test(text)) return "DTS:X";
-  if (/\b(truehd)\b/i.test(text)) return "TrueHD";
-  if (/\b(dts([-\s]?hd)?)\b/i.test(text)) return "DTS";
-  if (/\b(e[-\s]?ac[-\s]?3|ddp|dd\+)\b/i.test(text)) return "DD+";
-  return "";
-}
-
-function sourceSeederCount(stream = {}) {
-  const text = streamSearchText(stream);
-  const patterns = [
-    /\bseed(?:ers?)?\s*[:-]?\s*(\d{1,6})\b/i,
-    /\b(\d{1,6})\s*seed(?:ers?)?\b/i,
-    /👤\s*(\d{1,6})/
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-  return "";
+// Addons append a bitrate estimate to their text blob in a handful of spellings,
+// including the small-caps unicode form. Matches streamScreen's
+// BITRATE_LINE_PATTERN — the sources page shows the same number.
+function sourceBitrateLabel(stream = {}) {
+  const match = streamSearchText(stream).match(/(\d+(?:[.,]\d+)?)\s*(?:mbps|mb\/s|ᴹᵇᵖˢ)/i);
+  return match?.[1] ? `${match[1].replace(",", ".")} Mbps` : "";
 }
 
 // Debrid addons front-load cache state, which decides whether playback starts
@@ -1311,14 +1277,27 @@ function sourceHeadline(stream = {}) {
   const releaseLike = lines.find((line) => /\.(mkv|mp4|avi)$/i.test(line))
     || lines.find((line) => /\b(19|20)\d{2}\b/.test(line) && /[.\s_-]/.test(line));
   const headline = releaseLike || lines[0] || stream?.behaviorHints?.filename || "";
-  return cleanDisplayText(headline) || String(stream?.addonName || "Stream");
+  return stripCacheTokens(cleanDisplayText(headline)) || String(stream?.addonName || "Stream");
+}
+
+// Cache state is a chip in the meta strip, so the addon's own "Cached" /
+// "⚡ Instant" wording has to come out of the headline or the row states it
+// twice. Leading/trailing separators left behind by the cut go too.
+function stripCacheTokens(value = "") {
+  return String(value)
+    .replace(/\[?\s*(?:not\s*)?cached\s*\]?/gi, " ")
+    .replace(/[⚡✅❌]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^\s*[•|·\-–]\s*/, "")
+    .replace(/\s*[•|·\-–]\s*$/, "")
+    .trim();
 }
 
 // Phosphor paths, matching the icon set used elsewhere in the app.
 const SOURCE_META_ICONS = {
   size: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31Z"></path></svg>',
-  seeders: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M205.66,117.66a8,8,0,0,1-11.32,0L136,59.31V216a8,8,0,0,1-16,0V59.31L61.66,117.66a8,8,0,0,1-11.32-11.32l72-72a8,8,0,0,1,11.32,0l72,72A8,8,0,0,1,205.66,117.66Z"></path></svg>',
-  cached: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M215.79,118.17a8,8,0,0,0-5-5.66L153.18,90.9l14.66-73.33a8,8,0,0,0-13.69-7l-112,120a8,8,0,0,0,3,13l57.63,21.61L88.16,238.43a8,8,0,0,0,13.69,7l112-120A8,8,0,0,0,215.79,118.17Z"></path></svg>'
+  cached: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M215.79,118.17a8,8,0,0,0-5-5.66L153.18,90.9l14.66-73.33a8,8,0,0,0-13.69-7l-112,120a8,8,0,0,0,3,13l57.63,21.61L88.16,238.43a8,8,0,0,0,13.69,7l112-120A8,8,0,0,0,215.79,118.17Z"></path></svg>',
+  reload: '<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16H211.4L184.81,71.64l-.25-.24a80,80,0,1,0-1.67,114.78,8,8,0,0,1,11,11.63A95.44,95.44,0,0,1,128,224h-1.32A96,96,0,1,1,195.75,60L224,85.8V56a8,8,0,1,1,16,0Z"></path></svg>'
 };
 
 // Badge matching runs every compiled regex rule against every candidate field of
@@ -1748,9 +1727,6 @@ function buildSkipIntervalLabel(interval = {}) {
   if (type === "recap") {
     return t("skip_recap", {}, "Skip Recap");
   }
-  if (type === "outro" || type === "ed" || type === "mixed-ed") {
-    return t("skip_outro", {}, "Skip Outro");
-  }
   return t("skip_intro", {}, "Skip Intro");
 }
 
@@ -1976,6 +1952,11 @@ export const PlayerScreen = {
     this.nextEpisodeCardDismissed = false;
     this.nextEpisodeBackExitArmed = false;
     this.nextEpisodeCardFocus = "play";
+    // Per-playback, so the retry budget in ensureNextEpisodeStreamsPrefetch
+    // starts fresh for each episode rather than carrying an exhausted count
+    // into the next one.
+    this.nextEpisodePrefetchAttempts = 0;
+    this.nextEpisodePrefetchLastAttemptAt = 0;
 
     this.parentalWarnings = normalizeParentalWarnings(params.parentalWarnings || params.parentalGuide);
     this.parentalGuideVisible = false;
@@ -2001,6 +1982,8 @@ export const PlayerScreen = {
     this.subtitleSelectionTimer = null;
     this.subtitleLoadToken = 0;
     this.subtitleLoading = false;
+    this.subtitleLoadingIndicatorPending = false;
+    this.progressHoverSeconds = null;
     this.embeddedSubtitleLoadToken = 0;
     this.embeddedSubtitleLoading = false;
     this.embeddedAudioLoading = false;
@@ -2433,7 +2416,15 @@ export const PlayerScreen = {
 
   updateActiveSkipInterval(currentTime = this.getPlaybackCurrentSeconds()) {
     const previous = this.activeSkipInterval;
+    // Outro segments are fetched, but only so playerNextEpisodeRules can time
+    // the next-episode card off the real credit roll. They are not offered as a
+    // skip: the card already occupies that moment and that corner of the
+    // screen, and it carries the only action worth taking there. Filtered here
+    // rather than at the repository so the timing data still reaches the rules.
     let active = (Array.isArray(this.skipIntervals) ? this.skipIntervals : []).find((interval) => {
+      if (isOutroSegmentType(interval?.type)) {
+        return false;
+      }
       const start = Number(interval?.startTime);
       const end = Number(interval?.endTime);
       return Number.isFinite(start) && Number.isFinite(end) && currentTime >= start && currentTime < end;
@@ -2682,11 +2673,7 @@ export const PlayerScreen = {
       button.innerHTML = `
         <button class="player-skip-intro-btn focusable" type="button" tabindex="-1" data-player-pointer-action="skipIntro" style="--skip-intro-progress-visible:${progressVisible ? 1 : 0};">
           <span class="player-skip-intro-content">
-            <span class="player-skip-intro-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                <path d="M6 18l8.5-6L6 6v12zm10-12v12h2V6h-2z" fill="currentColor"></path>
-              </svg>
-            </span>
+            <span class="player-skip-intro-icon" aria-hidden="true"></span>
             <span class="player-skip-intro-label">${escapeHtml(label)}</span>
           </span>
           <span class="player-skip-intro-progress" aria-hidden="true">
@@ -4118,6 +4105,10 @@ export const PlayerScreen = {
                   <div id="playerProgressOrigin" class="player-seek-origin hidden"></div>
                   <div id="playerProgressFill" class="player-progress-fill"></div>
                 </div>
+                <div id="playerProgressHover" class="player-progress-hover hidden" aria-hidden="true">
+                  <span class="player-progress-hover-marker"></span>
+                  <span id="playerProgressHoverTime" class="player-progress-hover-time"></span>
+                </div>
               </div>
 
               <div class="player-controls-row">
@@ -4180,6 +4171,8 @@ export const PlayerScreen = {
       sourcesPanel: uiRoot.querySelector("#playerSourcesPanel"),
       controlsOverlay: uiRoot.querySelector("#playerControlsOverlay"),
       progressShell: uiRoot.querySelector("#playerProgressShell"),
+      progressHover: uiRoot.querySelector("#playerProgressHover"),
+      progressHoverTime: uiRoot.querySelector("#playerProgressHoverTime"),
       clock: uiRoot.querySelector("#playerClock"),
       endsAt: uiRoot.querySelector("#playerEndsAt"),
       bitmapSubtitles: uiRoot.querySelector("#playerBitmapSubtitles"),
@@ -4907,7 +4900,20 @@ export const PlayerScreen = {
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || !Number.isFinite(currentSeconds) || currentSeconds < 0) {
       return false;
     }
-    return (currentSeconds / durationSeconds) >= NEXT_EPISODE_THRESHOLD_PERCENT;
+    // Defers to playerNextEpisodeRules, which is where the threshold semantics
+    // actually live — mode, percentage and minutes-before-end. This used to be
+    // a hardcoded 0.985 and the module was imported by nothing, so the three
+    // "Next episode threshold" settings persisted correctly and then changed
+    // nothing about playback.
+    const settings = PlayerSettingsStore.get();
+    return evaluateNextEpisodeCardThreshold({
+      positionSeconds: currentSeconds,
+      durationSeconds,
+      skipIntervals: this.skipIntervals,
+      thresholdMode: settings.nextEpisodeThresholdMode,
+      thresholdPercent: settings.nextEpisodeThresholdPercent,
+      thresholdMinutesBeforeEnd: settings.nextEpisodeThresholdMinutesBeforeEnd
+    });
   },
 
   hasPlaybackReachedNaturalEnd() {
@@ -4927,7 +4933,8 @@ export const PlayerScreen = {
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || !Number.isFinite(currentSeconds) || currentSeconds < 0) {
       return false;
     }
-    return (currentSeconds / durationSeconds) >= NEXT_EPISODE_PREFETCH_PERCENT;
+    return (currentSeconds / durationSeconds) >= NEXT_EPISODE_PREFETCH_PERCENT
+      || (durationSeconds - currentSeconds) <= NEXT_EPISODE_PREFETCH_LEAD_SECONDS;
   },
 
   getStreamCacheKey(videoId, itemType) {
@@ -4967,8 +4974,31 @@ export const PlayerScreen = {
     }
     const cacheKey = this.getStreamCacheKey(nextEpisode.videoId, itemType);
     const loadPromises = this.streamCandidatesLoadPromises || (this.streamCandidatesLoadPromises = new Map());
-    if (this.getCachedPlayableStreamsForVideo(nextEpisode.videoId, itemType) || loadPromises.has(cacheKey)) {
+    if (loadPromises.has(cacheKey)) {
       return;
+    }
+    const cached = this.getCachedPlayableStreamsForVideo(nextEpisode.videoId, itemType);
+    if (Array.isArray(cached) && cached.length > 0) {
+      return;
+    }
+    // An addon sweep that resolves nothing still writes [] into the cache, and
+    // an empty array is truthy — so the old guard read that as "already have
+    // it" and returned forever. The card is gated on a non-empty cache, so one
+    // unlucky sweep meant no card for the rest of the episode. Drop the empty
+    // entry and let it be retried, since these sweeps fail transiently far more
+    // often than an episode genuinely has no streams.
+    if (Array.isArray(cached)) {
+      const attempts = Number(this.nextEpisodePrefetchAttempts || 0);
+      const lastAttemptAt = Number(this.nextEpisodePrefetchLastAttemptAt || 0);
+      if (attempts >= NEXT_EPISODE_PREFETCH_MAX_ATTEMPTS) {
+        return;
+      }
+      if (!force && (Date.now() - lastAttemptAt) < NEXT_EPISODE_PREFETCH_RETRY_MS) {
+        return;
+      }
+      this.nextEpisodePrefetchAttempts = attempts + 1;
+      this.nextEpisodePrefetchLastAttemptAt = Date.now();
+      this.streamCandidatesByVideoId?.delete(cacheKey);
     }
     void this.getPlayableStreamsForVideo(nextEpisode.videoId, itemType)
       .then(() => this.renderNextEpisodeCard())
@@ -5758,6 +5788,14 @@ export const PlayerScreen = {
         this.updateMediaSessionPlaybackState();
         return;
       }
+      // An episode change silences the outgoing stream on its way out; treating
+      // that as a user pause would slide the transport back up over the
+      // transition overlay for the moment before the screen is torn down.
+      if (this.switchingEpisode || this.nextEpisodeLaunching) {
+        this.paused = true;
+        this.updateMediaSessionPlaybackState();
+        return;
+      }
       const ended = typeof PlayerController.isPlaybackEnded === "function"
         ? PlayerController.isPlaybackEnded()
         : Boolean(video.ended);
@@ -6204,6 +6242,12 @@ export const PlayerScreen = {
     overlay.classList.toggle("hidden", !this.controlsVisible);
     this.updateSkipIntroCountdown(Date.now());
     this.renderSkipIntroButton();
+    this.syncSubtitleLoadingIndicator();
+    // The card is emitted before #playerControlsOverlay, so CSS cannot reach it
+    // from the overlay's hidden state — the lift is driven from here instead.
+    // Toggled directly rather than via renderNextEpisodeCard() so showing the
+    // transport does not drag a full card re-render behind it.
+    this.uiRefs?.nextEpisodeCard?.classList.toggle("is-raised", this.controlsVisible);
     if (this.controlsVisible) {
       this.renderSeekOverlay();
       this.renderControlButtons();
@@ -6213,6 +6257,8 @@ export const PlayerScreen = {
       this.resetControlsAutoHide();
     } else {
       this.clearControlsAutoHide();
+      // The bar goes with the transport, and so does anything hovering it.
+      this.clearProgressHover();
     }
   },
 
@@ -6667,6 +6713,11 @@ export const PlayerScreen = {
       }
     }
     this.renderNextEpisodeCard();
+    // The skip button reads loadingVisible/hasPresentedPlaybackFrame through
+    // isSkipIntroPlaybackReady, but nothing else re-renders it when those flip —
+    // so a button that was up when a transition started stayed painted over the
+    // loading overlay until the next interval change.
+    this.renderSkipIntroButton();
   },
 
   renderNextEpisodeCard() {
@@ -6681,6 +6732,11 @@ export const PlayerScreen = {
 
     const isFirstAppearance = card.innerHTML === "";
     card.classList.toggle("hidden", hidden);
+    // Same lift as the skip button: low while the transport is down, raised
+    // clear of the button row once it is up. Set here as well as in
+    // setControlsVisible so a card that first appears while the controls are
+    // already showing does not animate up from the bottom edge.
+    card.classList.toggle("is-raised", Boolean(this.controlsVisible));
     if (hidden) {
       if (card.innerHTML !== "") {
         card.innerHTML = "";
@@ -10528,25 +10584,38 @@ export const PlayerScreen = {
   // Only shown for a user-initiated track change. Background window refreshes
   // and prefetches must stay silent or it would blink every ~90s.
   setSubtitleLoadingIndicator(visible) {
-    const toast = this.uiRefs?.subtitleLoadingToast;
-    if (!toast) {
-      return;
-    }
     if (this.subtitleLoadingIndicatorTimer) {
       clearTimeout(this.subtitleLoadingIndicatorTimer);
       this.subtitleLoadingIndicatorTimer = null;
     }
     if (!visible) {
-      toast.classList.add("hidden");
+      this.subtitleLoadingIndicatorPending = false;
+      this.syncSubtitleLoadingIndicator();
       return;
     }
     // A cached window returns in tens of milliseconds; showing a spinner for
     // that just flickers. Only surface it once the wait is actually noticeable.
     this.subtitleLoadingIndicatorTimer = setTimeout(() => {
       this.subtitleLoadingIndicatorTimer = null;
-      toast.textContent = t("subtitle_loading_cues", {}, "Loading subtitles…");
-      toast.classList.remove("hidden");
+      this.subtitleLoadingIndicatorPending = true;
+      this.syncSubtitleLoadingIndicator();
     }, 350);
+  },
+
+  // The toast sits on the subtitle line, which is underneath the transport —
+  // so it only surfaces while the controls are away. The pending flag survives
+  // the controls being up, so a load that finishes behind them never leaves a
+  // stale toast, and one still running when they hide appears then.
+  syncSubtitleLoadingIndicator() {
+    const toast = this.uiRefs?.subtitleLoadingToast;
+    if (!toast) {
+      return;
+    }
+    const visible = Boolean(this.subtitleLoadingIndicatorPending) && !this.controlsVisible;
+    if (visible) {
+      toast.textContent = t("subtitle_loading_cues", {}, "Loading subtitles…");
+    }
+    toast.classList.toggle("hidden", !visible);
   },
 
   canRenderEmbeddedTextSubtitles() {
@@ -12353,7 +12422,7 @@ export const PlayerScreen = {
       <div class="player-sources-header">
         <div class="player-sources-title">${escapeHtml(t("sources_title", {}, "Sources"))}</div>
         <div class="player-sources-actions">
-          <button class="player-sources-top-btn focusable${this.sourcesFocus.zone === "top" && this.sourcesFocus.index === 0 ? " focused" : ""}" data-top-action="reload" data-sources-zone="top" data-sources-index="0">${escapeHtml(t("sources_reload", {}, "Reload"))}</button>
+          <button class="player-sources-top-btn focusable${this.sourcesFocus.zone === "top" && this.sourcesFocus.index === 0 ? " focused" : ""}${this.sourcesLoading ? " is-busy" : ""}" data-top-action="reload" data-sources-zone="top" data-sources-index="0">${SOURCE_META_ICONS.reload}<span>${escapeHtml(t("sources_reload", {}, "Reload"))}</span></button>
           <button class="player-sources-top-btn focusable${this.sourcesFocus.zone === "top" && this.sourcesFocus.index === 1 ? " focused" : ""}" data-top-action="close" data-sources-zone="top" data-sources-index="1">${escapeHtml(t("sources_close", {}, "Close"))}</button>
         </div>
       </div>
@@ -12391,10 +12460,10 @@ export const PlayerScreen = {
     }
   },
 
-  // Leads with the two things a choice is actually made on — resolution and
-  // dynamic range — then the release name, then a metadata strip. Anything that
-  // can't be parsed out of the addon's text blob is dropped rather than guessed,
-  // so a sparse stream just renders fewer chips.
+  // Same row shape as the sources page's stream card: badges, release name,
+  // then one strip of metadata under it. Anything that can't be parsed out of
+  // the addon's text blob is dropped rather than guessed, so a sparse stream
+  // just renders fewer chips.
   renderSourceCard(stream, index, badgeSettings, badgePlacement) {
     const focused = this.sourcesFocus.zone === "list" && this.sourcesFocus.index === index;
     const isCurrent = this.streamCandidates[this.currentStreamIndex]?.url === stream.url;
@@ -12402,16 +12471,15 @@ export const PlayerScreen = {
     const topBadges = badgePlacement === "TOP" ? badges : "";
     const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
 
-    const resolution = sourceResolutionLabel(stream);
-    const dynamicRange = sourceDynamicRangeLabel(stream);
     const headline = sourceHeadline(stream);
     const sizeLabel = formatBytes(stream.behaviorHints?.videoSize);
-    const seeders = sourceSeederCount(stream);
+    const bitrateLabel = sourceBitrateLabel(stream);
     const cacheState = sourceCacheState(stream);
-    const codec = sourceCodecLabel(stream);
-    const audio = sourceAudioLabel(stream);
-    const addonName = cleanDisplayText(stream.addonName || "");
 
+    // Resolution, dynamic range, codec and audio all live in the badges above
+    // this strip — stating them again here made every row say the same thing
+    // twice in two different visual languages. What is left is what the badges
+    // do not carry: whether it plays instantly, how big it is, how fast it is.
     const metaItems = [
       cacheState === "cached"
         ? `<span class="player-source-meta-item is-cached">${SOURCE_META_ICONS.cached}${escapeHtml(t("stream_cached", {}, "Instant"))}</span>`
@@ -12419,20 +12487,13 @@ export const PlayerScreen = {
       sizeLabel
         ? `<span class="player-source-meta-item">${SOURCE_META_ICONS.size}${escapeHtml(sizeLabel)}</span>`
         : "",
-      seeders
-        ? `<span class="player-source-meta-item">${SOURCE_META_ICONS.seeders}${escapeHtml(seeders)}</span>`
-        : "",
-      codec ? `<span class="player-source-meta-item is-plain">${escapeHtml(codec)}</span>` : "",
-      audio ? `<span class="player-source-meta-item is-plain">${escapeHtml(audio)}</span>` : "",
-      addonName ? `<span class="player-source-meta-item is-addon">${escapeHtml(addonName)}</span>` : ""
+      bitrateLabel
+        ? `<span class="player-source-meta-item is-plain">${escapeHtml(bitrateLabel)}</span>`
+        : ""
     ].filter(Boolean).join("");
 
     return `
       <article class="player-source-card focusable${focused ? " focused" : ""}${isCurrent ? " selected" : ""}" data-sources-zone="list" data-sources-index="${index}">
-        <div class="player-source-quality">
-          <span class="player-source-quality-res">${escapeHtml(resolution || "SD")}</span>
-          ${dynamicRange ? `<span class="player-source-quality-hdr">${escapeHtml(dynamicRange)}</span>` : ""}
-        </div>
         <div class="player-source-main">
           ${topBadges}
           <div class="player-source-title">${escapeHtml(headline)}</div>
@@ -13133,8 +13194,40 @@ export const PlayerScreen = {
   },
 
   // The stream lookup for the picked episode is a cold addon fetch on anything
-  // but the prefetched next episode, so the rail has to hand over to the startup
-  // overlay immediately — otherwise OK looks like it did nothing for seconds.
+  // but the prefetched next episode, so OK has to acknowledge itself somewhere.
+  // It happens on the card rather than by raising the startup overlay: the
+  // outgoing episode keeps playing through the lookup, which is the difference
+  // between a spinner on a card and seconds of black.
+  setEpisodePanelCardBusy(index, busy) {
+    const panel = this.container?.querySelector("#episodeSidePanel");
+    if (!panel) {
+      return;
+    }
+    panel.classList.toggle("is-busy", Boolean(busy));
+    const card = panel.querySelector(`.player-episode-item[data-episode-index="${index}"]`);
+    if (!card) {
+      return;
+    }
+    card.classList.toggle("is-loading", Boolean(busy));
+    const wrap = card.querySelector(".player-episode-thumb-wrap");
+    if (!wrap) {
+      return;
+    }
+    const existing = wrap.querySelector(".player-episode-card-spinner");
+    if (!busy) {
+      existing?.remove();
+      return;
+    }
+    if (!existing) {
+      const spinner = document.createElement("div");
+      spinner.className = "player-episode-card-spinner";
+      spinner.innerHTML = `<span class="player-episode-card-spinner-ring"></span>`;
+      wrap.appendChild(spinner);
+    }
+  },
+
+  // Called once the stream is in hand, so the overlay only covers the teardown
+  // and the mount of the next player — not the addon lookup.
   beginEpisodePanelSwitchFeedback(selected) {
     this.hideEpisodePanel();
     this.nextEpisodeTransitionMeta = {
@@ -13155,7 +13248,9 @@ export const PlayerScreen = {
 
   // No playable stream (or an outright failure) still has to land somewhere the
   // user can act on — the stream screen for that episode, same as autoplay-next.
-  abandonEpisodePanelSwitch(selected) {
+  abandonEpisodePanelSwitch(selected, busyIndex) {
+    this.setEpisodePanelCardBusy(busyIndex, false);
+    this.hideEpisodePanel();
     this.loadingVisible = false;
     this.nextEpisodeTransitionMeta = null;
     this.updateLoadingVisibility();
@@ -13174,15 +13269,14 @@ export const PlayerScreen = {
     if (!selected?.id) {
       return;
     }
+    const busyIndex = this.episodePanelIndex;
     this.switchingEpisode = true;
-    this.beginEpisodePanelSwitchFeedback(selected);
+    this.setEpisodePanelCardBusy(busyIndex, true);
     try {
       const itemType = this.params?.itemType || "series";
-      await PlayerController.flushCurrentProgress({ forceCloudSync: true });
-      await PlayerController.stop();
       const streamItems = await this.getPlayableStreamsForVideo(selected.id, itemType);
       if (!streamItems.length) {
-        this.abandonEpisodePanelSwitch(selected);
+        this.abandonEpisodePanelSwitch(selected, busyIndex);
         return;
       }
       // Same source-continuity ladder as autoplay-next: binge group, then provider
@@ -13195,7 +13289,13 @@ export const PlayerScreen = {
         || this.selectBestStreamCandidate(streamItems)
         || streamItems[0];
       const bestStream = bestStreamCandidate?.url || bestStreamCandidate?.externalUrl || null;
-      const nextEpisode = this.episodes[this.episodePanelIndex + 1] || null;
+      const nextEpisode = this.episodes[busyIndex + 1] || null;
+      this.setEpisodePanelCardBusy(busyIndex, false);
+      this.beginEpisodePanelSwitchFeedback(selected);
+      // pause() rather than stop(): it silences the outgoing episode behind the
+      // overlay without paying for a teardown the upcoming cleanup() redoes.
+      PlayerController.pause();
+      await PlayerController.flushCurrentProgress({ forceCloudSync: true });
       await this.releaseCurrentEngineFsStream("episode-change", { removeTorrent: true });
       Router.navigate("player", {
         streamUrl: bestStream,
@@ -13223,7 +13323,7 @@ export const PlayerScreen = {
       });
     } catch (error) {
       console.warn("Episode switch failed", error);
-      this.abandonEpisodePanelSwitch(selected);
+      this.abandonEpisodePanelSwitch(selected, busyIndex);
     } finally {
       this.switchingEpisode = false;
     }
@@ -13298,6 +13398,9 @@ export const PlayerScreen = {
     if (!controls.length) {
       return;
     }
+    // A d-pad move means the cursor is no longer what is driving the transport;
+    // leaving its marker on the bar would point at nothing.
+    this.clearProgressHover();
     this.stickyProgressFocus = false;
     this.autoHideControlsAfterSeek = false;
     if (this.controlFocusZone === "progress") {
@@ -13516,6 +13619,73 @@ export const PlayerScreen = {
     }
   },
 
+  // The scrubber is a hairline — a few pixels of real estate for a cursor that
+  // drifts with the wrist. The hit box is widened in CSS (a padded ::before on
+  // the shell), so hover and click resolve from the shell's own rect either way.
+  getProgressPointerSeconds(clientX) {
+    const rect = this.uiRefs?.progressShell?.getBoundingClientRect?.();
+    const duration = this.getPlaybackDurationSeconds();
+    if (!rect || rect.width <= 0 || !Number.isFinite(duration) || duration <= 0 || !Number.isFinite(Number(clientX))) {
+      return null;
+    }
+    const ratio = clamp((Number(clientX) - rect.left) / rect.width, 0, 1);
+    return { ratio, seconds: duration * ratio, rect };
+  },
+
+  // Follows the cursor along the bar with the time it would seek to. Driven
+  // from FocusEngine's rAF-throttled pointer move, so this runs at most once a
+  // frame and touches two style properties and one text node.
+  updateProgressHover(clientX) {
+    const hover = this.uiRefs?.progressHover;
+    const timeNode = this.uiRefs?.progressHoverTime;
+    const position = this.getProgressPointerSeconds(clientX);
+    if (!hover || !timeNode || !position) {
+      this.clearProgressHover();
+      return;
+    }
+    this.progressHoverSeconds = position.seconds;
+    const nextText = formatTime(position.seconds);
+    if (timeNode.textContent !== nextText) {
+      timeNode.textContent = nextText;
+      // Width only moves when the digits do (1:04:33 vs 4:33), so it is
+      // measured on change and cached — a read after every write would force a
+      // synchronous layout on every frame of the cursor's travel.
+      this.progressHoverBubbleWidth = 0;
+    }
+    if (!this.progressHoverBubbleWidth) {
+      this.progressHoverBubbleWidth = timeNode.offsetWidth;
+    }
+    const x = position.ratio * position.rect.width;
+    // The marker stays on the true cursor position; only the bubble is nudged
+    // so it cannot hang off either end of the bar.
+    const halfBubble = this.progressHoverBubbleWidth / 2;
+    const shift = clamp(x, halfBubble, Math.max(halfBubble, position.rect.width - halfBubble)) - x;
+    hover.style.left = `${Math.round(x * 100) / 100}px`;
+    timeNode.style.transform = `translateX(calc(-50% + ${Math.round(shift)}px))`;
+    hover.classList.remove("hidden");
+    // Hovering the bar is intent to scrub — the transport must not time out
+    // from under the cursor mid-aim.
+    this.resetControlsAutoHide();
+  },
+
+  clearProgressHover() {
+    this.progressHoverSeconds = null;
+    this.progressHoverBubbleWidth = 0;
+    this.uiRefs?.progressHover?.classList?.add("hidden");
+  },
+
+  onPointerMove(event) {
+    if (this.isExternalFrameMode()) {
+      return;
+    }
+    const overProgress = Boolean(event?.target?.closest?.(".player-progress-shell"));
+    if (!overProgress || !this.controlsVisible) {
+      this.clearProgressHover();
+      return;
+    }
+    this.updateProgressHover(event.clientX);
+  },
+
   seekProgressFromPointer(event, target) {
     const shell = target?.closest?.(".player-progress-shell") || this.uiRefs?.progressShell;
     const rect = shell?.getBoundingClientRect?.();
@@ -13523,11 +13693,17 @@ export const PlayerScreen = {
     if (!rect || rect.width <= 0 || !Number.isFinite(duration) || duration <= 0) {
       return false;
     }
-    const x = Number(event?.clientX ?? rect.left);
-    const ratio = clamp((x - rect.left) / rect.width, 0, 1);
+    // OK on the remote arrives as a click, but a synthesized one can come
+    // through without coordinates — falling back to rect.left would have sent
+    // it to 0:00. The hovered position is what the user was aiming at.
+    const position = this.getProgressPointerSeconds(event?.clientX);
+    const seconds = position ? position.seconds : this.progressHoverSeconds;
+    if (!Number.isFinite(Number(seconds))) {
+      return false;
+    }
     this.seekPreviewSeconds = null;
     this.seekRepeatCount = 0;
-    this.seekPlaybackSeconds(duration * ratio);
+    this.seekPlaybackSeconds(Number(seconds));
     this.resetControlsAutoHide();
     return true;
   },

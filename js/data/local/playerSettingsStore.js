@@ -12,7 +12,11 @@ const DEFAULTS = {
   skipIntroEnabled: true,
   subtitleRenderMode: "html",
   subtitleDelayMs: 0,
-  nextEpisodeThresholdMode: "PERCENTAGE",
+  // Minutes rather than percentage: a percentage is duration-relative, so one
+  // value gives a 13 second warning on a 22 minute episode and 36 seconds on a
+  // 60 minute one. A fixed lead behaves the same on every episode. Only applies
+  // to profiles that never set it — a stored choice still wins.
+  nextEpisodeThresholdMode: "MINUTES_BEFORE_END",
   nextEpisodeThresholdPercent: 99,
   nextEpisodeThresholdMinutesBeforeEnd: 2,
   stillWatchingEnabled: false,

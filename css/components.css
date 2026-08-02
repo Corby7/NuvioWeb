@@ -11808,9 +11808,23 @@ img[data-lazy-src] {
   white-space: nowrap;
 }
 
+/* Right rail, sharing both the inset and the two heights of
+   .player-next-episode-card (see its rule below — same 64px, same 60/236px).
+   The two are optional "jump ahead" prompts that appear over the frame, so they
+   read as one affordance that returns to the same place rather than two that
+   arrive from different corners at different heights. It also keeps the
+   bottom-left clear, which is where the title block and the transport's leading
+   controls sit.
+
+   Both sit low while the transport is down — there is nothing beneath them to
+   clear, and hugging the bottom edge keeps them out of the frame. `is-raised`
+   lifts them to 236px when the controls come up, which is the first height that
+   clears the button row. Toggled from JS on `controlsVisible` rather than with a
+   sibling selector, because both elements are emitted *before*
+   #playerControlsOverlay and `~` only reaches forward. */
 .player-skip-intro {
   position: absolute;
-  left: min(3.33vw, 64px);
+  right: min(3.33vw, 64px);
   bottom: min(3.125vw, 60px);
   z-index: 34;
   opacity: 1;
@@ -11819,7 +11833,7 @@ img[data-lazy-src] {
 }
 
 .player-skip-intro.is-raised {
-  bottom: clamp(184px, 19vh, 224px);
+  bottom: 236px;
 }
 
 .player-skip-intro.hidden {
@@ -11868,20 +11882,27 @@ img[data-lazy-src] {
   min-width: 0;
 }
 
+/* Same glyph and same masking technique as .player-next-episode-pill-icon —
+   the two buttons are the only "jump forward past this" affordance the player
+   has, so they should not be drawn with two different arrows. Masked rather
+   than inlined so it inherits the focus inversion via currentColor. */
+/* 24px against a 28px label — the same ~0.85 icon-to-label ratio the
+   next-episode pill uses (16px icon, 20px label). The old 40px was sized for
+   the previous solid glyph and left this one overpowering its own text. */
 .player-skip-intro-icon {
-  width: min(2.08vw, 40px);
-  height: min(2.08vw, 40px);
+  width: min(1.25vw, 24px);
+  height: min(1.25vw, 24px);
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: currentColor;
-}
-
-.player-skip-intro-icon svg {
-  width: 100%;
-  height: 100%;
-  display: block;
+  display: inline-block;
+  background-color: currentColor;
+  -webkit-mask-image: url('../assets/icons/ic_player_skip_next.svg');
+  mask-image: url('../assets/icons/ic_player_skip_next.svg');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
 
 .player-skip-intro-label {
@@ -11921,15 +11942,20 @@ img[data-lazy-src] {
   will-change: transform;
 }
 
+/* Same two heights as .player-skip-intro above, driven by the same class. */
 .player-next-episode-card {
   position: absolute;
   right: 64px;
-  bottom: 236px;
+  bottom: min(3.125vw, 60px);
   z-index: 40;
   pointer-events: none;
   transform: translateX(0);
   opacity: 1;
   transition: bottom 180ms ease, opacity 220ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.player-next-episode-card.is-raised {
+  bottom: 236px;
 }
 
 .player-next-episode-card.hidden {
@@ -11938,29 +11964,34 @@ img[data-lazy-src] {
   pointer-events: none;
 }
 
+/* Surfaced like .player-speed-modal, the player's other small floating card:
+   the flat panel fill at the panel radius, no feather (there is nothing to
+   dissolve into at this size) and no backdrop-filter.
+
+   The blur is the main thing that made this read as a different product. Every
+   other surface in the player dropped backdrop-filter — it is a per-frame
+   compositor cost paid on top of video decode, which is exactly what the track
+   menu and sources panel rework was undoing. This card was the last holdout. */
 .player-next-episode-card-inner {
   display: flex;
   align-items: center;
-  gap: 24px;
-  border-radius: 24px;
-  background: rgba(12, 14, 18, 0.72);
-  backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
-  -webkit-backdrop-filter: blur(32px) saturate(160%) brightness(0.85);
+  gap: min(1.25vw, 24px);
+  border-radius: min(1.25vw, 24px);
+  background: rgba(11, 13, 16, 0.97);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.48);
 }
 
-.player-next-episode-card-inner.is-selected {
-  border-width: 2px;
-  border-color: var(--secondary-color);
-}
+/* No card-level selection ring: focus lives on the individual buttons, as a
+   fill inversion, the way every other focusable surface in the player marks it.
+   The rule this replaces set `border-width`/`border-color` on an element with no
+   border-style, so it had never drawn anything. */
 
 .player-next-episode-thumb-wrap {
   position: relative;
-  width: 300px;
-  height: 200px;
-  border-radius: 24px 0 0 24px;
+  width: min(15.63vw, 300px);
+  height: min(10.42vw, 200px);
+  border-radius: min(1.25vw, 24px) 0 0 min(1.25vw, 24px);
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .player-next-episode-thumb,
@@ -11968,6 +11999,13 @@ img[data-lazy-src] {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* Only the placeholder needs a fill — tinting the wrapper put a visible box
+   behind every real thumbnail, which is the nested-surface look the panels
+   were rebuilt to get rid of. */
+.player-next-episode-thumb-fallback {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .player-next-episode-thumb-shade {
@@ -11984,22 +12022,30 @@ img[data-lazy-src] {
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: min(0.31vw, 6px);
   justify-content: space-between;
   align-items: start;
-  padding: 20px 24px 20px 0;
+  padding: min(1.04vw, 20px) min(1.25vw, 24px) min(1.04vw, 20px) 0;
 }
 
+/* The quiet-label treatment the panels use for a caption above content
+   (.player-subtitle-rail::before) — "Next episode" is that, not a heading in
+   its own right competing with the episode title underneath it. */
 .player-next-episode-kicker {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 18px;
-  font-weight: 500;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: min(1.04vw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
+/* Card-level title on the panel type scale — the same size and weight as
+   .player-speed-modal's heading, the closest thing to a peer this card has. */
 .player-next-episode-title {
   color: #ffffff;
-  font-size: 28px;
-  font-weight: 600;
+  font-size: min(1.67vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -12008,48 +12054,61 @@ img[data-lazy-src] {
 .player-next-episode-text {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: min(0.42vw, 8px);
 }
 
 .player-next-episode-actions {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: min(0.42vw, 8px);
 }
 
+/* Filled pills rather than outlined ones, matching .player-sources-filter and
+   .player-skip-intro-btn. Rule 2 of the panel system is that focus reads as a
+   fill inversion, not as a border — so an unfocused control should not already
+   be wearing a ring. */
+/* One resting fill for both. Differentiating them by a 6% alpha step (0.08 vs
+   0.14) was not legible as hierarchy at 10 feet — it just made the pair look
+   muddy, like one control had failed to finish rendering. The distinction is
+   carried by ink instead, which survives the distance. Sizing is up from
+   8px/20px too: a ~36px pill is a small target across a room. */
 .player-next-episode-dismiss,
 .player-next-episode-play {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 14px;
+  gap: min(0.42vw, 8px);
+  padding: min(0.63vw, 12px) min(1.04vw, 20px);
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: none;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 20px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: min(1.15vw, 22px);
   font-weight: 500;
   cursor: pointer;
   pointer-events: auto;
+  transition: background-color 180ms cubic-bezier(0.4, 0, 0.2, 1), color 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Play is the primary of the pair — same surface, brighter ink. */
 .player-next-episode-play {
   color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* The shared inversion tokens, so retuning focus in one place retunes it here
+   too. No font-weight change on focus: re-weighting the label forces a full
+   text re-raster on every focus move, which is the cost the panel rows were
+   rebuilt to avoid. */
 .player-next-episode-play.is-selected,
 .player-next-episode-dismiss.is-selected {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: #000000;
-  font-weight: bold;
+  background: var(--player-menu-focus-fill);
+  color: var(--player-menu-focus-ink);
 }
 
+/* Tracks the label up from 20px to 22px, holding the same ~0.85 ratio. */
 .player-next-episode-pill-icon {
   display: inline-block;
-  width: clamp(13px, 0.85vw, 16px);
-  height: clamp(13px, 0.85vw, 16px);
+  width: clamp(14px, 0.94vw, 18px);
+  height: clamp(14px, 0.94vw, 18px);
   flex-shrink: 0;
   background-color: currentColor;
   -webkit-mask-image: url('../assets/icons/ic_player_skip_next.svg');
@@ -13670,13 +13729,13 @@ img[data-lazy-src] {
 }
 
 .player-skip-intro {
-  left: min(3.33vw, 64px); /* ATV 32dp -> 64px */
-  bottom: min(3.125vw, 60px); /* ATV 30dp -> 60px */
+  right: min(3.33vw, 64px); /* ATV 32dp -> 64px */
+  bottom: min(3.125vw, 60px); /* ATV 30dp -> 60px; matches .player-next-episode-card */
   transition: bottom 180ms ease, opacity 180ms ease;
 }
 
 .player-skip-intro.is-raised {
-  bottom: clamp(184px, 19vh, 224px);
+  bottom: 236px;
 }
 
 .player-skip-intro-btn {
@@ -13704,20 +13763,11 @@ img[data-lazy-src] {
   min-width: 0;
 }
 
+/* Size only — the glyph itself is the mask set on the base rule above. */
 .player-skip-intro-icon {
-  width: min(2.08vw, 40px);
-  height: min(2.08vw, 40px);
+  width: min(1.25vw, 24px); /* ATV 12dp -> 24px */
+  height: min(1.25vw, 24px);
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: currentColor;
-}
-
-.player-skip-intro-icon svg {
-  width: 100%;
-  height: 100%;
-  display: block;
 }
 
 .player-skip-intro-label {
@@ -13832,9 +13882,11 @@ img[data-lazy-src] {
   background: var(--player-menu-surface);
   border-left: none;
   border-radius: 0;
-  /* Wider than the inherited panel width: the feather is dead space, and at
-     1040px the usable column truncated most release names mid-token. */
-  width: var(--player-track-panel-width);
+  /* Its own width rather than the shared --player-track-panel-width: the row
+     content shrank (no quality tile, one short meta strip, 25px titles), so the
+     1000px content column it needed for full release names is now wider than
+     anything in it. The feather is dead space and stays out of the count. */
+  width: calc(min(50vw, 960px) + var(--player-menu-feather));
   padding: min(4.17vw, 80px) min(3.33vw, 64px) 0 var(--player-menu-feather);
   opacity: 1;
   transform: translateX(0);
@@ -13867,6 +13919,10 @@ img[data-lazy-src] {
 /* Secondary to the title — these are utility actions, not the point of the
    panel, and at their inherited ATV size they crowd the heading. */
 .player-sources-top-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: min(0.63vw, 12px);
   height: min(2.92vw, 56px);
   padding: 0 min(1.15vw, 22px);
   border-radius: 999px;
@@ -13875,6 +13931,26 @@ img[data-lazy-src] {
   font-size: min(1.04vw, 20px);
   font-weight: 700;
   white-space: nowrap;
+}
+
+.player-sources-top-btn svg {
+  width: min(1.15vw, 22px);
+  height: min(1.15vw, 22px);
+  flex: 0 0 auto;
+  opacity: 0.9;
+}
+
+/* Reload is the one action here with a duration, so its glyph spins while the
+   fetch is in flight — the button is next to the list it is refilling, and
+   without it a slow addon looks like a dead press. */
+.player-sources-top-btn.is-busy svg {
+  animation: playerSourcesReloadSpin 900ms linear infinite;
+}
+
+@keyframes playerSourcesReloadSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .player-sources-top-btn.focused {
@@ -13957,76 +14033,75 @@ img[data-lazy-src] {
   mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 72px), transparent 100%);
 }
 
+/* The sources list is the one that gets walked a row at a time, and a mask on a
+   scrolling container repaints the whole masked layer on every scroll step. The
+   panel is opaque past its feather, so the identical fade can be painted once by
+   the panel itself and the scroller left unmasked. */
+.player-sources-list {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.player-sources-panel::after {
+  content: "";
+  position: absolute;
+  left: var(--player-menu-feather);
+  right: 0;
+  bottom: 0;
+  height: 72px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(11, 13, 16, 0) 0, rgba(11, 13, 16, 1) 100%);
+}
+
 /* ---- Source rows ------------------------------------------------------- */
 
-/* Row layout: fixed quality tile, flexible copy, optional playing flag. The
-   tile column is a fixed width so the headlines line up down the list — that
-   vertical alignment is what makes the list scannable. */
+/* Row layout: flexible copy, optional playing flag. The quality tile that used
+   to hold the left column is gone — the sources page states quality as text in
+   the row, and a 120px tile plus its gap was the single biggest thing making
+   these rows taller and less like that page. Resolution and dynamic range are
+   the first two items of the meta strip now, so nothing was lost. */
 .player-source-card {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  margin: 0 0 min(0.42vw, 8px);
-  padding: min(1.04vw, 20px) min(1.46vw, 28px);
-  border: none;
-  border-width: 0;
-  border-radius: min(0.83vw, 16px);
-  background: transparent;
+  margin: 0 0 min(0.63vw, 12px);
+  padding: min(1.25vw, 24px);
+  /* Cards, like the sources page's rows: a hairline and a lifted fill, so a
+     row is an object you move between rather than a band of text. Kept a size
+     down from that page's 24px/32px — this panel is a column beside video, not
+     a full screen. */
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: min(1.25vw, 24px);
+  background: rgba(255, 255, 255, 0.05);
   gap: min(1.25vw, 24px);
   transform: none;
-  transition: background-color 130ms ease, color 130ms ease;
+  transition: background-color 130ms ease, color 130ms ease, border-color 130ms ease;
+  /* A busy addon returns well over a hundred streams and every one of them was
+     laid out, styled and painted whether or not it was on screen — with a video
+     decoding behind the panel, that is what made walking this list drag. Cards
+     outside the viewport now skip layout and paint entirely; `auto` remembers
+     each card's real height once measured, so the scroll position stays honest.
+     Same idiom as the home rows and episode cards. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto min(8.75vw, 168px);
 }
 
-/* ---- Quality tile ------------------------------------------------------- */
-
-.player-source-quality {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: min(0.16vw, 3px);
-  width: min(6.25vw, 120px);
-  padding: min(0.52vw, 10px) min(0.42vw, 8px);
-  border-radius: min(0.63vw, 12px);
-  background: rgba(255, 255, 255, 0.09);
-  transition: background-color 130ms ease;
-}
-
-.player-source-quality-res {
-  font-size: min(1.35vw, 26px);
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1;
-  color: #fff;
-}
-
-.player-source-quality-hdr {
-  font-size: min(0.83vw, 16px);
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  line-height: 1;
-  color: var(--secondary-color);
-}
-
-.player-source-card.focused .player-source-quality {
-  background: rgba(11, 13, 16, 0.1);
-}
-
-.player-source-card.focused .player-source-quality-res {
-  color: var(--player-menu-focus-ink);
-}
-
-.player-source-card.focused .player-source-quality-hdr {
-  color: rgba(11, 13, 16, 0.7);
+/* The focused card must never be the skipped one — it is the card scrollIntoView
+   is measuring against. */
+.player-source-card.focused,
+.player-source-card:focus-within {
+  content-visibility: visible;
 }
 
 /* ---- Meta strip --------------------------------------------------------- */
 
 /* The base rule spaces this column by 16px, which is tuned for the old
-   title+description pair; the title and meta strip carry their own spacing. */
+   title+description pair. 8px here plus the strip's own margin puts 12px under
+   the title and 8px under the badges — enough that the three bands read as
+   separate without the row growing back into the tall thing it was. */
 .player-source-main {
-  gap: 0;
+  gap: min(0.42vw, 8px);
 }
 
 /* One line, never wrapping: a wrapping strip gives every row a different height
@@ -14038,11 +14113,14 @@ img[data-lazy-src] {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: min(1.04vw, 20px);
-  margin-top: min(0.42vw, 8px);
+  /* 16px gap and 18px items — the sources page's .stream-route-card-meta
+     scale, so the same facts read at the same weight on both screens. */
+  gap: min(0.83vw, 16px);
+  margin-top: min(0.21vw, 4px);
+  /* Plain clipping, not a mask: a mask promotes every card it is on to its own
+     composited layer, and there is one of these per card. The strip is ordered
+     least-useful-last, so a hard cut costs the same information a fade did. */
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
-  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
 }
 
 /* flex: none matters — the default lets items shrink, and in a nowrap strip
@@ -14053,7 +14131,7 @@ img[data-lazy-src] {
   align-items: center;
   flex: none;
   gap: min(0.31vw, 6px);
-  font-size: min(1.15vw, 22px);
+  font-size: min(0.94vw, 18px);
   font-weight: 600;
   line-height: 1;
   color: rgba(255, 255, 255, 0.62);
@@ -14061,14 +14139,14 @@ img[data-lazy-src] {
 }
 
 .player-source-meta-item svg {
-  width: min(1.15vw, 22px);
-  height: min(1.15vw, 22px);
+  width: min(1.04vw, 20px);
+  height: min(1.04vw, 20px);
   flex: 0 0 auto;
   opacity: 0.8;
 }
 
 .player-source-meta-item.is-cached {
-  color: #58d68d;
+  color: var(--instant-color, #58d68d);
 }
 
 .player-source-meta-item.is-addon {
@@ -14080,7 +14158,7 @@ img[data-lazy-src] {
 }
 
 .player-source-card.focused .player-source-meta-item.is-cached {
-  color: #0f7a3d;
+  color: var(--instant-color-ink, #0f7a3d);
 }
 
 .player-source-card.focused .player-source-meta-item.is-addon {
@@ -14103,7 +14181,7 @@ img[data-lazy-src] {
 
 .player-source-card.focused,
 .player-source-card.selected.focused {
-  border: none;
+  border-color: transparent;
   background: var(--player-menu-focus-fill);
   transform: none;
 }
@@ -14112,17 +14190,19 @@ img[data-lazy-src] {
    the row itself stays unmarked — a second indicator here would compete with
    the focus fill. */
 .player-source-card.selected {
-  border: none;
-  background: transparent;
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* Release names are long and their distinguishing part (resolution, group,
    edition) is usually at the end, so keep it to one line and ellipsise rather
-   than wrapping to two and pushing the meta strip around. */
+   than wrapping to two and pushing the meta strip around. 25px/500 is the
+   sources page's .stream-route-card-heading; 600 here because this panel sits
+   over video rather than a solid page. */
 .player-source-title {
-  font-size: min(1.46vw, 28px);
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: min(1.3vw, 25px);
+  font-weight: 600;
+  line-height: 1.3;
   letter-spacing: -0.01em;
   color: #fff;
   display: block;
@@ -14135,13 +14215,22 @@ img[data-lazy-src] {
   color: var(--player-menu-focus-ink);
 }
 
+/* A wrapped badge row gives every card a different height and pushes the title
+   and strip around, which is most of what made this list read as ragged. The
+   column is sized to hold a full row; anything past that clips at the same fade
+   the meta strip uses rather than starting a second line. */
+.player-source-card .stream-route-card-badges {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
 /* Badge artwork is authored for dark rows — most addon logos are white
    knockouts, which would disappear on the inverted fill. Give them back a dark
-   chip so they stay legible without touching the inline colours the rules set. */
+   chip so they stay legible without touching the inline colours the rules set.
+   Only the fill changes: overriding padding and radius here as well turned
+   every badge into a different, squarer shape the moment a row took focus. */
 .player-source-card.focused .stream-route-stream-badge.image {
   background: #14171c;
-  padding: 0 min(0.42vw, 8px);
-  border-radius: min(0.42vw, 8px);
 }
 
 .player-source-card.focused .stream-route-stream-badge.size {
@@ -14407,6 +14496,35 @@ img[data-lazy-src] {
 .player-episode-item.selected .player-episode-card-title {
   color: #fff;
   font-weight: 700;
+}
+
+/* Busy state while the picked episode's streams resolve. The rail stays up and
+   the outgoing episode keeps playing behind it, so this spinner is the only
+   acknowledgement of the OK press — the rest of the rail dims to point at it. */
+.player-episode-panel.is-busy .player-episode-item:not(.is-loading) {
+  opacity: 0.4;
+  transition: opacity 180ms ease;
+}
+
+.player-episode-card-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.player-episode-card-spinner-ring {
+  box-sizing: border-box;
+  width: min(2.5vw, 48px);
+  height: min(2.5vw, 48px);
+  border-radius: 50%;
+  border: min(0.21vw, 4px) solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: homeLoadingSpin 820ms linear infinite;
 }
 
 /* ==========================================================================
@@ -15173,14 +15291,16 @@ img[data-lazy-src] {
 
 /* ---- Clock cluster ------------------------------------------------------ */
 
-/* Was a stacked pair — a 26px time over a 20px "Ends at" line — which at couch
-   distance was two small things fighting for the same corner. One row with a
-   hairline between them reads as a single glanceable unit, and lets the clock
-   itself carry real size without the block growing taller. */
+/* Stacked, right-aligned: the clock is what the corner is for, so it gets the
+   line to itself and "Ends at" hangs under it as the secondary read. The clock
+   keeps the larger size it gained when this was briefly a single row — the
+   size difference is what separates the two lines now that the hairline
+   divider (which only made sense inline) is gone. */
 .player-controls-top {
   display: flex;
-  align-items: center;
-  gap: min(0.83vw, 16px);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: min(0.42vw, 8px);
   padding: 0;
   color: #fff;
 }
@@ -15203,17 +15323,6 @@ img[data-lazy-src] {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   color: rgba(255, 255, 255, 0.55);
-}
-
-.player-ends-at::before {
-  content: "";
-  display: inline-block;
-  width: min(0.1vw, 2px);
-  height: min(0.83vw, 16px);
-  margin-right: min(0.83vw, 16px);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.26);
-  vertical-align: -0.15em;
 }
 
 /* ---- Title block -------------------------------------------------------- */
@@ -15261,6 +15370,70 @@ img[data-lazy-src] {
   /* The gap is owned by .player-controls-bottom now, so the shell does not
      also add one. */
   margin-top: 0;
+  /* Anchors the pointer hover readout. */
+  position: relative;
+}
+
+/* Magic Remote hit area. The track itself is a 6px hairline (10px focused),
+   which no wrist can hold a cursor inside — the pointer would skate over it
+   between frames and never resolve to the shell. This pads the target out to
+   something aimable without touching layout: a pseudo-element hit-tests as its
+   originating element, so hover and click still land on the shell. */
+.player-progress-shell::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(min(1.04vw, 20px) * -1);
+  bottom: calc(min(1.04vw, 20px) * -1);
+}
+
+/* Zero-size anchor parked at the cursor's position along the bar; both the
+   marker and the bubble hang off it. */
+.player-progress-hover {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 140ms ease;
+}
+
+.player-progress-hover.hidden {
+  opacity: 0;
+}
+
+.player-progress-hover-marker {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: min(0.16vw, 3px);
+  height: calc(var(--player-scrub-height-focused) + min(0.42vw, 8px));
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 min(0.1vw, 2px) min(0.42vw, 8px) rgba(0, 0, 0, 0.5);
+}
+
+/* Sits above the bar so the cursor itself never covers the number it is
+   pointing at. The transform carries an edge-clamp offset written from JS. */
+.player-progress-hover-time {
+  position: absolute;
+  left: 0;
+  bottom: min(1.04vw, 20px);
+  transform: translateX(-50%);
+  padding: min(0.31vw, 6px) min(0.63vw, 12px);
+  border-radius: min(0.42vw, 8px);
+  background: rgba(10, 12, 16, 0.92);
+  color: #fff;
+  font-size: min(1.15vw, 22px);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 min(0.21vw, 4px) min(1.04vw, 20px) rgba(0, 0, 0, 0.55);
 }
 
 .player-progress-track {
@@ -18373,6 +18546,10 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   animation: homeLoadingSpin 960ms steps(12, end) infinite !important;
 }
 
+.performance-constrained .player-episode-card-spinner-ring {
+  animation: homeLoadingSpin 960ms steps(12, end) infinite !important;
+}
+
 .performance-constrained .stream-route-chip-spinner {
   animation: homeLoadingSpin 720ms steps(12, end) infinite !important;
 }
@@ -18646,13 +18823,15 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   gap: 16px;
 }
 
+/* The card does move on this path (40px, rising to 156px once the transport is
+   up), so the skip button keeps its raised state here and mirrors both values. */
 .legacy-webos .player-skip-intro {
-  left: 64px;
-  bottom: 60px;
+  right: 64px;
+  bottom: 40px;
 }
 
 .legacy-webos .player-skip-intro.is-raised {
-  bottom: 212px;
+  bottom: 156px;
 }
 
 .legacy-webos .player-skip-intro-btn {
@@ -18683,8 +18862,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 .legacy-webos .player-skip-intro-icon {
-  width: 40px;
-  height: 40px;
+  width: 24px;
+  height: 24px;
 }
 
 .legacy-webos .player-skip-intro-label {
@@ -18733,7 +18912,10 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   width: 560px;
 }
 
-.legacy-webos .player-controls-overlay:not(.hidden) ~ .player-next-episode-card {
+/* Was a `~` sibling rule, which never matched: the card is emitted before
+   #playerControlsOverlay and the general sibling combinator only reaches
+   forward, so the card silently stayed at 40px under the transport. */
+.legacy-webos .player-next-episode-card.is-raised {
   bottom: 156px;
 }
 
@@ -19059,13 +19241,14 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
     gap: 16px;
   }
 
+  /* Same as the legacy path: the card moves here, so the button moves with it. */
   .player-skip-intro {
-    left: 64px;
-    bottom: 60px;
+    right: 64px;
+    bottom: 40px;
   }
 
   .player-skip-intro.is-raised {
-    bottom: 212px;
+    bottom: 156px;
   }
 
   .player-skip-intro-btn {
@@ -19096,8 +19279,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   }
 
   .player-skip-intro-icon {
-    width: 40px;
-    height: 40px;
+    width: 24px;
+    height: 24px;
   }
 
   .player-skip-intro-label {
@@ -19145,7 +19328,8 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
     width: 560px;
   }
 
-  .player-controls-overlay:not(.hidden) ~ .player-next-episode-card {
+  /* Same dead-sibling fix as the legacy block above. */
+  .player-next-episode-card.is-raised {
     bottom: 156px;
   }
 
@@ -19363,7 +19547,11 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   flex-direction: column;
   justify-content: space-between;
   align-items: start;
-  gap: 24px;
+  /* 24px was tuned when the row below the title was a 19px description line
+     with its own leading. The meta strip that replaced it sits on line-height 1,
+     so that gap now reads as a hole between the title and the facts under it —
+     the player's card puts 12px there and so does this one. */
+  gap: 12px;
 }
 
 .stream-route-card-heading {
@@ -19392,12 +19580,36 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   display: block;
 }
 
-.stream-route-cache-icon.cached {
-  color: #4caf50;
-}
-
 .stream-route-cache-icon.not-cached {
   color: #fff;
+}
+
+/* Cache state chip. Lives in the card's meta row alongside size and peers, not
+   inline in the headline where it used to be — same slot, same glyph, same
+   word and same green as .player-source-meta-item.is-cached in the player's
+   sources panel, so one stream reads the same on both screens. */
+.stream-route-cache-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: min(0.31vw, 6px);
+  font-size: min(0.94vw, 18px);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--instant-color, #58d68d);
+}
+
+.stream-route-cache-chip.not-cached {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.stream-route-cache-chip svg {
+  width: min(1.04vw, 20px);
+  height: min(1.04vw, 20px);
+  display: block;
+  flex: 0 0 auto;
+  opacity: 0.8;
 }
 
 .stream-route-card-quality {
@@ -19517,28 +19729,46 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   margin-top: 4px;
 }
 
+/* This strip and .player-source-meta in the player's sources panel are one
+   component in two places — same order, same sizes, same colours, same fade on
+   the cut — so a stream reads identically whether you are choosing it from the
+   page or swapping to it mid-playback. Change one, change the other. */
 .stream-route-card-meta {
-  margin-top: 16px;
+  margin-top: 0;
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: min(0.83vw, 16px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
 }
 
 .stream-route-meta-item {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 18px;
-  line-height: 25px;
+  flex: none;
+  gap: min(0.31vw, 6px);
+  font-size: min(0.94vw, 18px);
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.62);
+  white-space: nowrap;
 }
 
-.stream-route-meta-item.peers {
-  color: #2196f3;
+.stream-route-meta-item svg {
+  width: min(1.04vw, 20px);
+  height: min(1.04vw, 20px);
+  flex: 0 0 auto;
+  opacity: 0.8;
 }
 
+/* Peers has no counterpart in the player's strip; it takes the strip's own
+   colour rather than the blue it used to carry, so the row reads as one set of
+   facts instead of one highlighted fact plus the rest. */
+.stream-route-meta-item.peers,
 .stream-route-meta-item.size {
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .stream-route-size-icon {

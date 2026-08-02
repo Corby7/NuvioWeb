@@ -264,10 +264,6 @@ function renderMetaItem(kind, value) {
   `;
 }
 
-// Matches a bitrate estimate some addons append to the description
-// (e.g. "2.82 Mbps", including the small-caps unicode form "2.82 ᴹᵇᵖˢ").
-const BITRATE_LINE_PATTERN = /\d+(?:[.,]\d+)?\s*(?:mbps|mb\/s|ᴹᵇᵖˢ)/i;
-
 function extractPeerCount(stream = {}) {
   const text = String([
     stream.name || "",
@@ -573,16 +569,37 @@ function getStreamHeadline(stream = {}) {
 
 const NOT_CACHED_TEXT_PATTERN = /\bnot\s*cached\b\s*/i;
 const CACHED_TEXT_PATTERN = /\bcached\b\s*/i;
-const CACHED_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 256 256"><path d="M160,40A88.09,88.09,0,0,0,81.29,88.67,64,64,0,1,0,72,216h88a88,88,0,0,0,0-176Zm0,160H72a48,48,0,0,1,0-96c1.1,0,2.2,0,3.29.11A88,88,0,0,0,72,128a8,8,0,0,0,16,0,72,72,0,1,1,72,72Zm37.66-93.66a8,8,0,0,1,0,11.32l-48,48a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L144,148.69l42.34-42.35A8,8,0,0,1,197.66,106.34Z"></path></svg>';
+// Lightning, not the cloud-check this used to be: what the flag actually tells
+// you is that the file is ready to stream now, and "instant" is the word for
+// that. Must stay identical to SOURCE_META_ICONS.cached in playerScreen.js —
+// the player's sources panel shows the same flag on the same streams.
+const CACHED_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 256 256"><path d="M215.79,118.17a8,8,0,0,0-5-5.66L153.18,90.9l14.66-73.33a8,8,0,0,0-13.69-7l-112,120a8,8,0,0,0,3,13l57.63,21.61L88.16,238.43a8,8,0,0,0,13.69,7l112-120A8,8,0,0,0,215.79,118.17Z"></path></svg>';
 const NOT_CACHED_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 256 256"><path d="M53.92,34.62A8,8,0,1,0,42.08,45.38L81.32,88.55l-.06.12A65,65,0,0,0,72,88a64,64,0,0,0,0,128h88a87.34,87.34,0,0,0,31.8-5.93l10.28,11.31a8,8,0,1,0,11.84-10.76ZM160,200H72a48,48,0,0,1,0-96c1.1,0,2.2,0,3.3.12A88.4,88.4,0,0,0,72,128a8,8,0,0,0,16,0,72.25,72.25,0,0,1,5.06-26.54l87,95.7A71.66,71.66,0,0,1,160,200Zm88-72a87.89,87.89,0,0,1-22.35,58.61A8,8,0,0,1,213.71,176,72,72,0,0,0,117.37,70a8,8,0,0,1-9.48-12.89A88,88,0,0,1,248,128Z"></path></svg>';
-const SIZE_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 256 256"><path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31ZM160,72a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h56A8,8,0,0,1,160,72Z"></path></svg>';
+// Same glyph as SOURCE_META_ICONS.size in playerScreen.js.
+const SIZE_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31Z"></path></svg>';
 
-// Builds "<icon>formatted size" as safe HTML, or "" when there's no size.
-function renderSizeWithIcon(sizeText) {
-  if (!sizeText) {
-    return "";
-  }
-  return `<span class="stream-route-size-icon">${SIZE_ICON_SVG}</span>${escapeHtml(sizeText)}`;
+// Matches playerScreen's sourceBitrateLabel, including the small-caps unicode
+// spelling, so the same stream reports the same number on both screens.
+function getStreamBitrate(stream = {}) {
+  const text = [
+    stream.name,
+    stream.title,
+    stream.description,
+    stream.behaviorHints?.filename
+  ].map((value) => String(value || "")).join(" ");
+  const match = text.match(/(\d+(?:[.,]\d+)?)\s*(?:mbps|mb\/s|ᴹᵇᵖˢ)/i);
+  return match?.[1] ? `${match[1].replace(",", ".")} Mbps` : "";
+}
+
+// Bitrate has its own chip in the meta strip now, so take it (and one adjacent
+// separator) out of the description line it came from.
+function stripBitrateTokenFromLine(line = "") {
+  return String(line)
+    .replace(/\d+(?:[.,]\d+)?\s*(?:mbps|mb\/s|ᴹᵇᵖˢ)/i, "")
+    .replace(/\s*[•|·]\s*[•|·]\s*/g, " • ")
+    .replace(/^\s*[•|·]\s*/, "")
+    .replace(/\s*[•|·]\s*$/, "")
+    .trim();
 }
 
 // Addons often embed the file size in their bitrate line; strip it (plus one
@@ -597,15 +614,40 @@ function stripSizeTokenFromLine(line = "") {
     .trim();
 }
 
+// Cache state is a chip in the meta row now (renderCacheChip), so the addon's
+// own "Cached" / "Not cached" / "⚡" wording comes out of the headline — left
+// in, the row states it twice in two different visual languages. Leading and
+// trailing separators the cut leaves behind go with it.
+function stripCacheTokens(value = "") {
+  return String(value)
+    .replace(/\[?\s*(?:not\s*)?cached\s*\]?/gi, " ")
+    .replace(/[⚡✅❌]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^\s*[•|·\-–]\s*/, "")
+    .replace(/\s*[•|·\-–]\s*$/, "")
+    .trim();
+}
+
 function renderStreamHeadline(headline) {
-  const escaped = escapeHtml(headline);
-  if (NOT_CACHED_TEXT_PATTERN.test(escaped)) {
-    return escaped.replace(NOT_CACHED_TEXT_PATTERN, `<span class="stream-route-cache-icon not-cached">${NOT_CACHED_ICON_SVG}</span>`);
+  return escapeHtml(stripCacheTokens(headline));
+}
+
+// Bolt + "Instant", the same flag and the same string as the player's sources
+// panel (t("stream_cached")) — this is the one thing on a row worth reading at
+// a glance, and it must read identically on both screens.
+function renderCacheChip(stream = {}) {
+  const text = String([
+    stream.name || "",
+    stream.title || "",
+    stream.description || ""
+  ].join(" "));
+  if (NOT_CACHED_TEXT_PATTERN.test(text)) {
+    return `<span class="stream-route-cache-chip not-cached">${NOT_CACHED_ICON_SVG}${escapeHtml(t("stream_not_cached", {}, "Not cached"))}</span>`;
   }
-  if (CACHED_TEXT_PATTERN.test(escaped)) {
-    return escaped.replace(CACHED_TEXT_PATTERN, `<span class="stream-route-cache-icon cached">${CACHED_ICON_SVG}</span>`);
+  if (CACHED_TEXT_PATTERN.test(text) || /⚡/.test(text)) {
+    return `<span class="stream-route-cache-chip cached">${CACHED_ICON_SVG}${escapeHtml(t("stream_cached", {}, "Instant"))}</span>`;
   }
-  return escaped;
+  return "";
 }
 
 function getStreamQuality(stream = {}) {
@@ -1625,13 +1667,14 @@ export const StreamScreen = {
     const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
     const descriptionLines = getStreamDescriptionLines(stream);
     const sizeText = formatBytes(stream.behaviorHints?.videoSize);
-    const bitrateLineIndex = descriptionLines.findIndex((line) => BITRATE_LINE_PATTERN.test(line));
-    const sizeMergedIntoBitrateLine = Boolean(sizeText) && bitrateLineIndex !== -1;
-    const renderedDescriptionLines = descriptionLines.map((line, lineIndex) => (
-      sizeMergedIntoBitrateLine && lineIndex === bitrateLineIndex
-        ? `${renderSizeWithIcon(sizeText)} • ${escapeHtml(stripSizeTokenFromLine(line))}`
-        : escapeHtml(line)
-    ));
+    const bitrateText = getStreamBitrate(stream);
+    // Instant, size and bitrate are the row's facts; they belong in one strip,
+    // rendered by the same rules as the player's sources panel. Both are pulled
+    // out of the description lines so nothing is stated twice — what is left of
+    // a line after the cut still shows, and a line emptied by it drops out.
+    const renderedDescriptionLines = descriptionLines
+      .map((line) => escapeHtml(stripCacheTokens(stripBitrateTokenFromLine(stripSizeTokenFromLine(line)))))
+      .filter((line) => line.trim());
     const addonLogoUrl = normalizeAddonLogoUrl(stream.addonLogo) || resolveAddonLogo(stream.addonName, this.addonLogoLookup);
     const cachedAddonLogoUrl = getCachedAddonLogoDisplayUrl(addonLogoUrl);
     let displayAddonLogoUrl = cachedAddonLogoUrl || "";
@@ -1642,11 +1685,13 @@ export const StreamScreen = {
       }
     }
     const addonBadgeLabel = escapeHtml(getAddonBadgeLabel(stream.addonName || ""));
+    // Order matches the player's strip exactly: cache state, size, bitrate,
+    // then peers (which the player has no equivalent for).
     const meta = [
-      renderMetaItem("peers", extractPeerCount(stream)),
-      sizeMergedIntoBitrateLine || !sizeText
-        ? ""
-        : `<span class="stream-route-meta-item size"><span>${renderSizeWithIcon(sizeText)}</span></span>`
+      renderCacheChip(stream),
+      sizeText ? `<span class="stream-route-meta-item size">${SIZE_ICON_SVG}<span>${escapeHtml(sizeText)}</span></span>` : "",
+      bitrateText ? `<span class="stream-route-meta-item is-plain"><span>${escapeHtml(bitrateText)}</span></span>` : "",
+      renderMetaItem("peers", extractPeerCount(stream))
     ].filter(Boolean).join("");
     const isResolving = this.resolvingStreamId === stream.id;
     const resolvingLabel = this.resolvingStreamMode === "p2p"

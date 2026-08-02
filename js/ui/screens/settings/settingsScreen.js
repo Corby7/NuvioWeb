@@ -5123,7 +5123,7 @@ export const SettingsScreen = {
           subtitle: t(
             "settings.playback.skipIntro.subtitle",
             {},
-            "Use IntroDB to detect intro, recap and outro segments when available."
+            "Use IntroDB to detect intro, recap and credit segments. Also times the next episode card."
           ),
           checked: Boolean(model.player.skipIntroEnabled)
         })}

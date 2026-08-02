@@ -1,6 +1,15 @@
 const VALID_NEXT_EPISODE_THRESHOLD_MODES = new Set(["PERCENTAGE", "MINUTES_BEFORE_END"]);
 const OUTRO_SEGMENT_TYPES = new Set(["outro", "ed", "mixed-ed"]);
 
+/* Exported so the player can filter outro segments out of the skip button using
+   the same definition this module times the next-episode card from. The two
+   must agree: an outro that reaches the skip button shows a "Skip Intro" pill
+   over the credits, and one that does not reach this module loses the card its
+   best cue. */
+function isOutroSegmentType(type) {
+  return OUTRO_SEGMENT_TYPES.has(String(type || "").trim().toLowerCase());
+}
+
 function normalizeNextEpisodeThresholdMode(value) {
   const mode = String(value || "").trim().toUpperCase();
   return VALID_NEXT_EPISODE_THRESHOLD_MODES.has(mode) ? mode : "PERCENTAGE";
@@ -24,7 +33,7 @@ function normalizeThresholdMinutesBeforeEnd(value) {
 
 function getOutroSegments(skipIntervals = []) {
   return (Array.isArray(skipIntervals) ? skipIntervals : [])
-    .filter((interval) => OUTRO_SEGMENT_TYPES.has(String(interval?.type || "").trim().toLowerCase()))
+    .filter((interval) => isOutroSegmentType(interval?.type))
     .filter((interval) => Number.isFinite(Number(interval?.startTime)) && Number.isFinite(Number(interval?.endTime)))
     .map((interval) => ({
       startTime: Number(interval.startTime),
@@ -88,6 +97,7 @@ function shouldEnterStillWatchingPrompt({
 }
 
 export {
+  isOutroSegmentType,
   normalizeNextEpisodeThresholdMode,
   normalizeThresholdMinutesBeforeEnd,
   normalizeThresholdPercent,

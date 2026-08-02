@@ -87,6 +87,11 @@ export const skipIntroRepository = {
     url.searchParams.set("episode", String(episodeNumber));
 
     const data = await fetchJson(url.toString());
+    // The outro segment is mapped for its timing, not for a skip button. There
+    // is no Skip Outro action any more — playerScreen filters outro types out of
+    // the skip button's candidates — but knowing where the credits actually
+    // start is the best cue the next-episode card has, far better than guessing
+    // a fixed offset from the end. See playerNextEpisodeRules.
     const intervals = [
       toSkipInterval(data?.intro, "intro"),
       toSkipInterval(data?.recap, "recap"),
