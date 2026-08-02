@@ -14176,6 +14176,37 @@ img[data-lazy-src] {
   color: var(--instant-color, #58d68d);
 }
 
+/* Provider rank, parsed out of the addon's star run. Coloured by tier on an
+   ascending slate → blue → violet → orange → gold ramp, so the rank is legible
+   from across the room without reading the number. Deliberately avoids the
+   green that means Instant two chips to the left — one colour, one meaning. */
+.player-source-meta-item.is-tier,
+.stream-route-meta-item.is-tier {
+  letter-spacing: 0.02em;
+  color: var(--tier-color, rgba(255, 255, 255, 0.78));
+}
+
+.is-tier-1 { --tier-color: #94a3b8; }
+.is-tier-2 { --tier-color: #60a5fa; }
+.is-tier-3 { --tier-color: #a78bfa; }
+.is-tier-4 { --tier-color: #fb923c; }
+.is-tier-5 { --tier-color: #facc15; }
+
+/* The focused row inverts to a white fill, where the light end of that ramp has
+   almost no contrast — gold on white is the worst of them. Same hues, darkened
+   to carry on the inverted fill. */
+.player-source-card.focused .is-tier-1 { --tier-color: #475569; }
+.player-source-card.focused .is-tier-2 { --tier-color: #1d4ed8; }
+.player-source-card.focused .is-tier-3 { --tier-color: #6d28d9; }
+.player-source-card.focused .is-tier-4 { --tier-color: #c2410c; }
+.player-source-card.focused .is-tier-5 { --tier-color: #a16207; }
+
+/* The generic focused-strip rule is more specific than .is-tier's own colour,
+   so it would flatten every tier back to one ink. */
+.player-source-card.focused .player-source-meta-item.is-tier {
+  color: var(--tier-color);
+}
+
 .player-source-meta-item.is-addon {
   color: rgba(255, 255, 255, 0.42);
 }

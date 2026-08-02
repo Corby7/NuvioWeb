@@ -614,6 +614,52 @@ function stripSizeTokenFromLine(line = "") {
     .trim();
 }
 
+// Aggregators encode a provider tier as a run of star glyphs in the stream name
+// ("Library ★★☆", "Sootio ★★★★★"). The rank is genuinely useful, the glyphs are
+// not: they arrive in inconsistent fonts, sit in the middle of the title, and
+// several addons emit only filled stars so the run reads as decoration rather
+// than a value. Parsed out here and shown as a rank chip in the meta strip.
+const STAR_RUN_PATTERN = /[\u2605\u2606\u2B50\u2730\u2729]+/g;
+
+function extractStarRating(text = "") {
+  const runs = String(text || "").match(STAR_RUN_PATTERN);
+  if (!runs || !runs.length) {
+    return null;
+  }
+  // Longest run wins — an addon that stamps a star elsewhere in the blob should
+  // not outvote the actual rating.
+  const run = runs.reduce((best, entry) => (entry.length > best.length ? entry : best), "");
+  const filled = (run.match(/[\u2605\u2B50\u2730]/g) || []).length;
+  const empty = (run.match(/[\u2606\u2729]/g) || []).length;
+  if (!filled && !empty) {
+    return null;
+  }
+  // Only when the addon spells out the empty stars is the maximum knowable —
+  // "★★" alone could be 2 of 2 or 2 of 5, so the chip states the rank plainly
+  // rather than inventing a denominator.
+  return { filled, total: empty ? filled + empty : 0 };
+}
+
+// Rank on a 1-5 scale so the chip can be coloured by tier. When the addon spells
+// out its maximum the rank is normalised against it (2 of 3 is a mid tier, not a
+// low one); when it does not, the filled count is the rank.
+function starRatingLevel(rating) {
+  if (!rating || !rating.filled) {
+    return 0;
+  }
+  const level = rating.total
+    ? Math.round((rating.filled / rating.total) * 5)
+    : rating.filled;
+  return Math.min(5, Math.max(1, level));
+}
+
+function formatStarRating(rating) {
+  if (!rating || !rating.filled) {
+    return "";
+  }
+  return rating.total ? `${rating.filled}/${rating.total}` : String(rating.filled);
+}
+
 // Cache state is a chip in the meta row now (renderCacheChip), so the addon's
 // own "Cached" / "Not cached" / "⚡" wording comes out of the headline — left
 // in, the row states it twice in two different visual languages. Leading and
@@ -622,6 +668,7 @@ function stripCacheTokens(value = "") {
   return String(value)
     .replace(/\[?\s*(?:not\s*)?cached\s*\]?/gi, " ")
     .replace(/[⚡✅❌]/g, " ")
+    .replace(STAR_RUN_PATTERN, " ")
     // Invisible format characters — zero-width joiners, word joiners, and the
     // U+2060..U+2064 "invisible operator" block that several addons sprinkle
     // through their text. String.trim() does not touch them (they are Cf, not
@@ -1694,11 +1741,17 @@ export const StreamScreen = {
     const addonBadgeLabel = escapeHtml(getAddonBadgeLabel(stream.addonName || ""));
     // Order matches the player's strip exactly: cache state, size, bitrate,
     // then peers (which the player has no equivalent for).
+    const tierRating = extractStarRating([stream.name, stream.title].join(" "));
+    const tierLabel = formatStarRating(tierRating);
+    const tierLevel = starRatingLevel(tierRating);
     const meta = [
       renderCacheChip(stream),
       sizeText ? `<span class="stream-route-meta-item size">${SIZE_ICON_SVG}<span>${escapeHtml(sizeText)}</span></span>` : "",
       bitrateText ? `<span class="stream-route-meta-item is-plain"><span>${escapeHtml(bitrateText)}</span></span>` : "",
-      renderMetaItem("peers", extractPeerCount(stream))
+      renderMetaItem("peers", extractPeerCount(stream)),
+      tierLabel
+        ? `<span class="stream-route-meta-item is-tier is-tier-${tierLevel}"><span>${escapeHtml(t("stream_provider_tier", {}, "Tier"))} ${escapeHtml(tierLabel)}</span></span>`
+        : ""
     ].filter(Boolean).join("");
     const isResolving = this.resolvingStreamId === stream.id;
     const resolvingLabel = this.resolvingStreamMode === "p2p"
@@ -1746,7 +1799,9 @@ export const StreamScreen = {
     const { isSeries, title, subtitle, episodeLabel, detailLine } = this.getHeaderMeta();
     const backdrop = this.getBackdropUrl();
     const logo = this.params?.logo || "";
-    const shellStableClass = this.hasRenderedStreamRouteShell ? " stable" : "";
+    // `streamShellPrewarmed`: the Continue Watching handoff already painted this shell on the
+    // way in, so replaying the enter animation would look like the screen restarting.
+    const shellStableClass = (this.hasRenderedStreamRouteShell || this.params?.streamShellPrewarmed) ? " stable" : "";
     const orderedFilters = this.getOrderedFilterNames();
     const chips = [
       this.renderChip("all", this.addonFilter === "all", "success"),

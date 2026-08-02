@@ -1,4 +1,7 @@
-import { createProfileScopedStore } from "./profileScopedStore.js";
+import {
+  createProfileScopedStore,
+  markHomeCatalogCloudSyncPending
+} from "./profileScopedStore.js";
 
 const KEY = "homeCatalogPrefs";
 
@@ -89,6 +92,10 @@ export const HomeCatalogStore = {
     }
     store.replaceForProfile(profileId, next, options);
     if (!options.silentSync) {
+      // Mark before the (async) push enqueue: the flag has to be set synchronously
+      // with the local write, otherwise a sync cycle that is already in flight can
+      // pull stale remote state over this change without ever seeing the flag.
+      markHomeCatalogCloudSyncPending(profileId);
       queueHomeCatalogSettingsSync(profileId);
     }
   },

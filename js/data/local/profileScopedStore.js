@@ -5,6 +5,9 @@ const PROFILE_SCOPED_VERSION = 1;
 const PROFILES_KEY = "profiles";
 const SETTINGS_SYNC_DEBOUNCE_MS = 1500;
 const SETTINGS_SYNC_PENDING_KEY = "profileSettingsSyncPendingProfiles";
+const HOME_CATALOG_SYNC_PENDING_KEY = "homeCatalogSyncPendingProfiles";
+
+let pendingTokenCounter = 0;
 
 const scheduledSettingsSyncTimers = new Map();
 const settingsSyncInFlightByProfile = new Map();
@@ -93,32 +96,73 @@ function persistEnvelope(key, envelope) {
   LocalStore.set(key, envelope);
 }
 
-function readPendingSettingsSyncProfiles() {
-  const value = LocalStore.get(SETTINGS_SYNC_PENDING_KEY, {}) || {};
+function readPendingSyncProfiles(storageKey) {
+  const value = LocalStore.get(storageKey, {}) || {};
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-export function markProfileSettingsCloudSyncPending(profileId = null) {
+// The token changes on every mark so a push can tell "the local value I just
+// shipped" from "the user edited again while my RPC was in flight" and refuse to
+// clear the flag in the latter case.
+function markPendingSyncProfile(storageKey, profileId) {
   const normalizedProfileId = normalizeProfileId(profileId);
-  const pending = readPendingSettingsSyncProfiles();
-  pending[normalizedProfileId] = Date.now();
-  LocalStore.set(SETTINGS_SYNC_PENDING_KEY, pending);
+  const pending = readPendingSyncProfiles(storageKey);
+  pendingTokenCounter += 1;
+  pending[normalizedProfileId] = `${Date.now()}:${pendingTokenCounter}`;
+  LocalStore.set(storageKey, pending);
 }
 
-export function clearProfileSettingsCloudSyncPending(profileId = null) {
+function clearPendingSyncProfile(storageKey, profileId, expectedToken = null) {
   const normalizedProfileId = normalizeProfileId(profileId);
-  const pending = readPendingSettingsSyncProfiles();
+  const pending = readPendingSyncProfiles(storageKey);
   if (!Object.prototype.hasOwnProperty.call(pending, normalizedProfileId)) {
     return;
   }
+  if (expectedToken != null && pending[normalizedProfileId] !== expectedToken) {
+    return;
+  }
   delete pending[normalizedProfileId];
-  LocalStore.set(SETTINGS_SYNC_PENDING_KEY, pending);
+  LocalStore.set(storageKey, pending);
+}
+
+function pendingSyncProfileToken(storageKey, profileId) {
+  const normalizedProfileId = normalizeProfileId(profileId);
+  const pending = readPendingSyncProfiles(storageKey);
+  return Object.prototype.hasOwnProperty.call(pending, normalizedProfileId)
+    ? pending[normalizedProfileId]
+    : null;
+}
+
+export function markProfileSettingsCloudSyncPending(profileId = null) {
+  markPendingSyncProfile(SETTINGS_SYNC_PENDING_KEY, profileId);
+}
+
+export function clearProfileSettingsCloudSyncPending(profileId = null) {
+  clearPendingSyncProfile(SETTINGS_SYNC_PENDING_KEY, profileId);
 }
 
 export function hasProfileSettingsCloudSyncPending(profileId = null) {
-  const normalizedProfileId = normalizeProfileId(profileId);
-  const pending = readPendingSettingsSyncProfiles();
-  return Object.prototype.hasOwnProperty.call(pending, normalizedProfileId);
+  return pendingSyncProfileToken(SETTINGS_SYNC_PENDING_KEY, profileId) != null;
+}
+
+// Home catalog order/visibility lives in its own remote blob with its own push
+// path, so it needs its own persisted dirty flag: an in-memory one is lost when
+// the app is closed (or when the initial pull failed and gated the push), and
+// the next pull then applies the stale remote order over the local one.
+export function markHomeCatalogCloudSyncPending(profileId = null) {
+  markPendingSyncProfile(HOME_CATALOG_SYNC_PENDING_KEY, profileId);
+}
+
+export function clearHomeCatalogCloudSyncPending(profileId = null, expectedToken = null) {
+  clearPendingSyncProfile(HOME_CATALOG_SYNC_PENDING_KEY, profileId, expectedToken);
+}
+
+export function homeCatalogCloudSyncPendingToken(profileId = null) {
+  return pendingSyncProfileToken(HOME_CATALOG_SYNC_PENDING_KEY, profileId);
+}
+
+export function hasHomeCatalogCloudSyncPending(profileId = null) {
+  return pendingSyncProfileToken(HOME_CATALOG_SYNC_PENDING_KEY, profileId) != null;
 }
 
 function ensureProfileValue(key, envelope, normalize, profileId) {

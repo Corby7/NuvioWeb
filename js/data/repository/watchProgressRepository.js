@@ -177,9 +177,31 @@ function selectedLocalProgressSource() {
     : WatchProgressSource.NUVIO_SYNC;
 }
 
+// A Continue Watching removal can only delete local + cloud rows. Trakt history
+// keeps its copy, and a cloud row survives a failed delete RPC, so both re-enter
+// the list on the next refresh. The local tombstone is what actually keeps the
+// title gone until it is genuinely watched again (newer updatedAt).
+function isRemovedFromContinueWatching(item = {}, removedKeys = null) {
+  const keys = removedKeys || ContinueWatchingPreferences.getRemovedKeys(activeProfileId());
+  const removedAt = Number(keys?.[String(item?.contentId || "").trim()] || 0);
+  if (!removedAt) {
+    return false;
+  }
+  return Number(item?.updatedAt || 0) <= removedAt;
+}
+
+function filterRemovedContinueWatchingItems(items = []) {
+  const all = Array.isArray(items) ? items : [];
+  const removedKeys = ContinueWatchingPreferences.getRemovedKeys(activeProfileId());
+  if (!removedKeys || !Object.keys(removedKeys).length) {
+    return all;
+  }
+  return all.filter((item) => !isRemovedFromContinueWatching(item, removedKeys));
+}
+
 function filterForSelectedContinueWatchingSource(items = []) {
   const useTrakt = selectedContinueWatchingSource() === WatchProgressSource.TRAKT;
-  const all = Array.isArray(items) ? items : [];
+  const all = filterRemovedContinueWatchingItems(items);
   // Items whose ids Trakt can't represent (addon-specific ids) only exist
   // locally — keep them visible even when Trakt drives Continue Watching.
   return all.filter((item) =>
@@ -523,6 +545,8 @@ class WatchProgressRepository {
         activeProfileId()
       );
     }
+    // Watching it again undoes an earlier Continue Watching removal.
+    ContinueWatchingPreferences.clearRemovedKey(progress?.contentId, activeProfileId());
     WatchProgressStore.upsert(
       {
         ...progress,
@@ -564,15 +588,22 @@ class WatchProgressRepository {
     return this.getResumeByContentIds([contentId], target);
   }
 
-  async removeProgress(contentId, videoId = null) {
+  async removeProgress(contentId, videoId = null, { dismissFromContinueWatching = false } = {}) {
     const pid = activeProfileId();
     const removedItems = WatchProgressStore.listForProfile(pid).filter((item) =>
       matchesProgressTarget(item, contentId, videoId)
     );
     WatchProgressStore.remove(contentId, videoId, pid);
+    if (dismissFromContinueWatching) {
+      ContinueWatchingPreferences.addRemovedKey(contentId, Date.now(), pid);
+    }
     await deleteWatchProgressFromCloud(removedItems);
     invalidateContinueWatchingDisplaySnapshot();
     queueWatchProgressCloudSync();
+  }
+
+  isRemovedFromContinueWatching(item) {
+    return isRemovedFromContinueWatching(item);
   }
 
   async getRecent(limit = 30) {

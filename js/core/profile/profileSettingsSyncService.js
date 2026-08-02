@@ -812,31 +812,24 @@ const FEATURE_ADAPTERS = {
         disabled_catalog_keys: prefs.disabled
       };
     },
-    project(rawFeature = {}) {
-      const raw = normalizeFeaturePayload(rawFeature);
-      const projected = {};
-      const order = firstStringArrayFromRaw(raw, [
-        "catalog_order_keys",
-        "home_catalog_order",
-        "catalog_order",
-        "order"
-      ]);
-      const disabled = firstStringArrayFromRaw(raw, [
-        "disabled_catalog_keys",
-        "hidden_catalog_keys",
-        "catalog_disabled_keys",
-        "home_catalog_disabled",
-        "disabled"
-      ]);
-      if (order) {
-        projected.catalog_order_keys = order;
-      }
-      if (disabled) {
-        projected.disabled_catalog_keys = disabled;
-      }
-      return projected;
+    // Catalog order/visibility is owned by HomeCatalogSettingsSyncService's own
+    // blob, which carries per-item order + enabled state and is applied later in
+    // the same pull. The copy kept here is exported for other clients only: it is
+    // deliberately left out of the comparison signature so a stale copy of it can
+    // never mark the whole profile blob "different" and drag every other feature
+    // into a wholesale re-import.
+    project() {
+      return {};
     },
     import(profileId, rawFeature = {}) {
+      // Seed only. Applying this unconditionally is what made a reorder revert:
+      // this blob is refreshed on its own debounce, so during the window after a
+      // reorder it still holds the previous order, and importing it overwrote the
+      // fresh local order before the dedicated blob got a chance to confirm it.
+      // A profile that already has an order keeps it; the dedicated service wins.
+      if ((HomeCatalogStore.getForProfile(profileId).order || []).length) {
+        return false;
+      }
       const raw = normalizeFeaturePayload(rawFeature);
       const partial = {};
       const order = firstStringArrayFromRaw(raw, [
@@ -1844,6 +1837,13 @@ export const ProfileSettingsSyncService = {
       }
       const blob = await pullRemoteBlob(resolvedProfileId);
       if (!blob) {
+        return false;
+      }
+      // Re-check after the fetch: the guard above ran before the RPC, so a setting
+      // changed while it was in flight would otherwise be overwritten by the blob
+      // we started fetching before that change existed.
+      if (hasProfileSettingsCloudSyncPending(resolvedProfileId)) {
+        await this.push(resolvedProfileId);
         return false;
       }
 

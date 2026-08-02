@@ -5,6 +5,11 @@ import { addonRepository } from "../../data/repository/addonRepository.js";
 import { HomeCatalogStore } from "../../data/local/homeCatalogStore.js";
 import { CollectionsStore, buildCollectionHomeKey } from "../../data/local/collectionsStore.js";
 import { LayoutPreferences } from "../../data/local/layoutPreferences.js";
+import {
+  clearHomeCatalogCloudSyncPending,
+  hasHomeCatalogCloudSyncPending,
+  homeCatalogCloudSyncPendingToken
+} from "../../data/local/profileScopedStore.js";
 import { ProfileManager } from "./profileManager.js";
 import {
   buildCatalogDisableKey,
@@ -486,6 +491,36 @@ function applyPayload(profileId, payload = {}) {
   }
 }
 
+// Keys the local payload cannot currently represent (an addon whose manifest
+// fetch failed this session is silently dropped from getInstalledAddons, and
+// buildLocalPayload then filters its catalogs out of the saved order) must not be
+// erased from the shared blob — otherwise one flaky manifest request permanently
+// costs those catalogs their position. Re-insert them at their remote slot.
+function withPreservedRemoteItems(localItems = [], remoteItems = []) {
+  const localKeys = new Set(localItems.map((item) => syncItemKey(item)).filter(Boolean));
+  const orphans = (remoteItems || [])
+    .filter(itemHasIdentity)
+    .map((item, index) => {
+      const order = Number(item.order);
+      return { item, order: Number.isFinite(order) ? order : index };
+    })
+    .filter(({ item }) => {
+      const key = syncItemKey(item);
+      return key && !localKeys.has(key);
+    })
+    .sort((left, right) => left.order - right.order);
+
+  if (!orphans.length) {
+    return localItems;
+  }
+
+  const merged = [...localItems];
+  orphans.forEach(({ item, order }) => {
+    merged.splice(Math.max(0, Math.min(merged.length, order)), 0, cloneValue(item));
+  });
+  return merged.map((item, index) => ({ ...item, order: index }));
+}
+
 async function mergedSharedPayload(profileId, localPayload) {
   const remoteBlob = await fetchRemoteBlob(profileId, HOME_CATALOG_SHARED_SYNC_PLATFORM).catch(
     () => null
@@ -496,12 +531,15 @@ async function mergedSharedPayload(profileId, localPayload) {
       .map((item) => [syncItemKey(item), normalizeString(item.custom_title)])
       .filter(([, title]) => title)
   );
-  const items = (localPayload.items || []).map((item, index) => ({
-    ...item,
-    order: index,
-    custom_title:
-      normalizeString(item.custom_title) || remoteTitlesByKey.get(syncItemKey(item)) || ""
-  }));
+  const items = withPreservedRemoteItems(
+    (localPayload.items || []).map((item, index) => ({
+      ...item,
+      order: index,
+      custom_title:
+        normalizeString(item.custom_title) || remoteTitlesByKey.get(syncItemKey(item)) || ""
+    })),
+    remotePayload.items
+  );
 
   return {
     ...(remoteBlob?.settingsJson || {}),
@@ -526,25 +564,35 @@ export const HomeCatalogSettingsSyncService = {
     }
     const resolvedProfileId = resolveProfileId(profileId);
     const pullToken = currentPullToken(resolvedProfileId);
+    // A local reorder that has not reached the shared blob yet is newer than
+    // anything on the server: ship it instead of pulling the stale copy back over
+    // it. Same contract as ProfileSettingsSyncService.
+    if (hasHomeCatalogCloudSyncPending(resolvedProfileId)) {
+      const pushed = await this.push(resolvedProfileId);
+      if (pushed && pullToken) {
+        this.completedInitialPullTokens.add(pullToken);
+      }
+      return false;
+    }
     try {
       const localPayload = await buildLocalPayload(resolvedProfileId);
       const remote = await fetchBestRemotePayload(resolvedProfileId, localPayload);
-      if (!remote || !(remote.payload.items || []).length) {
-        if (pullToken) {
-          this.completedInitialPullTokens.add(pullToken);
-        }
-        return false;
-      }
-      if (payloadSignature(remote.payload) === payloadSignature(localPayload)) {
-        if (pullToken) {
-          this.completedInitialPullTokens.add(pullToken);
-        }
-        return false;
-      }
-      applyPayload(resolvedProfileId, remote.payload);
+      // Remote state has been read, so local edits are now safe to push.
       if (pullToken) {
         this.completedInitialPullTokens.add(pullToken);
       }
+      // Re-check: the user may have reordered while the RPCs above were in flight,
+      // and `localPayload` is a snapshot from before that edit.
+      if (hasHomeCatalogCloudSyncPending(resolvedProfileId)) {
+        return false;
+      }
+      if (!remote || !(remote.payload.items || []).length) {
+        return false;
+      }
+      if (payloadSignature(remote.payload) === payloadSignature(localPayload)) {
+        return false;
+      }
+      applyPayload(resolvedProfileId, remote.payload);
       return true;
     } catch (error) {
       console.warn("Home catalog settings sync pull failed", error);
@@ -560,6 +608,10 @@ export const HomeCatalogSettingsSyncService = {
     if (this.isSyncingFromRemote(resolvedProfileId)) {
       return false;
     }
+    // Captured before the payload is built: if the user edits again while the RPC
+    // is in flight the token changes and the flag survives, so the next cycle
+    // pushes that edit too instead of pulling it away.
+    const pendingToken = homeCatalogCloudSyncPendingToken(resolvedProfileId);
     try {
       const localPayload = await buildLocalPayload(resolvedProfileId);
       const payload = await mergedSharedPayload(resolvedProfileId, localPayload);
@@ -572,6 +624,9 @@ export const HomeCatalogSettingsSyncService = {
         },
         true
       );
+      if (pendingToken != null) {
+        clearHomeCatalogCloudSyncPending(resolvedProfileId, pendingToken);
+      }
       return true;
     } catch (error) {
       console.warn("Home catalog settings sync push failed", error);

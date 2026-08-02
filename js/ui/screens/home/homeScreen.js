@@ -4481,7 +4481,14 @@ export const HomeScreen = {
       resumeProgressMs: Number(params.resumePositionMs || 0) || 0,
       resumeVideoId: normalized.videoId || null,
       resumeSeason: normalized.season ?? null,
-      resumeEpisode: normalized.episode ?? null
+      resumeEpisode: normalized.episode ?? null,
+      // Artwork for the stream-shaped handoff shell: the detail screen is only a
+      // relay here, so it must never paint its own loading skeleton.
+      handoffBackdrop: params.backdrop || null,
+      handoffLogo: params.logo || null,
+      handoffTitle: params.itemTitle || "",
+      handoffSeason: params.season ?? null,
+      handoffEpisode: params.episode ?? null
     });
     return true;
   },
@@ -4585,7 +4592,9 @@ export const HomeScreen = {
       this.pruneContinueWatchingItem(normalized);
       return true;
     }
-    await watchProgressRepository.removeProgress(normalized.contentId, normalized.videoId || null);
+    await watchProgressRepository.removeProgress(normalized.contentId, normalized.videoId || null, {
+      dismissFromContinueWatching: true
+    });
     this.pruneContinueWatchingItem(normalized);
     return true;
   },

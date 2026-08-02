@@ -423,19 +423,58 @@ function buildPushSignature(rows = []) {
   );
 }
 
+// The push RPC only upserts, so a row deleted locally lives on remotely unless
+// the delete RPC removed it. Reconciling here (and keeping the baseline entry
+// when the delete fails) is what stops a removed item from being pulled back on
+// the next cycle — previously the baseline overwrite erased the only record
+// that the item had been deleted at all.
+async function deleteStaleRemoteRows(profileId, localItems = []) {
+  const baselineItems = readBaselineItems(profileId);
+  if (!baselineItems.length || !shouldUseSupabaseWatchProgressSync()) {
+    return [];
+  }
+  const localKeys = new Set(
+    localItems.map((item) => toProgressKey(item)).filter(Boolean)
+  );
+  const staleItems = baselineItems.filter((item) => {
+    const key = toProgressKey(item);
+    return key && !localKeys.has(key);
+  });
+  if (!staleItems.length) {
+    return [];
+  }
+  try {
+    await SupabaseApi.rpc(
+      DELETE_RPC,
+      {
+        p_profile_id: profileId,
+        p_keys: buildDeleteKeys(staleItems)
+      },
+      true
+    );
+    return [];
+  } catch (error) {
+    console.warn("Watch progress stale row delete failed", error);
+    // Retained in the baseline so the next pull still reads these as deletions
+    // and the next push retries the delete.
+    return staleItems;
+  }
+}
+
 async function pushOnce() {
   let pushSignature = "";
   try {
     if (!AuthManager.isAuthenticated) {
       return false;
     }
-    const items = coalesceSyncItems(await watchProgressRepository.getAll()).filter((item) =>
-      isSyncableProgressItem(item)
-    );
+    const localItems = coalesceSyncItems(await watchProgressRepository.getAll());
+    const items = localItems.filter((item) => isSyncableProgressItem(item));
     const profileId = resolveProfileId();
     const rows = buildRemoteProgressEntries(items);
+    const retainedBaselineItems = await deleteStaleRemoteRows(profileId, localItems);
     pushSignature = buildPushSignature(rows);
     if (pushSignature && pushSignature === lastSuccessfulPushSignature) {
+      writeBaselineItems(profileId, [...items, ...retainedBaselineItems]);
       return true;
     }
     if (
@@ -454,7 +493,7 @@ async function pushOnce() {
       true
     );
     lastSuccessfulPushSignature = pushSignature;
-    writeBaselineItems(profileId, items);
+    writeBaselineItems(profileId, [...items, ...retainedBaselineItems]);
     lastFailedPushSignature = "";
     lastFailedPushAt = 0;
     return true;
@@ -492,7 +531,15 @@ export const WatchProgressSyncService = {
         .filter((item) => Boolean(item.contentId) && isSyncableProgressItem(item));
       const snapshotItems = normalizeProgressItems(remoteItems);
       const baselineItems = readBaselineItems(profileId);
-      const mergedItems = mergeProgressItems(localItems, snapshotItems, baselineItems);
+      // Rows the user removed from Continue Watching must not re-enter the local
+      // store, but they stay in the baseline so the next push deletes them.
+      const mergedItems = mergeProgressItems(
+        localItems,
+        snapshotItems.filter(
+          (item) => !watchProgressRepository.isRemovedFromContinueWatching(item)
+        ),
+        baselineItems
+      );
       writeBaselineItems(profileId, snapshotItems);
       lastSuccessfulPushSignature = buildPushSignature(
         buildRemoteProgressEntries(coalesceSyncItems(snapshotItems))
