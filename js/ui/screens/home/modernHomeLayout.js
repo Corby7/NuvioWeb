@@ -67,7 +67,7 @@ export function renderModernHomeLayout({
 
     const rowKey = String(rowData?.homeCatalogKey || buildModernRowKey(rowData));
     const seeAllId = `${rowData.addonId || "addon"}_${rowData.catalogId || "catalog"}_${rowData.type || "movie"}`;
-    if (!isLoading && !isCollectionRow) {
+    if (!isLoading && !isCollectionRow && !rowData?.suppressSeeAll) {
       catalogSeeAllMap.set(seeAllId, {
         addonBaseUrl: rowData.addonBaseUrl || "",
         addonId: rowData.addonId || "",
@@ -81,7 +81,7 @@ export function renderModernHomeLayout({
 
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
-      : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
+      : (rowData.rowTitle || formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix));
 
     if (eagerCount < eagerRowCount) {
       eagerCount++;

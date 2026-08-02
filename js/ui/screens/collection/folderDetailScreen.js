@@ -274,6 +274,19 @@ function findAddonForSource(source = {}, addons = []) {
     || null;
 }
 
+// Addon-backed labels sharpen once the manifests arrive (catalog display name);
+// without them this still yields the source's own catalog/title text, which is
+// good enough to paint with.
+function buildFolderTabLabel(source = {}, addons = []) {
+  if (source.provider === "tmdb") {
+    return buildTmdbTabLabel(source);
+  }
+  if (source.provider === "trakt") {
+    return buildTraktTabLabel(source);
+  }
+  return buildAddonTabLabel(source, addons);
+}
+
 function buildTmdbTabLabel(source = {}) {
   return firstNonEmpty(source.title, source.tmdbSourceType || "TMDB");
 }
@@ -739,19 +752,17 @@ export const FolderDetailScreen = {
       HomeScreen.ensureDelegatedEventsBound.call(this);
     }
 
-    const [addons, watchedItems] = await Promise.all([
-      addonRepository.getInstalledAddons().catch(() => []),
-      watchedItemsRepository.getAll(5000).catch(() => [])
-    ]);
-    this.watchedTitleIds = buildWatchedTitleIdSet(watchedItems);
+    // The hero is fully known from the folder itself, so it must not wait on the
+    // addon manifests / watched list — awaiting those first left the (already
+    // shown) container blank until the slowest manifest fetch resolved, which
+    // read as "the backdrop takes ages to appear". Paint first, hydrate after.
+    this.watchedTitleIds = new Set();
     const folderSources = Array.isArray(this.folder.sources) && this.folder.sources.length
       ? this.folder.sources
       : buildFallbackStreamingSources(this.folder);
     const sourceTabs = folderSources.map((source, index) => ({
       key: buildFolderSourceKey(source, index),
-      label: source.provider === "tmdb"
-        ? buildTmdbTabLabel(source)
-        : (source.provider === "trakt" ? buildTraktTabLabel(source) : buildAddonTabLabel(source, addons)),
+      label: buildFolderTabLabel(source, []),
       source,
       items: [],
       hasMore: false,
@@ -776,9 +787,44 @@ export const FolderDetailScreen = {
           .filter(({ tab }) => !tab.isAllTab && tab.restoreNeedsReload)
           .map(({ index }) => index)
       : sourceTabs.map((_, index) => index + sourceOffset);
-    await Promise.all(
-      tabsToLoad.map((index) => this.loadTab(index, { append: false }))
-    );
+    await Promise.all([
+      this.hydrateFolderChrome(),
+      ...tabsToLoad.map((index) => this.loadTab(index, { append: false }))
+    ]);
+  },
+
+  // Addon manifests (tab labels) and the watched list (card badges) are chrome —
+  // they refine what is already on screen, so they load alongside the tabs and
+  // only trigger a repaint when they actually change something.
+  async hydrateFolderChrome() {
+    const mountToken = String(this.getRouteStateKey(this.params) || "");
+    const [addons, watchedItems] = await Promise.all([
+      addonRepository.getInstalledAddons().catch(() => []),
+      watchedItemsRepository.getAll(5000).catch(() => [])
+    ]);
+    if (String(this.getRouteStateKey(this.params) || "") !== mountToken) {
+      return;
+    }
+    const watchedTitleIds = buildWatchedTitleIdSet(watchedItems);
+    const relabelled = this.tabs.map((tab) => {
+      if (tab.isAllTab || !tab.source) {
+        return tab;
+      }
+      const label = buildFolderTabLabel(tab.source, addons);
+      return label === tab.label ? tab : { ...tab, label };
+    });
+    const labelsChanged = relabelled.some((tab, index) => tab !== this.tabs[index]);
+    this.tabs = relabelled;
+    this.sourceTabs = this.tabs.filter((tab) => !tab.isAllTab);
+    this.watchedTitleIds = watchedTitleIds;
+    if (!labelsChanged && !watchedTitleIds.size) {
+      return;
+    }
+    if (this.useHomeFollowLayout) {
+      this.scheduleFollowLayoutRender();
+    } else {
+      this.render();
+    }
   },
 
   rebuildAllTab() {

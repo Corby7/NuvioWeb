@@ -31,7 +31,10 @@ import { optimizePosterUrl, optimizeBackdropUrl, optimizeCardBackdropUrl, buildC
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
-  catalogRequiresExtras
+  catalogRequiresExtras,
+  isTraktWatchlistRowKey,
+  TRAKT_WATCHLIST_ROW_KEY,
+  TRAKT_WATCHLIST_ROW_TITLE
 } from "../../../core/addons/homeCatalogs.js";
 import {
   activateLegacySidebarAction,
@@ -969,6 +972,39 @@ function buildCollectionHomeRow(collection = {}) {
       }
     }
   };
+}
+
+// Native Trakt watchlist row. It is shaped like a catalog row so ordering,
+// hiding, focus and the poster card path all work unchanged, but it has no addon
+// behind it: hasMore stays false so the track never tries to paginate, and
+// suppressSeeAll keeps the legacy layout from offering a see-all that would have
+// no catalog to open.
+function buildTraktWatchlistHomeRow(items = [], customTitle = "") {
+  return {
+    rowKind: "traktWatchlist",
+    addonBaseUrl: "",
+    addonId: "",
+    addonName: "Trakt",
+    catalogId: TRAKT_WATCHLIST_ROW_KEY,
+    catalogName: String(customTitle || "").trim() || TRAKT_WATCHLIST_ROW_TITLE,
+    rowTitle: String(customTitle || "").trim() || TRAKT_WATCHLIST_ROW_TITLE,
+    type: "movie",
+    homeCatalogKey: TRAKT_WATCHLIST_ROW_KEY,
+    homeCatalogDisableKey: TRAKT_WATCHLIST_ROW_KEY,
+    suppressSeeAll: true,
+    result: {
+      status: "success",
+      data: {
+        items: Array.isArray(items) ? items : [],
+        hasMore: false,
+        currentPage: 1
+      }
+    }
+  };
+}
+
+function isTraktWatchlistRow(row = null) {
+  return Boolean(row) && (row.rowKind === "traktWatchlist" || isTraktWatchlistRowKey(row.homeCatalogKey));
 }
 
 function normalizeHomeRowItem(row = null, item = null) {
@@ -2091,7 +2127,7 @@ function renderLegacyCatalogRowsMarkup(rows = [], options = {}) {
     }
 
     const seeAllId = `${rowData.addonId || "addon"}_${rowData.catalogId || "catalog"}_${rowData.type || "movie"}`;
-    if (!isLoading && !isCollectionRow) {
+    if (!isLoading && !isCollectionRow && !rowData?.suppressSeeAll) {
       catalogSeeAllMap.set(seeAllId, {
         addonBaseUrl: rowData.addonBaseUrl || "",
         addonId: rowData.addonId || "",
@@ -2105,12 +2141,12 @@ function renderLegacyCatalogRowsMarkup(rows = [], options = {}) {
 
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
-      : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
+      : (rowData.rowTitle || formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix));
     const rowSubtitle = layoutMode === "classic" && showCatalogAddonName && rowData.addonName
       ? `from ${rowData.addonName}`
       : "";
     const maxItems = Math.max(1, Number(rowItemLimit || HOME_MAX_ITEMS_PER_ROW_DEFAULT));
-    const hasSeeAll = !isCollectionRow && !isLoading && items.length > maxItems;
+    const hasSeeAll = !isCollectionRow && !isLoading && !rowData?.suppressSeeAll && items.length > maxItems;
     const gridLimit = Math.max(1, hasSeeAll ? maxItems - 1 : maxItems);
     const visibleItems = isCollectionRow
       ? rowItems
@@ -6079,6 +6115,14 @@ export const HomeScreen = {
     this._trackScrollHandlers?.get(track)?.();
   },
 
+  // Continuous scrollers (pointer edge auto-scroll) never settle, so the 80ms
+  // debounce in applyTrackScrollLeft keeps resetting and the virtual window
+  // never advances — cards past the initial window stay stubbed and paint
+  // blank. They call this directly with a lookahead position instead.
+  refreshTrackWindow(track, targetScrollLeft = null) {
+    updateTrackVirtualWindow(track, { targetScrollLeft });
+  },
+
   getTrackViewportMetrics(track) {
     let leftPadding = this.getTrackEdgePadding();
     let rightPadding = leftPadding;
@@ -7418,8 +7462,41 @@ export const HomeScreen = {
   pruneRowsToCatalogKeys(catalogDescriptors = []) {
     // Snapshot rows can outlive their catalog (addon removed since last session);
     // once the live descriptor set is known, drop rows it no longer contains.
+    // Collection and Trakt watchlist rows have no descriptor by design.
     const validKeys = new Set(catalogDescriptors.map((desc) => buildCatalogOrderKey(desc.addonId, desc.type, desc.catalogId)));
-    this.rows = (this.rows || []).filter((row) => row?.rowKind === "collection" || validKeys.has(row?.homeCatalogKey));
+    this.rows = (this.rows || []).filter((row) => row?.rowKind === "collection"
+      || isTraktWatchlistRow(row)
+      || validKeys.has(row?.homeCatalogKey));
+  },
+
+  fetchTraktWatchlistRowItems({ force = false } = {}) {
+    if (HomeCatalogStore.isDisabled(TRAKT_WATCHLIST_ROW_KEY)) {
+      return Promise.resolve([]);
+    }
+    return libraryRepository.getWatchlistRowItems({ force }).catch((error) => {
+      console.warn("Trakt watchlist row load failed", error);
+      return [];
+    });
+  },
+
+  // Returns true when this.rows changed, so callers only re-render on a real update.
+  applyTraktWatchlistRow(items = []) {
+    const hasRow = (this.rows || []).some((row) => isTraktWatchlistRow(row));
+    if (!Array.isArray(items) || !items.length) {
+      // No items means Trakt was disconnected or the list is empty — drop a row
+      // restored from an older snapshot rather than leaving it stale.
+      if (!hasRow) {
+        return false;
+      }
+      this.rows = (this.rows || []).filter((row) => !isTraktWatchlistRow(row));
+      return true;
+    }
+    const customTitle = HomeCatalogStore.get().customTitles?.[TRAKT_WATCHLIST_ROW_KEY] || "";
+    const row = buildTraktWatchlistHomeRow(items, customTitle);
+    const byKey = new Map((this.rows || []).map((entry) => [entry.homeCatalogKey, entry]));
+    byKey.set(row.homeCatalogKey, row);
+    this.rows = this.sortAndFilterRows(Array.from(byKey.values()), this.collections);
+    return true;
   },
 
   readHomeSnapshot() {
@@ -7440,6 +7517,11 @@ export const HomeScreen = {
           && row?.result?.status === "success"
           && Array.isArray(row.result?.data?.items)
           && row.result.data.items.length)
+          // The snapshot stores a flat catalog-row shape, so the watchlist row's
+          // own fields (title, see-all suppression) have to be rebuilt from its key.
+          .map((row) => (isTraktWatchlistRowKey(row.homeCatalogKey)
+            ? buildTraktWatchlistHomeRow(row.result.data.items, row.catalogName)
+            : row))
         : [];
       return rows.length ? { ...snapshot, rows } : null;
     } catch (error) {
@@ -7507,6 +7589,11 @@ export const HomeScreen = {
     const previousContinueWatchingSignature = preserveContinueWatching
       ? buildContinueWatchingSignature(this.continueWatchingDisplay)
       : "";
+
+    // Started here so the Trakt round trip overlaps the catalog fetches, but
+    // applied only after the initial rows land — the non-warm path replaces
+    // this.rows wholesale with the fetched catalog rows.
+    const traktWatchlistItemsPromise = this.fetchTraktWatchlistRowItems();
 
     let progressAllError = null;
     let recentProgressError = null;
@@ -7643,6 +7730,22 @@ export const HomeScreen = {
       })()
       : initialRows;
     this.rows = this.sortAndFilterRows(mergedInitialRows, this.collections);
+    traktWatchlistItemsPromise.then((watchlistItems) => {
+      if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        return;
+      }
+      if (!this.applyTraktWatchlistRow(watchlistItems)) {
+        return;
+      }
+      this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
+      if (!this.heroItem) {
+        this.heroItem = this.pickInitialHero();
+      }
+      this.requestBackgroundRender();
+      this.retryPendingHeroUpdate();
+      this.retryPendingRowMounts();
+      this.persistHomeSnapshot();
+    });
     if (!preserveContinueWatching) {
       this.continueWatchingDisplay = initialContinueWatchingState?.display || [];
       this.continueWatchingLoading = false;

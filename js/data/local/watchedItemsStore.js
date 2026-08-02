@@ -47,10 +47,26 @@ function dedupeAndSort(items = []) {
   );
 }
 
+// Home, detail and collection screens all call listForProfile() on mount, and
+// the collection screen does it before its first paint; parsing + deduping the
+// full list (up to 5000 entries) every time is measurable on TV. All mutations
+// go through this module, so cache the deduped list and invalidate on write —
+// same idiom as WatchProgressStore.
+let listAllCache = null;
+
+function persistWatchedItems(items) {
+  LocalStore.set(WATCHED_ITEMS_KEY, items);
+  listAllCache = items;
+}
+
 export const WatchedItemsStore = {
   listAll() {
+    if (listAllCache) {
+      return listAllCache;
+    }
     const raw = LocalStore.get(WATCHED_ITEMS_KEY, []);
-    return dedupeAndSort(Array.isArray(raw) ? raw : []);
+    listAllCache = dedupeAndSort(Array.isArray(raw) ? raw : []);
+    return listAllCache;
   },
 
   listForProfile(profileId) {
@@ -71,7 +87,7 @@ export const WatchedItemsStore = {
         (entry) => !(String(entry.profileId || "1") === pid && watchedItemKey(entry) === key)
       )
     ]).slice(0, 5000);
-    LocalStore.set(WATCHED_ITEMS_KEY, next);
+    persistWatchedItems(next);
   },
 
   remove(contentId, profileId, options = null) {
@@ -93,7 +109,7 @@ export const WatchedItemsStore = {
       }
       return !(entry.season === targetSeason && entry.episode === targetEpisode);
     });
-    LocalStore.set(WATCHED_ITEMS_KEY, next);
+    persistWatchedItems(next);
   },
 
   replaceForProfile(profileId, items = []) {
@@ -104,8 +120,7 @@ export const WatchedItemsStore = {
     const normalized = (Array.isArray(items) ? items : [])
       .map((item) => normalizeItem(item, pid))
       .filter((item) => Boolean(item.contentId));
-    LocalStore.set(
-      WATCHED_ITEMS_KEY,
+    persistWatchedItems(
       dedupeAndSort([...normalized, ...keepOtherProfiles]).slice(0, 5000)
     );
   }

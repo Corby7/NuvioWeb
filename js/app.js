@@ -7,6 +7,7 @@ import "whatwg-fetch";
 import { detailWatchedEnrichmentService } from "./data/repository/detailWatchedEnrichmentService.js";
 import { Router } from "./ui/navigation/router.js";
 import { FocusEngine } from "./ui/navigation/focusEngine.js";
+import { PointerEdgeScroll } from "./ui/navigation/pointerEdgeScroll.js";
 import { PlayerController } from "./core/player/playerController.js";
 import { AuthManager } from "./core/auth/authManager.js";
 import { AuthState } from "./core/auth/authState.js";
@@ -463,6 +464,7 @@ async function bootstrapApp() {
   PlayerController.init();
 
   FocusEngine.init();
+  PointerEdgeScroll.init();
   setupWebOsAppLifecycle();
 
   ThemeManager.apply();

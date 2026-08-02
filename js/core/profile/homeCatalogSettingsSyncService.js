@@ -14,7 +14,8 @@ import { ProfileManager } from "./profileManager.js";
 import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
-  catalogRequiresExtras
+  catalogRequiresExtras,
+  TRAKT_WATCHLIST_ROW_KEY
 } from "../addons/homeCatalogs.js";
 
 const PULL_RPC = "sync_pull_home_catalog_settings";
@@ -467,6 +468,24 @@ function applyPayload(profileId, payload = {}) {
     }
     return accumulator;
   }, {});
+
+  // The native Trakt watchlist row exists only on this client, so it has no item
+  // in the shared blob. Without this its key would be stripped on every pull —
+  // reappearing at the bottom of home via ensureOrderKeys, un-hidden and renamed.
+  const localPrefs = HomeCatalogStore.getForProfile(profileId);
+  if (!order.includes(TRAKT_WATCHLIST_ROW_KEY)) {
+    const localIndex = (localPrefs.order || []).indexOf(TRAKT_WATCHLIST_ROW_KEY);
+    if (localIndex >= 0) {
+      order.splice(Math.min(localIndex, order.length), 0, TRAKT_WATCHLIST_ROW_KEY);
+    }
+    if ((localPrefs.disabled || []).includes(TRAKT_WATCHLIST_ROW_KEY)) {
+      disabled.push(TRAKT_WATCHLIST_ROW_KEY);
+    }
+    const localTitle = normalizeString(localPrefs.customTitles?.[TRAKT_WATCHLIST_ROW_KEY]);
+    if (localTitle) {
+      customTitles[TRAKT_WATCHLIST_ROW_KEY] = localTitle;
+    }
+  }
 
   HomeCatalogSettingsSyncService.syncingFromRemoteProfiles.add(resolveProfileId(profileId));
   try {

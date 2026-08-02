@@ -23,6 +23,59 @@ function stringOrNull(value) {
   return normalized || null;
 }
 
+// GitHub blob/raw asset URLs cost two 302s (the second switches host, so a
+// fresh DNS + TLS handshake) and are served with cache-control: max-age=300 —
+// a collection backdrop re-downloads every few minutes. jsDelivr fronts the
+// same public repo from an edge PoP with no redirect and max-age=604800, so
+// the bytes are identical but the TV usually doesn't fetch them at all.
+// Already-jsDelivr and non-GitHub URLs pass through untouched (idempotent).
+function toCdnAssetUrl(value) {
+  const raw = stringOrEmpty(value);
+  if (!raw) {
+    return null;
+  }
+  let parsed = null;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return raw;
+  }
+  const host = parsed.hostname.toLowerCase();
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  let owner = "";
+  let repo = "";
+  let rest = [];
+  if (host === "github.com") {
+    const [segmentOwner, segmentRepo, kind, ...tail] = segments;
+    if (!segmentOwner || !segmentRepo || (kind !== "blob" && kind !== "raw") || !tail.length) {
+      return raw;
+    }
+    owner = segmentOwner;
+    repo = segmentRepo;
+    rest = tail;
+  } else if (host === "raw.githubusercontent.com") {
+    const [segmentOwner, segmentRepo, ...tail] = segments;
+    if (!segmentOwner || !segmentRepo || !tail.length) {
+      return raw;
+    }
+    owner = segmentOwner;
+    repo = segmentRepo;
+    rest = tail;
+  } else {
+    return raw;
+  }
+  // jsDelivr wants the bare ref: refs/heads/main -> main, refs/tags/v1 -> v1.
+  if (rest[0] === "refs" && (rest[1] === "heads" || rest[1] === "tags")) {
+    rest = rest.slice(2);
+  }
+  const ref = rest.shift();
+  const path = rest.join("/");
+  if (!ref || !path) {
+    return raw;
+  }
+  return `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${ref}/${path}`;
+}
+
 function normalizePosterShape(value) {
   const normalized = stringOrEmpty(value).toUpperCase();
   if (normalized === "LANDSCAPE" || normalized === "WIDE") {
@@ -141,8 +194,8 @@ function normalizeFolder(folder = {}) {
   return {
     id,
     title,
-    coverImageUrl: stringOrNull(folder.coverImageUrl),
-    focusGifUrl: stringOrNull(folder.focusGifUrl),
+    coverImageUrl: toCdnAssetUrl(folder.coverImageUrl),
+    focusGifUrl: toCdnAssetUrl(folder.focusGifUrl),
     focusGifEnabled: folder.focusGifEnabled !== false,
     coverEmoji: stringOrNull(folder.coverEmoji),
     tileShape: normalizePosterShape(folder.tileShape),
@@ -158,9 +211,9 @@ function normalizeFolder(folder = {}) {
       title: source.title || source.catalogName || null,
       genre: source.genre || null
     })),
-    heroBackdropUrl: stringOrNull(folder.heroBackdropUrl),
-    heroVideoUrl: stringOrNull(folder.heroVideoUrl),
-    titleLogoUrl: stringOrNull(folder.titleLogoUrl)
+    heroBackdropUrl: toCdnAssetUrl(folder.heroBackdropUrl),
+    heroVideoUrl: toCdnAssetUrl(folder.heroVideoUrl),
+    titleLogoUrl: toCdnAssetUrl(folder.titleLogoUrl)
   };
 }
 
@@ -173,7 +226,7 @@ export function normalizeCollection(collection = {}) {
   return {
     id,
     title,
-    backdropImageUrl: stringOrNull(collection.backdropImageUrl),
+    backdropImageUrl: toCdnAssetUrl(collection.backdropImageUrl),
     pinToTop: Boolean(collection.pinToTop),
     focusGlowEnabled: collection.focusGlowEnabled !== false,
     viewMode: normalizeFolderViewMode(collection.viewMode),

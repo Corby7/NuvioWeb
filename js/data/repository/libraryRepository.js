@@ -275,6 +275,42 @@ async function syncWatchlistToTrakt(item, isAdding) {
   }
 }
 
+// Home-row watchlist: fetched straight from Trakt rather than through the
+// library's remote state, so the row works regardless of which source the
+// Library screen is set to and never writes into that state machine.
+const WATCHLIST_ROW_LIMIT = 20;
+const WATCHLIST_ROW_CACHE_TTL_MS = 5 * 60 * 1000;
+let watchlistRowCache = null;
+
+function toWatchlistRowEntry(entry) {
+  if (!entry) {
+    return null;
+  }
+  // IMDb id first: it is what Stremio meta addons index on, so it is the only id
+  // form that both the artwork lookup below and the detail screen can resolve.
+  const id =
+    entry.imdbId ||
+    (entry.tmdbId ? `tmdb:${entry.tmdbId}` : null) ||
+    (entry.traktId ? `trakt:${entry.traktId}` : null);
+  if (!id) {
+    return null;
+  }
+  const listedAt = entry.addedAt ? new Date(entry.addedAt).getTime() : Date.now();
+  return {
+    id: String(id),
+    type: entry.type === "show" ? "series" : String(entry.type || "movie"),
+    name: String(entry.title || ""),
+    poster: null,
+    background: null,
+    description: "",
+    releaseInfo: entry.year ? String(entry.year) : "",
+    genres: [],
+    listKeys: [WATCHLIST_KEY],
+    listedAt: Number.isFinite(listedAt) ? listedAt : Date.now(),
+    listMeta: {}
+  };
+}
+
 async function batchEnrichLibraryItems(items) {
   if (!items.length) return items;
   const now = Date.now();
@@ -524,6 +560,52 @@ class LibraryRepository {
     return sourceMode === LibrarySourceMode.TRAKT ? getRemoteEntries() : getLocalEntries();
   }
 
+  invalidateWatchlistRowCache() {
+    watchlistRowCache = null;
+  }
+
+  /**
+   * Catalog-row-shaped view of the Trakt watchlist for the home screen.
+   * Returns [] when Trakt is not connected, which drops the row from home.
+   */
+  async getWatchlistRowItems({ limit = WATCHLIST_ROW_LIMIT, force = false } = {}) {
+    const profileId = String(ProfileManager.getActiveProfileId() || "1");
+    const cached =
+      watchlistRowCache && watchlistRowCache.profileId === profileId ? watchlistRowCache : null;
+    if (!force && cached && Date.now() - cached.fetchedAt < WATCHLIST_ROW_CACHE_TTL_MS) {
+      return cached.items.slice(0, limit);
+    }
+
+    const token = await TraktAuthService.getValidAccessToken().catch(() => null);
+    if (!token) {
+      watchlistRowCache = null;
+      return [];
+    }
+
+    // Trakt returns the watchlist in rank order, so fetch a wider window than the
+    // row shows to make "most recently added" mean it across the whole list.
+    const fetched = await TraktAuthService.fetchWatchlist({
+      limit: Math.min(100, Math.max(limit, limit * 4))
+    }).catch((error) => {
+      console.warn("[LIB] Trakt watchlist row fetch failed", error);
+      return null;
+    });
+    if (!Array.isArray(fetched)) {
+      // A transient failure keeps the last good items rather than blanking a row
+      // the user is looking at.
+      return cached ? cached.items.slice(0, limit) : [];
+    }
+
+    const entries = fetched
+      .map(toWatchlistRowEntry)
+      .filter(Boolean)
+      .sort((left, right) => right.listedAt - left.listedAt)
+      .slice(0, limit);
+    const items = entries.length ? await hydrateEntries(entries) : [];
+    watchlistRowCache = { profileId, fetchedAt: Date.now(), items };
+    return items.slice(0, limit);
+  }
+
   async getMembershipSnapshot(item) {
     const sourceMode = await this.getSourceMode();
     if (sourceMode === LibrarySourceMode.LOCAL) {
@@ -558,6 +640,7 @@ class LibraryRepository {
       }
       if (listKey === WATCHLIST_KEY) {
         await syncWatchlistToTrakt(item, after);
+        this.invalidateWatchlistRowCache();
         remoteState.watchlist = after
           ? [
               toRemoteListItem(item, { listedAt: Date.now() }),
