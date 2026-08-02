@@ -10821,6 +10821,29 @@ img[data-lazy-src] {
   pointer-events: none;
 }
 
+/* The root stays pointer-transparent — it is a full-screen div over the video
+   and must not swallow the cursor wherever there is no UI. But nothing inside
+   opted back in, so no player element was ever an event target: FocusEngine's
+   getPointerFocusable resolved .focusable to null every time and the entire
+   data-player-pointer-action path (buttons, scrubber, skip intro, panels) was
+   dead on the Magic Remote. Each interactive layer takes the events itself;
+   their .hidden states already set pointer-events: none, so a faded-out layer
+   still cannot catch the cursor. */
+.player-controls-overlay,
+.player-skip-intro,
+.player-next-episode-card,
+.player-modal,
+.player-sources-panel,
+.player-episode-panel {
+  pointer-events: auto;
+}
+
+/* The rail animates out on transform alone, so it would keep catching the
+   cursor off-screen for the length of the exit. */
+.player-episode-panel.hidden {
+  pointer-events: none;
+}
+
 .player-external-frame-shell {
   position: absolute;
   top: 0;
@@ -14076,7 +14099,11 @@ img[data-lazy-src] {
   background: rgba(255, 255, 255, 0.05);
   gap: min(1.25vw, 24px);
   transform: none;
-  transition: background-color 130ms ease, color 130ms ease, border-color 130ms ease;
+  /* No transition. Focus used to fade background and colour over 130ms (140ms
+     under .performance-constrained), which animates a repaint of two whole card
+     subtrees — badge images included — on every d-pad press, and the presses
+     overlap. Measured on the C3 walking this list: 516ms of style recalc and
+     177 dropped frames per 4s with the fade, 146ms and 50 without it. */
   /* A busy addon returns well over a hundred streams and every one of them was
      laid out, styled and painted whether or not it was on screen — with a video
      decoding behind the panel, that is what made walking this list drag. Cards
@@ -18532,6 +18559,17 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   transition: none !important;
 }
 
+/* Source rows are <article>, so the button exemption above missed them, and the
+   catch-all re-armed the fade even after the rule's own transition was removed.
+   These are the most expensive elements in the app to fade: a card subtree is
+   ~30 nodes including six downscaled badge logos. */
+.performance-constrained .player-source-card,
+.performance-constrained .player-source-card *,
+.performance-constrained .stream-route-card,
+.performance-constrained .stream-route-card * {
+  transition: none !important;
+}
+
 .performance-constrained .player-loading-identity {
   animation:
     playerLoadingIdentityFade 700ms linear 400ms forwards,
@@ -19739,9 +19777,12 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   align-items: center;
   flex-wrap: nowrap;
   gap: min(0.83vw, 16px);
+  /* Plain clipping, not a fade. A mask has no idea whether anything actually
+     overflows — it faded the last 32px of every strip unconditionally, so the
+     trailing item (usually the bitrate) looked cut off on cards with room to
+     spare. Matches .player-source-meta, which clips for the same reason plus
+     the per-card composited layer a mask costs. */
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
-  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
 }
 
 .stream-route-meta-item {

@@ -2887,8 +2887,10 @@ export const MetaDetailsScreen = {
     const descMount = this.container?.querySelector("#detailEpisodeDescMount");
     if (!(descMount instanceof HTMLElement)) return;
     const focused = this.container?.querySelector(".series-episode-track .series-episode-card.focused");
-    const first = focused || this.container?.querySelector(".series-episode-track .series-episode-card");
-    descMount.textContent = String(first?.dataset?.overview || "");
+    const cards = Array.from(this.container?.querySelectorAll(".series-episode-track .series-episode-card") || []);
+    // Match the rail's resting position so the blurb describes the visible card.
+    const target = focused || cards[this.getDefaultEpisodeIndex(cards)] || cards[0];
+    descMount.textContent = String(target?.dataset?.overview || "");
   },
 
   syncSeriesHeroPlayButtonLabel() {
@@ -4351,6 +4353,12 @@ export const MetaDetailsScreen = {
       if (!key) {
         return;
       }
+      // Until the user has actually focused a card in this season, the episode
+      // rail opens parked on the next unwatched episode instead of at 0.
+      if (node.classList.contains("series-episode-track") && !this.hasRememberedEpisodeFocus(key)) {
+        node.scrollLeft = this.getDefaultEpisodeTrackScrollLeft(node);
+        return;
+      }
       node.scrollLeft = Number(this.restoredTrackScrollLeftByKey?.[key] || 0);
     });
   },
@@ -5633,7 +5641,41 @@ export const MetaDetailsScreen = {
     if (Number.isFinite(remembered) && remembered >= 0) {
       return Math.min(episodes.length - 1, remembered);
     }
-    return 0;
+    return this.getDefaultEpisodeIndex(episodes);
+  },
+
+  // Without a remembered focus the rail should open on the episode the user is
+  // actually up to, not on S..E1. `nextEpisodeToWatch` covers the season the
+  // user is mid-way through; any other season falls back to its first unwatched
+  // card (Trakt enrichment can land after nextEpisodeToWatch was computed, so
+  // the DOM's watched state is the more current signal there).
+  getDefaultEpisodeIndex(cards = []) {
+    if (!Array.isArray(cards) || !cards.length) {
+      return 0;
+    }
+    const nextVideoId = String(this.nextEpisodeToWatch?.id || "").trim();
+    if (nextVideoId) {
+      const nextIndex = cards.findIndex((node) => String(node?.dataset?.videoId || "") === nextVideoId);
+      if (nextIndex >= 0) {
+        return nextIndex;
+      }
+    }
+    const unwatchedIndex = cards.findIndex((node) => !node?.classList?.contains("watched"));
+    return unwatchedIndex >= 0 ? unwatchedIndex : 0;
+  },
+
+  hasRememberedEpisodeFocus(scrollKey = "") {
+    const season = Number(String(scrollKey).split(":")[1] || 0) || 0;
+    return Number.isFinite(Number(this.episodeFocusIndexBySeason?.[String(season)]));
+  },
+
+  getDefaultEpisodeTrackScrollLeft(track) {
+    const cards = Array.from(track?.querySelectorAll?.(".series-episode-card.focusable") || []);
+    const index = this.getDefaultEpisodeIndex(cards);
+    if (index <= 0) {
+      return 0;
+    }
+    return this.getHorizontalTrackScrollLeft(track, cards[index]);
   },
 
   getSelectedSeasonIndex(seasons = []) {

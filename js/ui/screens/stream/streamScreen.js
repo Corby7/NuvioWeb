@@ -622,6 +622,13 @@ function stripCacheTokens(value = "") {
   return String(value)
     .replace(/\[?\s*(?:not\s*)?cached\s*\]?/gi, " ")
     .replace(/[⚡✅❌]/g, " ")
+    // Invisible format characters — zero-width joiners, word joiners, and the
+    // U+2060..U+2064 "invisible operator" block that several addons sprinkle
+    // through their text. String.trim() does not touch them (they are Cf, not
+    // White_Space), so a line reduced to nothing but these still passed the
+    // is-it-empty check and rendered as a blank 26px row between the title and
+    // the meta strip. Measured on device: that row was the "big vertical gap".
+    .replace(/[\u00AD\u200B-\u200F\u2060-\u2064\u206A-\u206F\uFEFF]/g, "")
     .replace(/\s+/g, " ")
     .replace(/^\s*[•|·\-–]\s*/, "")
     .replace(/\s*[•|·\-–]\s*$/, "")
