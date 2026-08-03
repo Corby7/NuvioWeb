@@ -363,6 +363,28 @@ export const TraktAuthService = {
     return allItems.slice(0, limit);
   },
 
+  /**
+   * Personalized recommendations. Unlike the sync endpoints these return bare
+   * movie/show objects rather than {movie}/{show} wrappers, and they are served
+   * per type, so callers ask for one type at a time.
+   */
+  async fetchRecommendations({ type = "movies", limit = 20 } = {}) {
+    const token = await this.getValidAccessToken();
+    if (!token) return [];
+
+    const path = String(type) === "shows" ? "shows" : "movies";
+    const { response, payload } = await requestJson(
+      `/recommendations/${path}?limit=${Math.max(1, Math.trunc(limit))}` +
+        "&ignore_collected=true&ignore_watchlisted=true",
+      { authorization: `Bearer ${token}` }
+    );
+    if (!response.ok || !Array.isArray(payload)) return [];
+
+    return payload
+      .map((entry) => normalizeRecommendationItem(entry, path === "shows" ? "show" : "movie"))
+      .filter(Boolean);
+  },
+
   async fetchPlaybackState({ limit = 50 } = {}) {
     const token = await this.getValidAccessToken();
     if (!token) return [];
@@ -569,6 +591,20 @@ function normalizeWatchlistItem(entry) {
     return null;
   }
   return item;
+}
+
+function normalizeRecommendationItem(entry, type = "movie") {
+  const media = entry?.movie || entry?.show || entry;
+  if (!media?.ids || !media.title) return null;
+  return {
+    type,
+    addedAt: null,
+    title: media.title,
+    year: media.year,
+    tmdbId: media.ids?.tmdb,
+    imdbId: media.ids?.imdb,
+    traktId: media.ids?.trakt
+  };
 }
 
 function normalizePlaybackItem(entry) {

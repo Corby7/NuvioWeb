@@ -15,7 +15,7 @@ import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
   catalogRequiresExtras,
-  TRAKT_WATCHLIST_ROW_KEY
+  TRAKT_NATIVE_ROWS
 } from "../addons/homeCatalogs.js";
 
 const PULL_RPC = "sync_pull_home_catalog_settings";
@@ -469,23 +469,26 @@ function applyPayload(profileId, payload = {}) {
     return accumulator;
   }, {});
 
-  // The native Trakt watchlist row exists only on this client, so it has no item
-  // in the shared blob. Without this its key would be stripped on every pull —
+  // The native Trakt rows exist only on this client, so they have no items in the
+  // shared blob. Without this their keys would be stripped on every pull —
   // reappearing at the bottom of home via ensureOrderKeys, un-hidden and renamed.
   const localPrefs = HomeCatalogStore.getForProfile(profileId);
-  if (!order.includes(TRAKT_WATCHLIST_ROW_KEY)) {
-    const localIndex = (localPrefs.order || []).indexOf(TRAKT_WATCHLIST_ROW_KEY);
+  TRAKT_NATIVE_ROWS.forEach((traktRow) => {
+    if (order.includes(traktRow.key)) {
+      return;
+    }
+    const localIndex = (localPrefs.order || []).indexOf(traktRow.key);
     if (localIndex >= 0) {
-      order.splice(Math.min(localIndex, order.length), 0, TRAKT_WATCHLIST_ROW_KEY);
+      order.splice(Math.min(localIndex, order.length), 0, traktRow.key);
     }
-    if ((localPrefs.disabled || []).includes(TRAKT_WATCHLIST_ROW_KEY)) {
-      disabled.push(TRAKT_WATCHLIST_ROW_KEY);
+    if ((localPrefs.disabled || []).includes(traktRow.key)) {
+      disabled.push(traktRow.key);
     }
-    const localTitle = normalizeString(localPrefs.customTitles?.[TRAKT_WATCHLIST_ROW_KEY]);
+    const localTitle = normalizeString(localPrefs.customTitles?.[traktRow.key]);
     if (localTitle) {
-      customTitles[TRAKT_WATCHLIST_ROW_KEY] = localTitle;
+      customTitles[traktRow.key] = localTitle;
     }
-  }
+  });
 
   HomeCatalogSettingsSyncService.syncingFromRemoteProfiles.add(resolveProfileId(profileId));
   try {

@@ -275,14 +275,114 @@ async function syncWatchlistToTrakt(item, isAdding) {
   }
 }
 
-// Home-row watchlist: fetched straight from Trakt rather than through the
-// library's remote state, so the row works regardless of which source the
-// Library screen is set to and never writes into that state machine.
-const WATCHLIST_ROW_LIMIT = 20;
-const WATCHLIST_ROW_CACHE_TTL_MS = 5 * 60 * 1000;
-let watchlistRowCache = null;
+// Trakt-backed home rows: fetched straight from Trakt rather than through the
+// library's remote state, so they work regardless of which source the Library
+// screen is set to and never write into that state machine.
+const TRAKT_ROW_WATCHLIST = "watchlist";
+const TRAKT_ROW_RECOMMENDATIONS = "recommendations";
+const WATCHLIST_ROW_LIMIT = 500;
+const RECOMMENDATIONS_ROW_PER_TYPE = 20;
+// Artwork costs one meta lookup per item, so only the head of a row is hydrated
+// before it goes up. The tail is virtualized off-screen anyway and fills in from
+// a background pass.
+const TRAKT_ROW_EAGER_HYDRATE = 24;
+const TRAKT_ROW_CACHE_TTL_MS = 5 * 60 * 1000;
+const traktRowCaches = new Map();
+const traktRowCacheTokens = new Map();
 
-function toWatchlistRowEntry(entry) {
+function readTraktRowCache(rowId, profileId) {
+  const cached = traktRowCaches.get(rowId);
+  return cached && cached.profileId === profileId ? cached : null;
+}
+
+function invalidateTraktRowCaches(rowIds = [TRAKT_ROW_WATCHLIST, TRAKT_ROW_RECOMMENDATIONS]) {
+  rowIds.forEach((rowId) => {
+    traktRowCaches.delete(rowId);
+    // Bumping the token also disowns any background artwork pass still running
+    // for this row, so it cannot write its stale result back over a newer fetch.
+    traktRowCacheTokens.set(rowId, (traktRowCacheTokens.get(rowId) || 0) + 1);
+  });
+}
+
+function interleaveTraktEntries(left = [], right = []) {
+  const merged = [];
+  const longest = Math.max(left.length, right.length);
+  for (let index = 0; index < longest; index += 1) {
+    if (left[index]) {
+      merged.push(left[index]);
+    }
+    if (right[index]) {
+      merged.push(right[index]);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Shared pipeline behind the Trakt home rows: cache check, then hydrate the head
+ * of the list before resolving and the tail in the background.
+ * @param {{rowId: string, limit: number, force?: boolean, onHydrated?: ((items: any[]) => void)|null, fetchEntries: () => Promise<any[]|null>}} options
+ */
+async function buildTraktRowItems({ rowId, limit, force = false, onHydrated = null, fetchEntries }) {
+  const profileId = String(ProfileManager.getActiveProfileId() || "1");
+  const cached = readTraktRowCache(rowId, profileId);
+  if (!force && cached && Date.now() - cached.fetchedAt < TRAKT_ROW_CACHE_TTL_MS) {
+    return cached.items.slice(0, limit);
+  }
+
+  const token = await TraktAuthService.getValidAccessToken().catch(() => null);
+  if (!token) {
+    invalidateTraktRowCaches([rowId]);
+    return [];
+  }
+
+  const entries = await fetchEntries().catch((error) => {
+    console.warn(`[LIB] Trakt ${rowId} row fetch failed`, error);
+    return null;
+  });
+  if (!Array.isArray(entries)) {
+    // A transient failure keeps the last good items rather than blanking a row
+    // the user is looking at.
+    return cached ? cached.items.slice(0, limit) : [];
+  }
+
+  const requestToken = (traktRowCacheTokens.get(rowId) || 0) + 1;
+  traktRowCacheTokens.set(rowId, requestToken);
+  const writeCache = (items) => {
+    if (traktRowCacheTokens.get(rowId) !== requestToken) {
+      return false;
+    }
+    traktRowCaches.set(rowId, { profileId, fetchedAt: Date.now(), items });
+    return true;
+  };
+
+  const capped = entries.slice(0, limit);
+  if (!capped.length) {
+    writeCache([]);
+    return [];
+  }
+
+  const head = await hydrateEntries(capped.slice(0, TRAKT_ROW_EAGER_HYDRATE));
+  const tail = capped.slice(TRAKT_ROW_EAGER_HYDRATE);
+  writeCache([...head, ...tail]);
+
+  if (tail.length) {
+    hydrateEntries(tail)
+      .then((hydratedTail) => {
+        const full = [...head, ...hydratedTail];
+        if (writeCache(full) && typeof onHydrated === "function") {
+          onHydrated(full);
+        }
+      })
+      .catch((error) => {
+        console.warn(`[LIB] Trakt ${rowId} row artwork pass failed`, error);
+      });
+  }
+
+  return [...head, ...tail];
+}
+
+function toTraktRowEntry(entry) {
   if (!entry) {
     return null;
   }
@@ -560,50 +660,72 @@ class LibraryRepository {
     return sourceMode === LibrarySourceMode.TRAKT ? getRemoteEntries() : getLocalEntries();
   }
 
+  // Adding or removing a watchlist item also changes what Trakt recommends
+  // (both rows are fetched with ignore_watchlisted), so both caches go.
   invalidateWatchlistRowCache() {
-    watchlistRowCache = null;
+    invalidateTraktRowCaches();
   }
 
   /**
-   * Catalog-row-shaped view of the Trakt watchlist for the home screen.
+   * Catalog-row-shaped view of the full Trakt watchlist for the home screen.
    * Returns [] when Trakt is not connected, which drops the row from home.
+   * Resolves once the head of the list has artwork; `onHydrated` is called later
+   * with the same list once the tail has it too.
    */
-  async getWatchlistRowItems({ limit = WATCHLIST_ROW_LIMIT, force = false } = {}) {
-    const profileId = String(ProfileManager.getActiveProfileId() || "1");
-    const cached =
-      watchlistRowCache && watchlistRowCache.profileId === profileId ? watchlistRowCache : null;
-    if (!force && cached && Date.now() - cached.fetchedAt < WATCHLIST_ROW_CACHE_TTL_MS) {
-      return cached.items.slice(0, limit);
-    }
-
-    const token = await TraktAuthService.getValidAccessToken().catch(() => null);
-    if (!token) {
-      watchlistRowCache = null;
-      return [];
-    }
-
-    // Trakt returns the watchlist in rank order, so fetch a wider window than the
-    // row shows to make "most recently added" mean it across the whole list.
-    const fetched = await TraktAuthService.fetchWatchlist({
-      limit: Math.min(100, Math.max(limit, limit * 4))
-    }).catch((error) => {
-      console.warn("[LIB] Trakt watchlist row fetch failed", error);
-      return null;
+  getWatchlistRowItems({ limit = WATCHLIST_ROW_LIMIT, force = false, onHydrated = null } = {}) {
+    return buildTraktRowItems({
+      rowId: TRAKT_ROW_WATCHLIST,
+      limit,
+      force,
+      onHydrated,
+      fetchEntries: async () => {
+        const fetched = await TraktAuthService.fetchWatchlist({ limit });
+        if (!Array.isArray(fetched)) {
+          return null;
+        }
+        // Trakt serves the watchlist in rank order; the row reads best newest-first.
+        return fetched
+          .map(toTraktRowEntry)
+          .filter(Boolean)
+          .sort((left, right) => right.listedAt - left.listedAt);
+      }
     });
-    if (!Array.isArray(fetched)) {
-      // A transient failure keeps the last good items rather than blanking a row
-      // the user is looking at.
-      return cached ? cached.items.slice(0, limit) : [];
-    }
+  }
 
-    const entries = fetched
-      .map(toWatchlistRowEntry)
-      .filter(Boolean)
-      .sort((left, right) => right.listedAt - left.listedAt)
-      .slice(0, limit);
-    const items = entries.length ? await hydrateEntries(entries) : [];
-    watchlistRowCache = { profileId, fetchedAt: Date.now(), items };
-    return items.slice(0, limit);
+  /**
+   * Catalog-row-shaped view of Trakt's personalized recommendations, movies and
+   * shows interleaved so the row is not all one type. Same contract as
+   * getWatchlistRowItems.
+   */
+  getRecommendationsRowItems({
+    limit = RECOMMENDATIONS_ROW_PER_TYPE * 2,
+    force = false,
+    onHydrated = null
+  } = {}) {
+    return buildTraktRowItems({
+      rowId: TRAKT_ROW_RECOMMENDATIONS,
+      limit,
+      force,
+      onHydrated,
+      fetchEntries: async () => {
+        const [movies, shows] = await Promise.all([
+          TraktAuthService.fetchRecommendations({
+            type: "movies",
+            limit: RECOMMENDATIONS_ROW_PER_TYPE
+          }),
+          TraktAuthService.fetchRecommendations({
+            type: "shows",
+            limit: RECOMMENDATIONS_ROW_PER_TYPE
+          })
+        ]);
+        // Trakt ranks each type on its own, so keep both rankings by taking them
+        // in turn rather than concatenating one type after the other.
+        return interleaveTraktEntries(
+          (movies || []).map(toTraktRowEntry).filter(Boolean),
+          (shows || []).map(toTraktRowEntry).filter(Boolean)
+        );
+      }
+    });
   }
 
   async getMembershipSnapshot(item) {

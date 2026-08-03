@@ -1,13 +1,22 @@
 import { TraktAuthStore } from "../../data/local/traktAuthStore.js";
 
-// The native Trakt watchlist row has no addon manifest behind it, so it can't be
-// keyed like a catalog. It gets one fixed key that doubles as its disable key,
-// which lets it flow through the ordering/hiding machinery like any other row.
+// The native Trakt rows have no addon manifest behind them, so they can't be
+// keyed like catalogs. Each gets one fixed key that doubles as its disable key,
+// which lets them flow through the ordering/hiding machinery like any other row.
 export const TRAKT_WATCHLIST_ROW_KEY = "trakt_watchlist";
-export const TRAKT_WATCHLIST_ROW_TITLE = "Trakt Watchlist";
+export const TRAKT_WATCHLIST_ROW_TITLE = "Watchlist";
+export const TRAKT_RECOMMENDATIONS_ROW_KEY = "trakt_recommendations";
+export const TRAKT_RECOMMENDATIONS_ROW_TITLE = "Recommended for You";
 
-export function isTraktWatchlistRowKey(key) {
-  return String(key || "") === TRAKT_WATCHLIST_ROW_KEY;
+export const TRAKT_NATIVE_ROWS = [
+  { key: TRAKT_WATCHLIST_ROW_KEY, title: TRAKT_WATCHLIST_ROW_TITLE },
+  { key: TRAKT_RECOMMENDATIONS_ROW_KEY, title: TRAKT_RECOMMENDATIONS_ROW_TITLE }
+];
+
+const TRAKT_NATIVE_ROW_KEYS = new Set(TRAKT_NATIVE_ROWS.map((row) => row.key));
+
+export function isTraktNativeRowKey(key) {
+  return TRAKT_NATIVE_ROW_KEYS.has(String(key || ""));
 }
 
 export function catalogRequiresExtras(catalog) {
@@ -90,20 +99,25 @@ export function buildOrderedHomeCatalogItems(
       });
   });
 
-  if (TraktAuthStore.isAuthenticated() && !seenKeys.has(TRAKT_WATCHLIST_ROW_KEY)) {
-    seenKeys.add(TRAKT_WATCHLIST_ROW_KEY);
-    defaultEntries.push({
-      key: TRAKT_WATCHLIST_ROW_KEY,
-      disableKey: TRAKT_WATCHLIST_ROW_KEY,
-      addonBaseUrl: "",
-      addonId: "",
-      addonName: "Trakt",
-      catalogId: TRAKT_WATCHLIST_ROW_KEY,
-      catalogName: customTitleForKey(customTitles, TRAKT_WATCHLIST_ROW_KEY) || TRAKT_WATCHLIST_ROW_TITLE,
-      originalCatalogName: TRAKT_WATCHLIST_ROW_TITLE,
-      type: "trakt",
-      isTraktWatchlist: true,
-      isDisabled: false
+  if (TraktAuthStore.isAuthenticated()) {
+    TRAKT_NATIVE_ROWS.forEach((traktRow) => {
+      if (seenKeys.has(traktRow.key)) {
+        return;
+      }
+      seenKeys.add(traktRow.key);
+      defaultEntries.push({
+        key: traktRow.key,
+        disableKey: traktRow.key,
+        addonBaseUrl: "",
+        addonId: "",
+        addonName: "Trakt",
+        catalogId: traktRow.key,
+        catalogName: customTitleForKey(customTitles, traktRow.key) || traktRow.title,
+        originalCatalogName: traktRow.title,
+        type: "trakt",
+        isTraktNativeRow: true,
+        isDisabled: false
+      });
     });
   }
 

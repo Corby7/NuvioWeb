@@ -20,6 +20,7 @@ import {
   escapeHtml,
   formatCatalogRowTitle,
   normalizeCollectionFolderItem,
+  preloadImageSource,
   renderContinueWatchingSection
 } from "../home/homeScreen.js";
 import { renderModernHomeLayout } from "../home/modernHomeLayout.js";
@@ -1458,6 +1459,67 @@ export const FolderDetailScreen = {
     }));
   },
 
+  // The hero pre-warm in HomeScreen.scheduleModernHeroUpdate reads this to
+  // decide whether it can commit the enriched logo/backdrop with the copy.
+  // Ours live in the TMDB cache below, not in the inherited _heroMetaCache.
+  getCachedHeroArt(itemId) {
+    const cached = this._heroTmdbCache?.get(String(itemId));
+    if (cached) {
+      return { background: cached.background || "", logo: cached.logo || "" };
+    }
+    return HomeScreen.getCachedHeroArt.call(this, itemId);
+  },
+
+  // enrichCurrentHeroAsync below runs the TMDB pipeline, but the inherited
+  // prefetch warms a metaRepository cache that pipeline never reads — so every
+  // focus paid the full ensureTmdbId + fetchEnrichment latency with the copy
+  // hidden behind is-hero-meta-enriching while the backdrop had already
+  // crossfaded in. Prefetch through the same pipeline instead.
+  _prefetchHeroEnrichment(hero) {
+    if (!hero?.id) {
+      return;
+    }
+    if (!hasTmdbItemId(hero)) {
+      HomeScreen._prefetchHeroEnrichment.call(this, hero);
+      return;
+    }
+    if (!this._heroTmdbCache) this._heroTmdbCache = new Map();
+    if (!this._heroTmdbPending) this._heroTmdbPending = new Set();
+    const itemId = String(hero.id);
+    if (this._heroTmdbCache.has(itemId) || this._heroTmdbPending.has(itemId)) {
+      return;
+    }
+    if (this._heroTmdbPending.size >= 2) {
+      return;
+    }
+    this._heroTmdbPending.add(itemId);
+    const itemType = String(hero.type || hero.apiType || "movie");
+    const settings = TmdbSettingsStore.get();
+    Promise.resolve()
+      .then(() => TmdbService.ensureTmdbId(firstNonEmpty(hero.tmdbId, hero.id), itemType))
+      .then((tmdbId) => (tmdbId
+        ? TmdbMetadataService.fetchEnrichment({ tmdbId, contentType: itemType, language: settings.language })
+        : null))
+      .then((enriched) => {
+        this._heroTmdbPending.delete(itemId);
+        if (this._heroTmdbCache.size >= 100) {
+          this._heroTmdbCache.delete(this._heroTmdbCache.keys().next().value);
+        }
+        // null is a meaningful entry — it records "TMDB had nothing" so the
+        // commit path can clear heroMetaEnriching without refetching.
+        const merged = enriched ? buildEnrichedTmdbItem(hero, enriched, settings) : null;
+        this._heroTmdbCache.set(itemId, merged);
+        // Warm the exact URLs the hero will request (the presentation applies
+        // the w1280/w185 variants), so the commit is a cache hit.
+        const display = merged ? buildModernHeroPresentation(merged) : null;
+        if (display?.backdrop) preloadImageSource(display.backdrop);
+        if (display?.logo) preloadImageSource(display.logo);
+      })
+      .catch(() => {
+        this._heroTmdbPending.delete(itemId);
+      });
+  },
+
   async enrichCurrentHeroAsync(hero) {
     if (!this.useHomeFollowLayout) {
       return;
@@ -1472,6 +1534,24 @@ export const FolderDetailScreen = {
     const itemId = String(hero.id || "");
     const itemType = String(hero.type || hero.apiType || "movie");
     const token = (this.heroEnrichmentToken = (Number(this.heroEnrichmentToken || 0) + 1));
+
+    // Prefetch hit: resolve in this task so the copy is never hidden for a
+    // frame longer than the backdrop crossfade needs.
+    const prefetched = this._heroTmdbCache?.get(itemId);
+    if (prefetched !== undefined) {
+      if (String(this.heroItem?.id || "") !== itemId) {
+        return;
+      }
+      const mergedHero = prefetched
+        ? { ...this.heroItem, ...prefetched, heroMetaEnriched: true, heroMetaEnriching: false }
+        : { ...this.heroItem, heroMetaEnriched: true, heroMetaEnriching: false };
+      this.heroItem = mergedHero;
+      HomeScreen.mergeHeroIntoCatalogState.call(this, itemId, mergedHero);
+      this.mergeHeroIntoFolderTabs(itemId, mergedHero);
+      HomeScreen.applyHeroToDom.call(this);
+      return;
+    }
+
     try {
       const settings = TmdbSettingsStore.get();
       const tmdbId = await TmdbService.ensureTmdbId(firstNonEmpty(hero.tmdbId, hero.id), itemType);
@@ -1499,6 +1579,12 @@ export const FolderDetailScreen = {
         }
         : { ...this.heroItem, heroMetaEnriched: true, heroMetaEnriching: false };
       this.heroItem = mergedHero;
+      // Seed the prefetch cache so re-focusing this card (row scrollback, back
+      // from detail) takes the in-task path above instead of refetching.
+      if (!this._heroTmdbCache) this._heroTmdbCache = new Map();
+      if (!this._heroTmdbCache.has(itemId)) {
+        this._heroTmdbCache.set(itemId, enriched ? buildEnrichedTmdbItem(hero, enriched, settings) : null);
+      }
       HomeScreen.mergeHeroIntoCatalogState.call(this, itemId, mergedHero);
       this.mergeHeroIntoFolderTabs(itemId, mergedHero);
       HomeScreen.applyHeroToDom.call(this);

@@ -9,6 +9,13 @@ export const MODERN_HOME_CONSTANTS = {
   heroRapidSettleMs: 300,
   // Max wait for the new hero backdrop/logo decode before swapping anyway.
   heroSwapDecodeTimeoutMs: 800,
+  // The hero copy is hidden (is-hero-meta-enriching) while the meta round trip
+  // that supplies the logo is in flight. On a prefetch hit that clears within a
+  // frame, but on a miss the backdrop crossfades in and the copy stays blank
+  // for the whole fetch. Past this, reveal the copy with plain title text and
+  // let the logo crossfade in on its own — a title that gets replaced beats a
+  // blank hero for a second.
+  heroEnrichCopyRevealMs: 700,
   keyRepeatThrottleMs: 80,
   cameraFollowDelayMs: 140,
   cameraFollowDurationXMs: 280,
@@ -86,7 +93,9 @@ export function renderModernHomeLayout({
     if (eagerCount < eagerRowCount) {
       eagerCount++;
       const maxItems = Math.max(1, Number(rowItemLimit || 15));
-      const visibleItems = isCollectionRow ? rowItems : rowItems.slice(0, maxItems);
+      const visibleItems = isCollectionRow || rowData?.showAllItems
+        ? rowItems
+        : rowItems.slice(0, maxItems);
       const cardsMarkup = visibleItems.map((item, itemIndex) => createPosterCardMarkup(
         item,
         rowIndex,

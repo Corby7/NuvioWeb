@@ -33,23 +33,34 @@ export const ScreenUtils = {
     }
   },
 
+  // A freshly-mounted node re-focused across a re-render (e.g. home's
+  // stale-snapshot-then-fresh-data multi-pass render, or a screen re-entered
+  // from cache) picks up a genuine CSS transition on its ring/scale/brightness
+  // if any layout read happens between insert and focus — and every render pass
+  // then replays the focus pop, which reads as the highlight flickering. Mark
+  // the node for one paint (see .focus-instant in components.css) so the ring
+  // appears instantly instead of re-animating. Callers that represent real
+  // navigation must not use this — the pop is wanted there.
+  suppressFocusTransition(node) {
+    if (!node?.classList) {
+      return;
+    }
+    node.classList.add("focus-instant");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        node.classList.remove("focus-instant");
+      });
+    });
+  },
+
   setInitialFocus(container, selector = ".focusable") {
     const first = container?.querySelector(selector);
     if (!first) {
       return;
     }
-    // A freshly-mounted node re-focused across a re-render (e.g. home's
-    // stale-snapshot-then-fresh-data double render, or a screen re-entered
-    // from cache) can pick up a genuine CSS transition on its ring/highlight
-    // if any layout read happens between insert and focus — suppress it for
-    // this one paint so the ring appears instantly instead of re-animating.
-    first.classList.add("focused", "focus-instant");
+    this.suppressFocusTransition(first);
+    first.classList.add("focused");
     first.focus();
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        first.classList.remove("focus-instant");
-      });
-    });
   },
 
   moveFocus(container, direction, selector = ".focusable") {

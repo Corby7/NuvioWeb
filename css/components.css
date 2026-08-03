@@ -6727,6 +6727,13 @@ img[data-lazy-src] {
   visibility: hidden;
 }
 
+/* Enrichment overran its budget (see scheduleHeroCopyEarlyReveal) — show the
+   copy with plain title text rather than leaving the hero blank under an
+   already-crossfaded backdrop. The logo fades in later on its own. */
+.home-screen-shell.home-layout-modern .home-modern-hero-card.is-hero-meta-enriching.is-hero-copy-early-reveal .home-modern-hero-copy {
+  visibility: visible;
+}
+
 .home-screen-shell.home-layout-modern .home-modern-hero-card.is-hero-copy-updating .home-modern-hero-copy {
   opacity: 0;
   transition: none;
@@ -21171,4 +21178,17 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .cast-detail-shell::be
     0 20px 40px -4px rgba(0, 0, 0, 0.65),
     inset 0 1px 0 rgba(255, 255, 255, 0.25);
   background-color: var(--focus-bg);
+}
+/* Focus re-applied to a freshly rebuilt node (home's multi-pass startup render,
+   detail's section rebuilds) is a genuine style change as far as the browser is
+   concerned once any layout read sits between insert and refocus — so the whole
+   scale/ring/brightness transition replays and the focused card visibly pulses
+   once per render pass. ScreenUtils.setInitialFocus, HomeScreen's restore paths
+   and metaDetailsScreen mark those nodes .focus-instant for a single paint;
+   without this rule that marking did nothing. Real d-pad navigation never sets
+   the class, so the normal focus pop is untouched. */
+.focus-instant,
+.focus-instant * {
+  transition: none !important;
+  animation: none !important;
 }

@@ -32,9 +32,9 @@ import {
   buildCatalogDisableKey,
   buildCatalogOrderKey,
   catalogRequiresExtras,
-  isTraktWatchlistRowKey,
-  TRAKT_WATCHLIST_ROW_KEY,
-  TRAKT_WATCHLIST_ROW_TITLE
+  isTraktNativeRowKey,
+  TRAKT_NATIVE_ROWS,
+  TRAKT_RECOMMENDATIONS_ROW_KEY
 } from "../../../core/addons/homeCatalogs.js";
 import {
   activateLegacySidebarAction,
@@ -72,6 +72,9 @@ const HOME_ROW_RETRY_TIMEOUT_MS = 12000;
 const HOME_BACKGROUND_RENDER_DELAY_MS = 120;
 const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;
 const HOME_MODERN_HERO_BACKDROP_CROSSFADE_MS = 600;
+// Hero meta prefetches allowed in flight at once. One serialised them behind
+// each other, so a two-card lookahead could never actually land two.
+const HERO_PREFETCH_MAX_CONCURRENCY = 2;
 const CW_META_TIMEOUT_MS = 1800;
 const CW_META_TIMEOUT_TV_MS = 4200;
 const CW_NEXT_UP_META_TIMEOUT_MS = 2200;
@@ -541,7 +544,7 @@ function shouldEnrichModernHero(hero) {
   return true;
 }
 
-function preloadImageSource(src) {
+export function preloadImageSource(src) {
   const normalized = String(src || "").trim();
   if (!normalized || typeof Image === "undefined") {
     return Promise.resolve(false);
@@ -974,24 +977,29 @@ function buildCollectionHomeRow(collection = {}) {
   };
 }
 
-// Native Trakt watchlist row. It is shaped like a catalog row so ordering,
-// hiding, focus and the poster card path all work unchanged, but it has no addon
-// behind it: hasMore stays false so the track never tries to paginate, and
-// suppressSeeAll keeps the legacy layout from offering a see-all that would have
-// no catalog to open.
-function buildTraktWatchlistHomeRow(items = [], customTitle = "") {
+// Native Trakt rows (watchlist, recommendations). Each is shaped like a catalog
+// row so ordering, hiding, focus and the poster card path all work unchanged,
+// but it has no addon behind it: hasMore stays false so the track never tries to
+// paginate, and suppressSeeAll keeps the legacy layout from offering a see-all
+// that would have no catalog to open.
+function buildTraktHomeRow(rowKey, items = [], customTitle = "") {
+  const defaultTitle = TRAKT_NATIVE_ROWS.find((entry) => entry.key === rowKey)?.title || "Trakt";
+  const title = String(customTitle || "").trim() || defaultTitle;
   return {
-    rowKind: "traktWatchlist",
+    rowKind: "traktNative",
     addonBaseUrl: "",
     addonId: "",
     addonName: "Trakt",
-    catalogId: TRAKT_WATCHLIST_ROW_KEY,
-    catalogName: String(customTitle || "").trim() || TRAKT_WATCHLIST_ROW_TITLE,
-    rowTitle: String(customTitle || "").trim() || TRAKT_WATCHLIST_ROW_TITLE,
+    catalogId: rowKey,
+    catalogName: title,
+    rowTitle: title,
     type: "movie",
-    homeCatalogKey: TRAKT_WATCHLIST_ROW_KEY,
-    homeCatalogDisableKey: TRAKT_WATCHLIST_ROW_KEY,
+    homeCatalogKey: rowKey,
+    homeCatalogDisableKey: rowKey,
     suppressSeeAll: true,
+    // The whole list lives in this one row, so it opts out of the per-row item
+    // cap the way collection rows do; the track virtualizes off-screen cards.
+    showAllItems: true,
     result: {
       status: "success",
       data: {
@@ -1003,8 +1011,8 @@ function buildTraktWatchlistHomeRow(items = [], customTitle = "") {
   };
 }
 
-function isTraktWatchlistRow(row = null) {
-  return Boolean(row) && (row.rowKind === "traktWatchlist" || isTraktWatchlistRowKey(row.homeCatalogKey));
+function isTraktHomeRow(row = null) {
+  return Boolean(row) && (row.rowKind === "traktNative" || isTraktNativeRowKey(row.homeCatalogKey));
 }
 
 function normalizeHomeRowItem(row = null, item = null) {
@@ -2148,7 +2156,7 @@ function renderLegacyCatalogRowsMarkup(rows = [], options = {}) {
     const maxItems = Math.max(1, Number(rowItemLimit || HOME_MAX_ITEMS_PER_ROW_DEFAULT));
     const hasSeeAll = !isCollectionRow && !isLoading && !rowData?.suppressSeeAll && items.length > maxItems;
     const gridLimit = Math.max(1, hasSeeAll ? maxItems - 1 : maxItems);
-    const visibleItems = isCollectionRow
+    const visibleItems = isCollectionRow || rowData?.showAllItems
       ? rowItems
       : (layoutMode === "grid"
         ? rowItems.slice(0, gridLimit)
@@ -2582,6 +2590,7 @@ export const HomeScreen = {
     const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
     viewport.scrollTop = Math.max(0, Math.min(maxScrollTop, Number(focusState.mainScrollTop || 0)));
     this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    ScreenUtils.suppressFocusTransition(target);
     target.classList.add("focused");
     this.focusWithoutAutoScroll(target, { suppressDelegatedFocus: true });
     // Re-anchor against the live, post-mount layout instead of trusting the raw
@@ -2687,6 +2696,7 @@ export const HomeScreen = {
     }
 
     this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    ScreenUtils.suppressFocusTransition(target);
     target.classList.add("focused");
     this.focusWithoutAutoScroll(target);
     this.syncFocusedCollectionCardState();
@@ -2751,6 +2761,7 @@ export const HomeScreen = {
     }
 
     this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    ScreenUtils.suppressFocusTransition(target);
     target.classList.add("focused");
     this.focusWithoutAutoScroll(target);
     this.syncFocusedCollectionCardState();
@@ -2771,6 +2782,7 @@ export const HomeScreen = {
       return false;
     }
     this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    ScreenUtils.suppressFocusTransition(target);
     target.classList.add("focused");
     this.focusWithoutAutoScroll(target);
     this.syncFocusedCollectionCardState();
@@ -3437,6 +3449,7 @@ export const HomeScreen = {
       this.pendingContinueWatchingFocusIndex = null;
       if (target) {
         this.container.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+        ScreenUtils.suppressFocusTransition(target);
         target.classList.add("focused");
         this.focusWithoutAutoScroll(target);
         this.lastMainFocus = target;
@@ -3449,6 +3462,7 @@ export const HomeScreen = {
       const target = cards[Math.min(savedCwFocusIndex, cards.length - 1)] || cards[0] || null;
       if (target) {
         this.container.querySelectorAll(".focusable.focused").forEach((n) => n.classList.remove("focused"));
+        ScreenUtils.suppressFocusTransition(target);
         target.classList.add("focused");
         this.focusWithoutAutoScroll(target);
         this.lastMainFocus = target;
@@ -3474,10 +3488,43 @@ export const HomeScreen = {
     }
   },
 
+  // Bounded fallback for the is-hero-meta-enriching copy blackout: if the meta
+  // round trip hasn't landed by heroEnrichCopyRevealMs, show the copy anyway
+  // with plain title text. The logo then crossfades in through applyHeroToDom's
+  // normal swap path once enrichment resolves.
+  scheduleHeroCopyEarlyReveal(heroNode, heroId) {
+    this.cancelHeroCopyEarlyReveal();
+    if (!heroNode) {
+      return;
+    }
+    const targetId = String(heroId || "");
+    this.heroCopyEarlyRevealTimer = setTimeout(() => {
+      this.heroCopyEarlyRevealTimer = null;
+      if (!heroNode.isConnected || String(this.heroItem?.id || "") !== targetId) {
+        return;
+      }
+      if (!this.heroItem?.heroMetaEnriching) {
+        return;
+      }
+      heroNode.classList.add("is-hero-copy-early-reveal");
+    }, MODERN_HOME_CONSTANTS.heroEnrichCopyRevealMs);
+  },
+
+  cancelHeroCopyEarlyReveal() {
+    if (this.heroCopyEarlyRevealTimer) {
+      clearTimeout(this.heroCopyEarlyRevealTimer);
+      this.heroCopyEarlyRevealTimer = null;
+    }
+  },
+
   cancelPendingHeroFocus() {
     // A press-time copy clear whose commit will never run (focus left, or a
     // new schedule re-adds it right after) must not leave the copy hidden.
     this.container?.querySelector(".home-hero-card")?.classList?.remove("is-hero-copy-clearing");
+    // An early reveal belongs to the outgoing hero only — carrying it into the
+    // next one would expose that hero's copy before its own enrichment window.
+    this.cancelHeroCopyEarlyReveal();
+    this.container?.querySelector(".home-hero-card")?.classList?.remove("is-hero-copy-early-reveal");
     if (this.heroFocusDelayTimer) {
       clearTimeout(this.heroFocusDelayTimer);
       this.heroFocusDelayTimer = null;
@@ -3562,6 +3609,10 @@ export const HomeScreen = {
     heroNode.dataset.itemType = hero?.type || "movie";
     heroNode.dataset.itemTitle = hero?.name || "Untitled";
     heroNode.classList.toggle("is-hero-meta-enriching", Boolean(hero?.heroMetaEnriching));
+    if (!hero?.heroMetaEnriching) {
+      this.cancelHeroCopyEarlyReveal();
+      heroNode.classList.remove("is-hero-copy-early-reveal");
+    }
 
     const isHiding = heroNode.classList.contains("is-hero-copy-updating");
     const backdrop = heroNode.querySelector(".home-hero-backdrop");
@@ -4020,6 +4071,7 @@ export const HomeScreen = {
       return;
     }
     this.container?.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    ScreenUtils.suppressFocusTransition(target);
     target.classList.add("focused");
     this.focusWithoutAutoScroll(target);
     this.lastMainFocus = target;
@@ -4041,6 +4093,7 @@ export const HomeScreen = {
       return;
     }
     this.container?.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    ScreenUtils.suppressFocusTransition(target);
     target.classList.add("focused");
     this.focusWithoutAutoScroll(target);
     this.lastMainFocus = target;
@@ -4825,7 +4878,7 @@ export const HomeScreen = {
       // Prefer the enriched backdrop/logo when the meta prefetch already has
       // them — committing the catalog variants first meant the enrichment
       // pass re-swapped logo/backdrop to different URLs moments later.
-      const cachedMeta = shouldEnrichModernHero(hero) ? this._heroMetaCache?.get(String(hero.id)) : null;
+      const cachedMeta = shouldEnrichModernHero(hero) ? this.getCachedHeroArt(String(hero.id)) : null;
       const heroSeed = (cachedMeta?.background || cachedMeta?.logo)
         ? {
           ...hero,
@@ -4890,6 +4943,7 @@ export const HomeScreen = {
         heroNode?.classList?.remove("is-hero-copy-clearing");
         if (shouldEnrichModernHero(hero)) {
           const heroId = String(hero.id);
+          this.scheduleHeroCopyEarlyReveal(heroNode, heroId);
           setTimeout(() => {
             if (String(this.heroItem?.id || "") === heroId) {
               this.enrichCurrentHeroAsync(this.heroItem || hero);
@@ -4986,6 +5040,14 @@ export const HomeScreen = {
     }, delay);
   },
 
+  // Art/meta the hero pre-warm can commit up front instead of waiting on the
+  // enrichment round trip. Screens that borrow scheduleModernHeroUpdate but
+  // enrich through a different pipeline (folderDetailScreen uses TMDB, not
+  // metaRepository) override this so their own cache is consulted.
+  getCachedHeroArt(itemId) {
+    return this._heroMetaCache?.get(String(itemId)) || null;
+  },
+
   _prefetchAdjacentCards(node) {
     if (!node) return;
     const rowIndex = Number(node.dataset.rowIndex ?? -1);
@@ -4995,11 +5057,15 @@ export const HomeScreen = {
     const items = Array.isArray(row?.result?.data?.items) ? row.result.data.items : null;
     if (!items) return;
     const total = items.length;
-    const nextIdx = itemIndex + 1;
-    if (nextIdx < total) {
-      const adjacentHero = normalizeHomeRowItem(row, items[nextIdx]);
+    // Two ahead plus one behind. A single card of lookahead only survives
+    // deliberate one-at-a-time presses — any real d-pad run outran it, and the
+    // hero then paid the full enrichment latency with its copy hidden, which
+    // read as the logo arriving well after the backdrop.
+    [itemIndex + 1, itemIndex + 2, itemIndex - 1].forEach((index) => {
+      if (index < 0 || index >= total || index === itemIndex) return;
+      const adjacentHero = normalizeHomeRowItem(row, items[index]);
       if (adjacentHero?.id) this._prefetchHeroCard(adjacentHero);
-    }
+    });
   },
 
   _prefetchHeroCard(hero) {
@@ -5019,7 +5085,7 @@ export const HomeScreen = {
     const itemId = String(hero.id);
     const itemType = String(hero.type || hero.apiType || "movie");
     if (this._heroMetaCache.has(itemId) || this._heroPrefetchPending.has(itemId)) return;
-    if (this._heroPrefetchPending.size >= 1) return;
+    if (this._heroPrefetchPending.size >= HERO_PREFETCH_MAX_CONCURRENCY) return;
     this._heroPrefetchPending.add(itemId);
     Promise.race([
       metaRepository.getMetaFromAllAddons(itemType, itemId),
@@ -6951,7 +7017,9 @@ export const HomeScreen = {
       const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
       const rowItems = items.length ? items : (rowData.loadingItems || []);
       const maxItems = Math.max(1, Number(opts.rowItemLimit || 15));
-      const visibleItems = isCollectionRow ? rowItems : rowItems.slice(0, maxItems);
+      const visibleItems = isCollectionRow || rowData?.showAllItems
+        ? rowItems
+        : rowItems.slice(0, maxItems);
       const trackTarget = getTrackInnerNode(track) || track;
       trackTarget.innerHTML = visibleItems.map((item, itemIndex) => opts.createPosterCardMarkup(
         item,
@@ -7462,37 +7530,61 @@ export const HomeScreen = {
   pruneRowsToCatalogKeys(catalogDescriptors = []) {
     // Snapshot rows can outlive their catalog (addon removed since last session);
     // once the live descriptor set is known, drop rows it no longer contains.
-    // Collection and Trakt watchlist rows have no descriptor by design.
+    // Collection and native Trakt rows have no descriptor by design.
     const validKeys = new Set(catalogDescriptors.map((desc) => buildCatalogOrderKey(desc.addonId, desc.type, desc.catalogId)));
     this.rows = (this.rows || []).filter((row) => row?.rowKind === "collection"
-      || isTraktWatchlistRow(row)
+      || isTraktHomeRow(row)
       || validKeys.has(row?.homeCatalogKey));
   },
 
-  fetchTraktWatchlistRowItems({ force = false } = {}) {
-    if (HomeCatalogStore.isDisabled(TRAKT_WATCHLIST_ROW_KEY)) {
+  fetchTraktHomeRowItems(rowKey, { force = false, onHydrated = null } = {}) {
+    if (HomeCatalogStore.isDisabled(rowKey)) {
       return Promise.resolve([]);
     }
-    return libraryRepository.getWatchlistRowItems({ force }).catch((error) => {
-      console.warn("Trakt watchlist row load failed", error);
+    const load = rowKey === TRAKT_RECOMMENDATIONS_ROW_KEY
+      ? libraryRepository.getRecommendationsRowItems({ force, onHydrated })
+      : libraryRepository.getWatchlistRowItems({ force, onHydrated });
+    return load.catch((error) => {
+      console.warn(`Trakt ${rowKey} row load failed`, error);
       return [];
     });
   },
 
+  // Single entry point for both the initial items and the later artwork pass, so
+  // whichever lands second wins without the two racing over this.rows.
+  applyTraktHomeRowUpdate(token, rowKey, items = []) {
+    if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+      return;
+    }
+    this.traktRowLatestItems = this.traktRowLatestItems || {};
+    this.traktRowLatestItems[rowKey] = Array.isArray(items) ? items : [];
+    if (!this.applyTraktHomeRow(rowKey, this.traktRowLatestItems[rowKey])) {
+      return;
+    }
+    this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
+    if (!this.heroItem) {
+      this.heroItem = this.pickInitialHero();
+    }
+    this.requestBackgroundRender();
+    this.retryPendingHeroUpdate();
+    this.retryPendingRowMounts();
+    this.persistHomeSnapshot();
+  },
+
   // Returns true when this.rows changed, so callers only re-render on a real update.
-  applyTraktWatchlistRow(items = []) {
-    const hasRow = (this.rows || []).some((row) => isTraktWatchlistRow(row));
+  applyTraktHomeRow(rowKey, items = []) {
+    const hasRow = (this.rows || []).some((row) => row?.homeCatalogKey === rowKey);
     if (!Array.isArray(items) || !items.length) {
       // No items means Trakt was disconnected or the list is empty — drop a row
       // restored from an older snapshot rather than leaving it stale.
       if (!hasRow) {
         return false;
       }
-      this.rows = (this.rows || []).filter((row) => !isTraktWatchlistRow(row));
+      this.rows = (this.rows || []).filter((row) => row?.homeCatalogKey !== rowKey);
       return true;
     }
-    const customTitle = HomeCatalogStore.get().customTitles?.[TRAKT_WATCHLIST_ROW_KEY] || "";
-    const row = buildTraktWatchlistHomeRow(items, customTitle);
+    const customTitle = HomeCatalogStore.get().customTitles?.[rowKey] || "";
+    const row = buildTraktHomeRow(rowKey, items, customTitle);
     const byKey = new Map((this.rows || []).map((entry) => [entry.homeCatalogKey, entry]));
     byKey.set(row.homeCatalogKey, row);
     this.rows = this.sortAndFilterRows(Array.from(byKey.values()), this.collections);
@@ -7517,10 +7609,10 @@ export const HomeScreen = {
           && row?.result?.status === "success"
           && Array.isArray(row.result?.data?.items)
           && row.result.data.items.length)
-          // The snapshot stores a flat catalog-row shape, so the watchlist row's
+          // The snapshot stores a flat catalog-row shape, so a native Trakt row's
           // own fields (title, see-all suppression) have to be rebuilt from its key.
-          .map((row) => (isTraktWatchlistRowKey(row.homeCatalogKey)
-            ? buildTraktWatchlistHomeRow(row.result.data.items, row.catalogName)
+          .map((row) => (isTraktNativeRowKey(row.homeCatalogKey)
+            ? buildTraktHomeRow(row.homeCatalogKey, row.result.data.items, row.catalogName)
             : row))
         : [];
       return rows.length ? { ...snapshot, rows } : null;
@@ -7593,7 +7685,13 @@ export const HomeScreen = {
     // Started here so the Trakt round trip overlaps the catalog fetches, but
     // applied only after the initial rows land — the non-warm path replaces
     // this.rows wholesale with the fetched catalog rows.
-    const traktWatchlistItemsPromise = this.fetchTraktWatchlistRowItems();
+    this.traktRowLatestItems = {};
+    const traktRowLoads = TRAKT_NATIVE_ROWS.map((traktRow) => ({
+      key: traktRow.key,
+      promise: this.fetchTraktHomeRowItems(traktRow.key, {
+        onHydrated: (items) => this.applyTraktHomeRowUpdate(token, traktRow.key, items)
+      })
+    }));
 
     let progressAllError = null;
     let recentProgressError = null;
@@ -7730,21 +7828,12 @@ export const HomeScreen = {
       })()
       : initialRows;
     this.rows = this.sortAndFilterRows(mergedInitialRows, this.collections);
-    traktWatchlistItemsPromise.then((watchlistItems) => {
-      if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
-        return;
-      }
-      if (!this.applyTraktWatchlistRow(watchlistItems)) {
-        return;
-      }
-      this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
-      if (!this.heroItem) {
-        this.heroItem = this.pickInitialHero();
-      }
-      this.requestBackgroundRender();
-      this.retryPendingHeroUpdate();
-      this.retryPendingRowMounts();
-      this.persistHomeSnapshot();
+    traktRowLoads.forEach(({ key, promise }) => {
+      promise.then((traktItems) => {
+        // The background artwork pass can land before this point on a warm meta
+        // cache; its richer list wins.
+        this.applyTraktHomeRowUpdate(token, key, this.traktRowLatestItems?.[key] || traktItems);
+      });
     });
     if (!preserveContinueWatching) {
       this.continueWatchingDisplay = initialContinueWatchingState?.display || [];
@@ -7877,7 +7966,14 @@ export const HomeScreen = {
       const previousDisplaySignature = buildContinueWatchingSignature(this.continueWatchingDisplay);
       const previousHeroIdentity = buildHeroIdentity(this.heroItem);
       const previousLoadingState = Boolean(this.continueWatchingLoading);
-      if (!suppressContinueWatchingLoading) {
+      // This second pass also runs in the foreground when the initial pass
+      // landed a display that still needs a metadata refresh (cold meta cache on
+      // app start) — the row is already on screen with real cards. Blanking it
+      // back to skeletons here and rebuilding it again when enrichment resolves
+      // costs two extra row rebuilds, each re-applying focus, before anything
+      // has actually changed. Keep the visible cards up and swap them in place.
+      const hasVisibleContinueWatching = Boolean(this.continueWatchingDisplay?.length);
+      if (!suppressContinueWatchingLoading && !hasVisibleContinueWatching) {
         this.continueWatchingLoading = shouldShowLoading;
         this.continueWatchingDisplay = [];
         if (previousLoadingState !== this.continueWatchingLoading || previousDisplaySignature) {
@@ -8309,6 +8405,7 @@ export const HomeScreen = {
       if (target) {
         restoredFocus = true;
         this.container.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+        ScreenUtils.suppressFocusTransition(target);
         target.classList.add("focused");
         this.focusWithoutAutoScroll(target);
         this.lastMainFocus = target;

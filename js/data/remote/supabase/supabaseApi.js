@@ -1,5 +1,22 @@
 import { httpRequest } from "../../../core/network/httpClient.js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../../config.js";
+import { getSyncOriginClientId } from "./syncOriginClient.js";
+
+// Every sync_push_* / sync_delete_* RPC takes a required p_origin_client_id
+// identifying the writing client. PostgREST resolves functions by argument
+// names, so omitting it is not a runtime error inside the function — the whole
+// call 404s with PGRST202 ("no matches were found in the schema cache") and the
+// push is silently lost in each sync service's catch block. Injected here so a
+// new push call site cannot forget it.
+function withOriginClientId(functionName, body) {
+  if (!functionName.startsWith("sync_push_") && !functionName.startsWith("sync_delete_")) {
+    return body;
+  }
+  if (body && body.p_origin_client_id != null) {
+    return body;
+  }
+  return { ...body, p_origin_client_id: getSyncOriginClientId() };
+}
 
 function buildHeaders(extra = {}, useSession = true) {
   const headers = {
@@ -18,7 +35,7 @@ export const SupabaseApi = {
       method: "POST",
       headers: buildHeaders({ "Content-Type": "application/json" }, useSession),
       includeSessionAuth: useSession,
-      body: JSON.stringify(body)
+      body: JSON.stringify(withOriginClientId(functionName, body))
     });
   },
 
