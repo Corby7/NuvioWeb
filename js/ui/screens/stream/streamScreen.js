@@ -31,6 +31,15 @@ import {
   normalizeStreamBadgeRules
 } from "../../../core/streams/streamBadgeRules.js";
 
+// How long a chunk of sources waits for its badge artwork before rendering anyway.
+const BADGE_PRELOAD_MAX_WAIT_MS = 150;
+
+function waitMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 // rAF callbacks still run before the frame is painted, so work scheduled there blocks the
 // paint it was meant to follow. The nested timeout is what actually lands after it.
 function afterNextPaint(fn) {
@@ -1480,7 +1489,19 @@ export const StreamScreen = {
       if (!chunkStreams.length) {
         return;
       }
-      await preloadMatchedStreamBadgeImages(chunkStreams, badgeSettings);
+      const hadStreams = this.streams.length > 0;
+      // Badge artwork is worth a beat so chips don't pop in, but never worth
+      // holding the first sources off screen — the card render re-requests any
+      // image that missed the window and this repaints once it lands.
+      const badgePreload = preloadMatchedStreamBadgeImages(chunkStreams, badgeSettings);
+      badgePreload
+        .then(() => {
+          if (token === this.loadToken) {
+            this.requestRender({ delayMs: 120 });
+          }
+        })
+        .catch(() => {});
+      await Promise.race([badgePreload, waitMs(BADGE_PRELOAD_MAX_WAIT_MS)]);
       if (token !== this.loadToken) {
         return;
       }
@@ -1494,7 +1515,9 @@ export const StreamScreen = {
       if (this.streams.length && this.focusState?.zone !== "card") {
         this.focusState = { zone: "card", index: 0 };
       }
-      this.requestRender({ delayMs: 120 });
+      // The first sources to arrive paint on the next frame; later chunks are
+      // batched so a burst of addons doesn't render five times in a row.
+      this.requestRender({ delayMs: hadStreams ? 120 : 0 });
     };
 
     const queueChunkGroups = (groups = []) => {
@@ -1545,7 +1568,15 @@ export const StreamScreen = {
         return key && !existingKeys.has(key);
       });
       if (missingStreams.length) {
-        await preloadMatchedStreamBadgeImages(missingStreams, badgeSettings);
+        const badgePreload = preloadMatchedStreamBadgeImages(missingStreams, badgeSettings);
+        badgePreload
+          .then(() => {
+            if (token === this.loadToken) {
+              this.requestRender({ delayMs: 120 });
+            }
+          })
+          .catch(() => {});
+        await Promise.race([badgePreload, waitMs(BADGE_PRELOAD_MAX_WAIT_MS)]);
         if (token !== this.loadToken) {
           return;
         }

@@ -271,7 +271,6 @@ ${flexGapDetectionScript}  <link rel="stylesheet" href="css/base.css" />
   <script>window.__NUVIO_PLATFORM__ = "webos";</script>
 ${webOsLegacyPreloadScript}
   <script src="nuvio.env.js"></script>
-  <script src="assets/libs/qrcode-generator.js"></script>
 ${webOsScriptTag}  <script defer src="app.bundle.js"></script>
 </body>
 </html>
@@ -390,7 +389,6 @@ function buildTizenMainJs({ engineFsServiceId = "" } = {}) {
   registerRemoteKeys();
 
   loadScript("nuvio.env.js");
-  loadScript("assets/libs/qrcode-generator.js");
   loadScript("app.bundle.js");
 }());
 `;

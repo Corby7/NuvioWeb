@@ -15,6 +15,7 @@ import { TmdbService } from "../../../core/tmdb/tmdbService.js";
 import { TmdbMetadataService } from "../../../core/tmdb/tmdbMetadataService.js";
 import { TmdbSettingsStore } from "../../../data/local/tmdbSettingsStore.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
+import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { ProfileManager } from "../../../core/profile/profileManager.js";
 import { AvatarRepository } from "../../../data/remote/supabase/avatarRepository.js";
 import { Platform } from "../../../platform/index.js";
@@ -263,6 +264,29 @@ const HOME_SNAPSHOT_KEY_PREFIX = "nuvio.homeSnapshot.";
 const HOME_SNAPSHOT_VERSION = 1;
 const HOME_SNAPSHOT_MAX_ROWS = 30;
 const HOME_SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Cheap "can home paint without the network?" probe for the boot path — it
+// only validates the snapshot envelope, never rebuilds the rows. Boot uses it
+// to decide whether the profile-scoped sync pull has to block navigation.
+export function hasWarmHomeSnapshot() {
+  try {
+    const profileId = String(ProfileManager.getActiveProfileId() || "");
+    if (!profileId) {
+      return false;
+    }
+    const snapshot = LocalStore.get(`${HOME_SNAPSHOT_KEY_PREFIX}${profileId}`, null);
+    if (!snapshot || snapshot.version !== HOME_SNAPSHOT_VERSION) {
+      return false;
+    }
+    if (Date.now() - Number(snapshot.savedAt || 0) > HOME_SNAPSHOT_MAX_AGE_MS) {
+      return false;
+    }
+    return Array.isArray(snapshot.rows) && snapshot.rows.length > 0;
+  } catch (error) {
+    console.warn("Failed to probe home snapshot", error);
+    return false;
+  }
+}
 
 function getTrackInnerNode(track) {
   return track?.querySelector?.(".home-track-inner") || null;
@@ -4583,6 +4607,14 @@ export const HomeScreen = {
     // only bought a metadata round trip that the source requests then had to queue
     // behind. The stream screen re-fetches that metadata in the background instead.
     const isSeries = isSeriesTypeForContinueWatching(normalized?.type);
+    // Fires the source fan-out now so it overlaps the stream screen's mount.
+    streamRepository.prefetchStreamsForRoute({
+      itemId: normalized.contentId,
+      itemType: isSeries ? "series" : (params.itemType || "movie"),
+      videoId: params.videoId || normalized.contentId,
+      season: params.season,
+      episode: params.episode
+    });
     Router.navigate("stream", {
       itemId: normalized.contentId,
       itemType: isSeries ? "series" : (params.itemType || "movie"),

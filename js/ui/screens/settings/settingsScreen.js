@@ -938,22 +938,38 @@ function renderTraktCountdownText(key, remainingMs, fallbackPrefix, attributeNam
   );
 }
 
-function createTraktQrDataUrl(userCode) {
+// The QR library is loaded on demand, so the data URL is not available during
+// the synchronous markup build. The <img> is emitted immediately and its src
+// filled once generation resolves — the caller inserts this markup in the same
+// synchronous render, so the element is mounted by then. Cached per code so
+// the countdown's re-renders don't regenerate (or re-flash) it.
+const traktQrDataUrlCache = new Map();
+
+function createTraktQrImageMarkup(userCode) {
   if (!userCode || typeof document === "undefined") {
     return "";
   }
-  try {
-    const canvas = document.createElement("canvas");
-    QrCodeGenerator.generate(
-      canvas,
-      `https://trakt.tv/activate/${encodeURIComponent(userCode)}`,
-      420
-    );
-    return canvas.toDataURL("image/png");
-  } catch (error) {
-    console.warn("Failed to generate Trakt QR", error);
-    return "";
+  const altText = escapeHtml(t("cd_trakt_qr", {}, "Trakt QR code"));
+  const cached = traktQrDataUrlCache.get(userCode);
+  if (cached) {
+    return `<img class="settings-trakt-qr" src="${escapeHtml(cached)}" alt="${altText}" />`;
   }
+
+  const canvas = document.createElement("canvas");
+  QrCodeGenerator.generate(canvas, `https://trakt.tv/activate/${encodeURIComponent(userCode)}`, 420)
+    .then(() => {
+      const dataUrl = canvas.toDataURL("image/png");
+      traktQrDataUrlCache.set(userCode, dataUrl);
+      const image = document.querySelector(".settings-trakt-qr[data-trakt-qr-pending]");
+      if (image) {
+        image.src = dataUrl;
+        image.removeAttribute("data-trakt-qr-pending");
+        image.hidden = false;
+      }
+    })
+    .catch((error) => console.warn("Failed to generate Trakt QR", error));
+
+  return `<img class="settings-trakt-qr" data-trakt-qr-pending alt="${altText}" hidden />`;
 }
 
 function labelForTmdbLanguage(language) {
@@ -5673,11 +5689,10 @@ export const SettingsScreen = {
   },
 
   renderTraktAwaitingApproval(userCode, remainingMs) {
-    const qrDataUrl = createTraktQrDataUrl(userCode);
     return `
       <p class="settings-trakt-body-copy">${escapeHtml(t("trakt_awaiting_instruction", {}, "Go to trakt.tv/activate and enter this code:"))}</p>
       <div class="settings-trakt-code">${escapeHtml(userCode || "-")}</div>
-      ${qrDataUrl ? `<img class="settings-trakt-qr" src="${escapeHtml(qrDataUrl)}" alt="${escapeHtml(t("cd_trakt_qr", {}, "Trakt QR code"))}" />` : ""}
+      ${createTraktQrImageMarkup(userCode)}
       <p class="settings-trakt-meta-copy">${renderTraktCountdownText("trakt_code_expires", remainingMs, "Code expires in", "data-trakt-device-countdown")}</p>
     `;
   },

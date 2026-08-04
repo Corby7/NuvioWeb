@@ -1,7 +1,41 @@
 // js/core/qr/qrCodeGenerator.js
 
+// qrcode-generator is ~59KB and only three lazy screens (settings, supporters,
+// plugin) ever draw a QR code, so it is fetched on first use instead of from a
+// blocking script tag in index.html that every launch paid for.
+const QR_LIB_SRC = "assets/libs/qrcode-generator.js";
+
+let qrLibPromise = null;
+
+function loadQrLibrary() {
+  if (typeof globalThis.qrcode === "function") {
+    return Promise.resolve();
+  }
+  if (qrLibPromise) {
+    return qrLibPromise;
+  }
+  qrLibPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = QR_LIB_SRC;
+    script.async = true;
+    script.onload = () =>
+      typeof globalThis.qrcode === "function"
+        ? resolve()
+        : reject(new Error("qrcode-generator loaded but did not define qrcode()"));
+    script.onerror = () => {
+      script.remove();
+      qrLibPromise = null;
+      reject(new Error(`Failed to load ${QR_LIB_SRC}`));
+    };
+    document.head.appendChild(script);
+  });
+  return qrLibPromise;
+}
+
 export const QrCodeGenerator = {
-  generate(canvas, content, size = 512) {
+  async generate(canvas, content, size = 512) {
+    await loadQrLibrary();
+
     const qr = qrcode(0, "M");
     qr.addData(content);
     qr.make();

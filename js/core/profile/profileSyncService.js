@@ -1,6 +1,7 @@
 import { AuthManager } from "../auth/authManager.js";
 import { MAX_PROFILES, ProfileManager } from "./profileManager.js";
 import { SupabaseApi } from "../../data/remote/supabase/supabaseApi.js";
+import { LocalStore } from "../storage/localStore.js";
 
 const TABLE = "tv_profiles";
 const FALLBACK_TABLE = "profiles";
@@ -11,6 +12,11 @@ const SET_PROFILE_PIN_RPC = "set_profile_pin";
 const CLEAR_PROFILE_PIN_RPC = "clear_profile_pin";
 const VERIFY_PROFILE_PIN_RPC = "verify_profile_pin";
 const DELETE_PROFILE_DATA_RPC = "sync_delete_profile_data";
+// Last successfully pulled PIN-enabled map, mirrored locally so the boot
+// profile gate can be decided without waiting on a round trip. Only ever
+// written from a successful pull — an empty object from a failed one would
+// read as "no profile has a PIN".
+const CACHED_LOCK_STATES_KEY = "profileLockStates";
 
 function shouldTryLegacyTable(error) {
   if (!error) {
@@ -174,7 +180,7 @@ export const ProfileSyncService = {
         return {};
       }
       const rows = await SupabaseApi.rpc(PULL_LOCKS_RPC, {}, true);
-      return (Array.isArray(rows) ? rows : []).reduce((accumulator, row) => {
+      const states = (Array.isArray(rows) ? rows : []).reduce((accumulator, row) => {
         const profileIndex = Number(row?.profile_index ?? row?.profileIndex ?? row?.id ?? 0);
         if (Number.isFinite(profileIndex) && profileIndex > 0) {
           accumulator[String(Math.trunc(profileIndex))] = Boolean(
@@ -183,10 +189,31 @@ export const ProfileSyncService = {
         }
         return accumulator;
       }, {});
+      LocalStore.set(CACHED_LOCK_STATES_KEY, states);
+      return states;
     } catch (error) {
       console.warn("Profile lock state pull failed", error);
       return {};
     }
+  },
+
+  // null when no pull has ever landed on this device, which is the signal that
+  // the gate cannot be decided locally yet and must wait for the network.
+  getCachedProfileLockStates() {
+    const cached = LocalStore.get(CACHED_LOCK_STATES_KEY, null);
+    return cached && typeof cached === "object" ? cached : null;
+  },
+
+  // Keeps the mirror honest for a PIN changed on this device, so the next boot
+  // gate sees it without waiting for the pull to confirm it.
+  setCachedProfileLockState(profileId, pinEnabled) {
+    const profileIndex = Number(profileId);
+    if (!Number.isFinite(profileIndex) || profileIndex <= 0) {
+      return;
+    }
+    const cached = this.getCachedProfileLockStates() || {};
+    cached[String(Math.trunc(profileIndex))] = Boolean(pinEnabled);
+    LocalStore.set(CACHED_LOCK_STATES_KEY, cached);
   },
 
   async setProfilePin(profileId, pin, currentPin = null) {
@@ -202,6 +229,7 @@ export const ProfileSyncService = {
         params.p_current_pin = String(currentPin).trim();
       }
       await SupabaseApi.rpc(SET_PROFILE_PIN_RPC, params, true);
+      this.setCachedProfileLockState(profileId, true);
       return true;
     } catch (error) {
       console.warn("Set profile PIN failed", error);
@@ -221,6 +249,7 @@ export const ProfileSyncService = {
         params.p_current_pin = String(currentPin).trim();
       }
       await SupabaseApi.rpc(CLEAR_PROFILE_PIN_RPC, params, true);
+      this.setCachedProfileLockState(profileId, false);
       return true;
     } catch (error) {
       console.warn("Clear profile PIN failed", error);

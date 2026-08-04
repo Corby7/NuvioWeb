@@ -5427,6 +5427,15 @@ export const MetaDetailsScreen = {
     const nextEpisode = currentIndex >= 0 ? (this.episodes[currentIndex + 1] || null) : null;
     const streamBackdrop = this.meta?.background || this.meta?.landscapePoster || this.meta?.poster || null;
     const imdbId = resolveMetaImdbId(this.meta, this.params);
+    // Start the source fan-out on the click instead of after the stream screen
+    // has built and painted its shell — the screen attaches to this same run.
+    streamRepository.prefetchStreamsForRoute({
+      itemId: this.params?.itemId || null,
+      itemType: "series",
+      videoId: episode.id,
+      season: episode.season,
+      episode: episode.episode
+    });
     Router.navigate("stream", {
       itemId: this.params?.itemId || null,
       itemType: "series",
@@ -5460,6 +5469,12 @@ export const MetaDetailsScreen = {
     const streamBackdrop = this.meta?.background || this.meta?.landscapePoster || this.meta?.poster || null;
     const itemType = resolvePlayableDetailType(this.params?.itemType || this.meta?.type, this.meta);
     const imdbId = resolveMetaImdbId(this.meta, this.params);
+    streamRepository.prefetchStreamsForRoute({
+      itemId: this.params?.itemId || null,
+      itemType,
+      videoId: this.params?.itemId || null,
+      ...extraParams
+    });
     Router.navigate("stream", {
       itemId: this.params?.itemId || null,
       itemType,

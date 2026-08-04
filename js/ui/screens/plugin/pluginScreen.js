@@ -150,7 +150,9 @@ export const PluginScreen = {
     if (!canvas) {
       return;
     }
-    QrCodeGenerator.generate(canvas, this.model.phoneManagerUrl, 440);
+    QrCodeGenerator.generate(canvas, this.model.phoneManagerUrl, 440).catch((error) => {
+      console.warn("Failed to generate phone manager QR", error);
+    });
   },
 
   async openQrOverlay() {

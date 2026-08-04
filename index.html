@@ -111,8 +111,9 @@
   <body>
     <script src="nuvio.env.js?v=20260707a"></script>
 
-    <script src="assets/libs/qrcode-generator.js"></script>
-
+    <!-- qrcode-generator.js used to load here, blocking every launch for a
+         library only three lazy screens need. qrCodeGenerator.js now fetches
+         it on first use. -->
     <script src="app.bundle.js?v=20260707a"></script>
   </body>
 </html>

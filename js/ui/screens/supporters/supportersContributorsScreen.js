@@ -690,11 +690,9 @@ export const SupportersContributorsScreen = {
       const content = String(canvas.getAttribute("data-qr-content") || "").trim();
       if (!content) return;
       const size = canvas.classList.contains("supporters-dialog-qr") ? 376 : 440;
-      try {
-        QrCodeGenerator.generate(canvas, content, size);
-      } catch (error) {
+      QrCodeGenerator.generate(canvas, content, size).catch((error) => {
         console.warn("Failed to generate supporters QR", error);
-      }
+      });
     });
   },
 

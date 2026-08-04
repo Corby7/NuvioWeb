@@ -22,6 +22,7 @@ import { CollectionSyncService } from "./core/profile/collectionSyncService.js";
 import { LibrarySyncService } from "./core/profile/librarySyncService.js";
 import { HomeCatalogSettingsSyncService } from "./core/profile/homeCatalogSettingsSyncService.js";
 import { ThemeManager } from "./ui/theme/themeManager.js";
+import { hasWarmHomeSnapshot } from "./ui/screens/home/homeScreen.js";
 import { renderAppShell } from "./bootstrap/renderAppShell.js";
 import { RootSidebarController } from "./ui/components/rootSidebarController.js";
 import { renderAddonRemotePage } from "./bootstrap/renderAddonRemotePage.js";
@@ -49,6 +50,7 @@ const GUEST_QR_BYPASS_KEY = "skipAuthQrGate";
 const SIGNED_OUT_ALLOWED_ROUTES = new Set(["trakt"]);
 let hasSelectedProfileThisSession = false;
 let appShellRendered = false;
+let streamingLibsWarmScheduled = false;
 
 function isSignedOutRouteAllowed() {
   return SIGNED_OUT_ALLOWED_ROUTES.has(Router.getCurrent());
@@ -234,22 +236,11 @@ function isAddonRemoteMode() {
   }
 }
 
-async function shouldShowProfileSelection() {
-  await awaitBootSyncValue(ProfileSyncService.pull(), [], "profile sync pull");
-  bootMark("profile sync pulled");
-  const profiles = await ProfileManager.getProfiles();
+function decideProfileSelection(profiles, pinStates) {
   const activeProfileId = ProfileManager.getActiveProfileId();
-  // On timeout this falls back to {} (no PINs), which matches the existing
-  // error behavior of pullProfileLockStates.
-  const pinStates = await awaitBootSyncValue(ProfileSyncService.pullProfileLockStates(), {}, "profile lock states pull");
-  bootMark("profile lock states pulled");
   const activeProfileHasPin = Boolean(
     pinStates?.[String(activeProfileId)] || pinStates?.[Number(activeProfileId)]
   );
-
-  if (hasSelectedProfileThisSession) {
-    return false;
-  }
 
   // Remember last profile: when enabled and the last used profile has no PIN,
   // skip the picker and go straight in, matching the Android TV app. A profile
@@ -265,6 +256,84 @@ async function shouldShowProfileSelection() {
   return profiles.length > 1 || activeProfileHasPin;
 }
 
+// Re-checks a locally decided gate once the real lock states land. The only
+// unsafe local answer is "skip the picker" for a profile that has since had a
+// PIN added on another device, so that is the only case that acts.
+function reconcileProfileGate(pinStates) {
+  if (!hasSelectedProfileThisSession) {
+    return;
+  }
+  const activeProfileId = ProfileManager.getActiveProfileId();
+  const activeProfileHasPin = Boolean(
+    pinStates?.[String(activeProfileId)] || pinStates?.[Number(activeProfileId)]
+  );
+  if (!activeProfileHasPin) {
+    return;
+  }
+  bootMark("profile gate reconciled: PIN added remotely, returning to picker");
+  hasSelectedProfileThisSession = false;
+  Router.navigate("profileSelection", {}, { replaceHistory: true, skipStackPush: true });
+}
+
+async function shouldShowProfileSelection() {
+  if (hasSelectedProfileThisSession) {
+    return false;
+  }
+
+  // Both gate inputs are mirrored locally (profiles in LocalStore, PIN states
+  // in the lock-state cache), so on any launch after the first this decides
+  // without a round trip. The pulls still run — they just move off the
+  // critical path — and reconcileProfileGate corrects the one unsafe answer.
+  // The two are independent, so even the cold path runs them in parallel
+  // rather than back to back.
+  const remoteGate = Promise.all([
+    awaitBootSyncValue(ProfileSyncService.pull(), [], "profile sync pull"),
+    // On timeout this falls back to {} (no PINs), which matches the existing
+    // error behavior of pullProfileLockStates.
+    awaitBootSyncValue(ProfileSyncService.pullProfileLockStates(), {}, "profile lock states pull")
+  ]);
+
+  const cachedPinStates = ProfileSyncService.getCachedProfileLockStates();
+  if (cachedPinStates) {
+    const cachedProfiles = await ProfileManager.getProfiles();
+    remoteGate
+      .then(([, pinStates]) => reconcileProfileGate(pinStates))
+      .catch((error) => console.warn("Profile gate reconcile failed", error));
+    bootMark("profile gate decided from cache");
+    return decideProfileSelection(cachedProfiles, cachedPinStates);
+  }
+
+  const [, pinStates] = await remoteGate;
+  bootMark("profile gate pulled");
+  return decideProfileSelection(await ProfileManager.getProfiles(), pinStates);
+}
+
+// Every pull here merges into a local store, so the only thing that changes
+// when it lands late is that a screen re-reads fresher data. Both callers rely
+// on that: boot only awaits it when the UI would otherwise render empty.
+async function pullProfileScopedState(profileId) {
+  const pullResults = await Promise.all([
+    ProfileSettingsSyncService.pull(profileId),
+    // Watched/progress pulls run after the Trakt credential pull so their
+    // Trakt-vs-Supabase source gating sees fresh credentials — but they don't
+    // depend on each other, so they go together rather than one after the other.
+    TraktCredentialSyncService.pullFromRemote(profileId).then((credentialResult) =>
+      Promise.all([WatchedItemsSyncService.pull(), WatchProgressSyncService.pull()]).then(
+        () => credentialResult
+      )
+    ),
+    CollectionSyncService.pull(profileId),
+    HomeCatalogSettingsSyncService.pull(profileId),
+    LibrarySyncService.pull()
+  ]);
+  if (pullResults[0]) {
+    await I18n.init();
+    ThemeManager.apply();
+    I18n.apply();
+  }
+  return pullResults;
+}
+
 async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
   hasSelectedProfileThisSession = true;
   const profiles = await ProfileManager.getProfiles();
@@ -277,30 +346,20 @@ async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
     await ProfileManager.setActiveProfile(activeProfile.id);
     StartupSyncService.enableProfileScopedSync();
     detailWatchedEnrichmentService.invalidateAllCache();
-    // Bounded parallel pulls: a slow backend must not hang boot (fork behavior).
-    const pullResults = await awaitBootSyncValue(
-      Promise.all([
-        ProfileSettingsSyncService.pull(activeProfile.id),
-        // Watched/progress pulls run after the Trakt credential pull so their
-        // Trakt-vs-Supabase source gating sees fresh credentials.
-        TraktCredentialSyncService.pullFromRemote(activeProfile.id).then(async (credentialResult) => {
-          await WatchedItemsSyncService.pull();
-          await WatchProgressSyncService.pull();
-          return credentialResult;
-        }),
-        CollectionSyncService.pull(activeProfile.id),
-        HomeCatalogSettingsSyncService.pull(activeProfile.id),
-        LibrarySyncService.pull()
-      ]),
-      null,
-      "profile-scoped sync pull"
-    );
-    bootMark("profile-scoped sync pulled");
-    const didApplyProfileSettings = Array.isArray(pullResults) ? pullResults[0] : false;
-    if (didApplyProfileSettings) {
-      await I18n.init();
-      ThemeManager.apply();
-      I18n.apply();
+    const pull = pullProfileScopedState(activeProfile.id);
+    // Home stale-while-revalidates from its local snapshot, so when one exists
+    // there is nothing here worth waiting for — letting these ~3 serialized
+    // round trips run in the background is the difference between showing the
+    // last session's rows immediately and staring at an empty screen for a
+    // second. Without a snapshot there is nothing to show, so boot still waits.
+    if (hasWarmHomeSnapshot()) {
+      pull
+        .then(() => bootMark("profile-scoped sync pulled (background)"))
+        .catch((error) => console.warn("Background profile-scoped sync pull failed", error));
+    } else {
+      // Bounded pull: a slow backend must not hang boot (fork behavior).
+      await awaitBootSyncValue(pull, null, "profile-scoped sync pull");
+      bootMark("profile-scoped sync pulled");
     }
   }
   const resumeRoute = restoreWebOsRoute && typeof Router.consumeWebOsResumeRoute === "function"
@@ -460,7 +519,16 @@ async function bootstrapApp() {
   Router.init();
   RootSidebarController.init();
   Router.onNavigate = (routeName) => RootSidebarController.update(routeName);
-  Router.afterNavigate = (routeName) => RootSidebarController.afterMount(routeName);
+  Router.afterNavigate = (routeName) => {
+    RootSidebarController.afterMount(routeName);
+    // hls.js + dash.js are ~1.2MB of script. Warming them from bootstrap put
+    // that parse in the middle of the boot sync and the first home render;
+    // waiting for a screen to mount keeps it off the startup critical path.
+    if (!streamingLibsWarmScheduled) {
+      streamingLibsWarmScheduled = true;
+      warmStreamingLibs({ delayMs: 2500 });
+    }
+  };
   PlayerController.init();
 
   FocusEngine.init();
@@ -470,7 +538,6 @@ async function bootstrapApp() {
   ThemeManager.apply();
   I18n.apply();
   bootMark("controllers ready");
-  warmStreamingLibs({ delayMs: 800 });
 
   AuthManager.subscribe((state) => {
     if (state === AuthState.LOADING) {

@@ -223,7 +223,6 @@ function loadScript(src) {
 loadScript("nuvio.env.js");
 loadScript("js/runtime/polyfills.js");
 loadScript("js/runtime/env.js");
-loadScript("assets/libs/qrcode-generator.js");
 loadScript("app.bundle.js");
 `;
 }
