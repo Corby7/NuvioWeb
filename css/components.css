@@ -5885,20 +5885,59 @@ img[data-lazy-src] {
   background: linear-gradient(180deg, transparent 0%, transparent 45%, rgba(13, 13, 13, 0.7) 78%, rgba(13, 13, 13, 0.95) 100%);
 }
 
+/* Remaining-time pill — the .nuvio-dialog-panel glass recipe at pill scale:
+   light translucent white base (never a dark fill, that reads as a chip rather
+   than glass), blur + saturation so the artwork behind it distorts, a bright
+   hairline edge, and the lit-rim shadow pair. Blur radius is scaled down from
+   the dialog's 28px because the pill only samples a ~150x36 region — the look
+   is identical at this size and the per-frame cost stays small even with a full
+   row of them over decoding artwork. */
 .home-screen-shell .home-continue-badge {
   position: absolute;
   z-index: 2;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 10px;
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: rgba(19, 19, 19, 0.88);
-  color: rgba(255, 255, 255, 0.94);
-  font-size: 11px;
-  font-weight: 500;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  /* The white sheet is the glass; the dark base under it is a legibility floor
+     the dialog does not need — that panel always sits over its own dimmed
+     backdrop, whereas this pill sits over raw artwork and would wash out on a
+     bright frame. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
+    rgba(12, 12, 14, 0.46);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.28),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.15);
+  color: rgba(255, 255, 255, 0.96);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-transform: uppercase;
+  /* Tabular figures so a minute ticking 20 → 19 doesn't reflow the pill. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Only the time-remaining state carries this. Sized off the label's full em
+   rather than its cap height, so the clock reads as the same weight as the text
+   beside it; the slight dim keeps it from competing with the number. */
+.home-screen-shell .home-continue-badge-icon {
+  flex: 0 0 auto;
+  width: 1.25em;
+  height: 1.25em;
+  display: block;
+  opacity: 0.8;
 }
 
 .home-screen-shell .home-continue-copy {
@@ -7322,11 +7361,11 @@ img[data-lazy-src] {
 .home-screen-shell.home-layout-modern .home-continue-badge {
   top: 16px;
   right: 16px;
-  min-height: 28px;
-  padding: 8px 16px;
-  border-radius: 64px;
-  font-size: 20px;
-  line-height: 1.4;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 18px;
+  font-size: 16px;
+  letter-spacing: 0.1em;
 }
 
 .home-screen-shell.home-layout-modern .home-continue-progress {
@@ -18159,12 +18198,64 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 }
 
 /* Back-exit acknowledgment: fades on the compositor while the main thread
-   rebuilds the home screen, so the back press feels instant. */
-.detail-exit-fading {
-  opacity: 0;
-  transition: opacity 300ms ease;
+   rebuilds the home screen, so the back press feels instant.
+   It dims to 0.14 rather than to 0 on purpose. Fading fully out meant the
+   outgoing screen hit black, held there for the rest of the rebuild, and then
+   the incoming screen rose from black — a fade-through-black, which reads as
+   far slower than it is. 0.14 is a clear acknowledgment while leaving the
+   outgoing frame faintly visible, so the swap into nuvioRouteFadeEnter (which
+   starts from the SAME value — keep the two literals in sync) is continuous
+   instead of passing through a black hold. */
+.detail-exit-fading,
+.nuvio-route-exit-fading {
+  opacity: 0.14;
+  transition: opacity 200ms ease-out;
   will-change: opacity;
   pointer-events: none;
+}
+
+/* Opening a collection folder lands on the same hero art the home tile was
+   already showing, so a horizontal push reads as the backdrop sliding away
+   from itself — a plain fade keeps that shared hero anchored, in both
+   directions. Deliberately NOT in the .performance-constrained animation:none
+   list below: this is opacity-only (compositor work, no layout/paint), it is
+   the only transition the collection route has on webOS — which sets
+   performance-constrained unconditionally — and going without it is what made
+   entering/leaving a collection read as a hard cut on the TV. */
+.nuvio-route-fade-enter {
+  animation: nuvioRouteFadeEnter 170ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  will-change: opacity;
+}
+
+/* Starts at the exit fade's resting opacity, not at 0 — see the comment on
+   .nuvio-route-exit-fading. Coming back from a collection the outgoing screen
+   is already sitting at 0.14 when the swap happens, so starting from 0 would
+   punch a black frame into the middle of the transition. */
+@keyframes nuvioRouteFadeEnter {
+  0% {
+    opacity: 0.14;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Folder rows arrive a beat after the hero (each source is a separate fetch),
+   so they settle in rather than popping. Scoped to the collection shell — the
+   home screen re-renders far too often for a per-row entrance. */
+.folder-detail-home-shell .home-row-enter {
+  animation: folderRowEnter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes folderRowEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .detail-loading-shell {
@@ -18334,54 +18425,166 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   box-sizing: border-box;
 }
 
+/* Auto-play countdown. One glass card at the bottom of the sources page: a dial
+   that drains across the countdown window, and just enough of the picked source
+   to recognise it. Same glass recipe as .nuvio-dialog-panel — this is a modal
+   moment, so it should read as the same material. The dial is pure CSS; the
+   per-second tick only patches the digit inside it
+   (streamScreen.updateAutoPlayCountdownView), so a countdown never re-renders
+   the sources list. */
 .stream-route-autoplay {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 64px;
+  padding: 0 48px 56px;
   pointer-events: none;
   z-index: 30;
 }
 
 .stream-route-autoplay-card {
-  min-width: 520px;
-  max-width: 70%;
-  padding: 24px 36px;
-  border-radius: 18px;
-  background: rgb(var(--card-bg-rgb) / 0.96);
-  border: 1px solid var(--secondary-color);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-width: 0;
+  max-width: min(920px, 80%);
+  padding: 26px 44px 26px 30px;
+  border-radius: 40px;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.15);
+  animation: streamAutoPlayCardIn 150ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-.stream-route-autoplay-title {
-  font-size: 20px;
+/* Re-rendered mid-countdown: the card is already on screen, so it must not
+   scale in again. */
+.stream-route-autoplay-card.is-settled {
+  animation: none;
+}
+
+/* Same enter as the dialog panel: scale 0.9 + fade over 150ms. */
+@keyframes streamAutoPlayCardIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.stream-route-autoplay-dial {
+  position: relative;
+  flex: 0 0 auto;
+  width: 92px;
+  height: 92px;
+}
+
+.stream-route-autoplay-dial-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* Start the sweep at 12 o'clock. */
+  transform: rotate(-90deg);
+}
+
+.stream-route-autoplay-dial-track,
+.stream-route-autoplay-dial-progress {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.stream-route-autoplay-dial-track {
+  stroke: rgba(255, 255, 255, 0.16);
+}
+
+.stream-route-autoplay-dial-progress {
+  stroke: var(--secondary-color);
+  /* 2π × r(32) = 201.06 — one full turn of dash, drained to empty by the time
+     the countdown expires. */
+  stroke-dasharray: 201.06;
+  stroke-dashoffset: 0;
+  animation: streamAutoPlayDial var(--autoplay-total, 5s) linear var(--autoplay-elapsed, 0s) forwards;
+}
+
+@keyframes streamAutoPlayDial {
+  to {
+    stroke-dashoffset: 201.06;
+  }
+}
+
+.stream-route-autoplay-dial-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-color);
+  /* Tabular figures so 9 → 8 doesn't shift the digit inside the ring. */
+  font-variant-numeric: tabular-nums;
+}
+
+.stream-route-autoplay-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stream-route-autoplay-eyebrow {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--text-secondary);
-  margin-bottom: 6px;
 }
 
 .stream-route-autoplay-name {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 600;
+  line-height: 36px;
   color: var(--text-color);
-  margin-bottom: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.stream-route-autoplay-count {
-  font-size: 30px;
-  font-weight: 700;
-  color: var(--secondary-color);
-  margin-bottom: 10px;
+.stream-route-autoplay-meta,
+.stream-route-autoplay-hint {
+  font-size: 18px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stream-route-autoplay-meta {
+  color: var(--text-secondary);
 }
 
 .stream-route-autoplay-hint {
-  font-size: 18px;
-  color: var(--text-secondary);
+  margin-top: 2px;
+  color: var(--text-tertiary);
+}
+
+/* Constrained mode zeroes every animation duration, which would drain the dial
+   instantly — it is the one thing on this card that has to keep its timing.
+   Same exemption pattern as the player's loading spinner. */
+.performance-constrained .stream-route-autoplay-dial-progress {
+  animation: streamAutoPlayDial var(--autoplay-total, 5s) linear var(--autoplay-elapsed, 0s) forwards !important;
 }
 
 .stream-route-left,
@@ -18647,6 +18850,30 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   animation-duration: 720ms !important;
   animation-timing-function: steps(12, end) !important;
   animation-iteration-count: infinite !important;
+}
+
+/* The catch-all above collapses every animation to 0.01ms, which is what left
+   the collection route with no transition at all on webOS (which sets
+   performance-constrained unconditionally, C3 included) — the route-enter
+   animation:none rule below is only half the story. These two are opacity/
+   transform only, i.e. compositor work with no layout or paint, so they are
+   restored to their authored duration. Measured on-device: animationName
+   resolves but animationDuration came back as 1e-05s without this. */
+.performance-constrained .nuvio-route-fade-enter {
+  animation-duration: 170ms !important;
+}
+
+.performance-constrained .folder-detail-home-shell .home-row-enter {
+  animation-duration: 240ms !important;
+}
+
+/* Likewise the back-exit acknowledgment: the catch-all clamps it to 140ms,
+   which is too short to still be fading once the main thread starts blocking on
+   the home rebuild — the whole point is that it outlives that block. */
+.performance-constrained .detail-exit-fading,
+.performance-constrained .nuvio-route-exit-fading {
+  transition-property: opacity !important;
+  transition-duration: 200ms !important;
 }
 
 .performance-constrained .nuvio-route-slide-enter,

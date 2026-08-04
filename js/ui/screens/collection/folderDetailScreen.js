@@ -710,6 +710,10 @@ export const FolderDetailScreen = {
   async mount(params = {}, navigationContext = {}) {
     this.container = document.getElementById("folderDetail");
     ScreenUtils.show(this.container);
+    // Reset in BOTH mount and cleanup — the fade class lives on the persistent
+    // container, so a leftover one would mount the next visit fully transparent,
+    // and a stuck exitBackPending flag would swallow every key press.
+    this.clearExitFade();
     this.params = params || {};
     this.layoutPrefs = LayoutPreferences.get();
     this.collection = CollectionsStore.get().find((entry) => String(entry?.id || "") === String(this.params.collectionId || "")) || null;
@@ -1140,7 +1144,7 @@ export const FolderDetailScreen = {
       this.renderFollowLayout();
       return;
     }
-    const enterClass = this.folderRouteEnterPending ? " nuvio-route-slide-enter" : "";
+    const enterClass = this.folderRouteEnterPending ? " nuvio-route-fade-enter" : "";
     this.folderRouteEnterPending = false;
     const sourceRows = this.viewMode === "TABBED_GRID"
       ? (this.sourceTabs || [])
@@ -1269,7 +1273,7 @@ export const FolderDetailScreen = {
   renderFollowLayout() {
     HomeScreen.teardownModernTrackScrollPagination.call(this);
     HomeScreen.cancelFocusedPosterFlow.call(this);
-    const enterClass = this.folderRouteEnterPending ? " nuvio-route-slide-enter" : "";
+    const enterClass = this.folderRouteEnterPending ? " nuvio-route-fade-enter" : "";
     this.folderRouteEnterPending = false;
     this.expandedPosterNode = null;
     this.rows = buildFolderSourceRows(this.tabs || []);
@@ -1304,7 +1308,7 @@ export const FolderDetailScreen = {
     });
     this.catalogSeeAllMap = payload.catalogSeeAllMap;
     const sizingStyle = buildModernHomeSizingStyle(this.layoutPrefs);
-    this.container.innerHTML = `
+    const markup = `
       <div class="home-shell home-screen-shell home-layout-modern${modernLandscapePostersEnabled ? " home-modern-landscape-posters" : ""} folder-detail-home-shell" style="${escapeAttribute(sizingStyle)}">
         <main class="home-main home-screen-main">
           <div class="home-route-content${enterClass}">
@@ -1313,6 +1317,9 @@ export const FolderDetailScreen = {
         </main>
       </div>
     `;
+    if (!this.applyFollowLayoutRowsPatch(markup, heroItem)) {
+      this.container.innerHTML = markup;
+    }
     ScreenUtils.indexFocusables(this.container);
     HomeScreen.buildNavigationModel.call(this);
     HomeScreen.bindHomeViewportEvents.call(this);
@@ -1326,6 +1333,49 @@ export const FolderDetailScreen = {
     HomeScreen.applyHeroToDom.call(this);
     HomeScreen.ensureHomeTruncationObservers.call(this);
     HomeScreen.scheduleHomeTruncationUpdate.call(this);
+  },
+
+  // The folder hero comes from the folder itself, not from the rows, so it is
+  // already final on the mount render — but the render that runs when the
+  // sources' items land replaced the whole container, recreating the hero's
+  // backdrop/logo <img> nodes (a visible blink a beat after the collection
+  // opens) and resetting the rows viewport's scrollTop. When the shell is
+  // already up and the hero is unchanged, swap only the rows subtree in.
+  // Returns false to fall back to the full innerHTML rebuild.
+  applyFollowLayoutRowsPatch(markup, heroItem) {
+    const liveScroll = this.container?.querySelector(".home-modern-rows-scroll");
+    if (!liveScroll) {
+      return false;
+    }
+    const liveHero = this.container.querySelector(".home-hero-card");
+    const heroId = String(heroItem?.id || "");
+    if (Boolean(liveHero) !== Boolean(heroId)) {
+      return false;
+    }
+    if (liveHero && String(liveHero.dataset.itemId || "") !== heroId) {
+      return false;
+    }
+    const template = document.createElement("template");
+    template.innerHTML = markup;
+    const nextScroll = template.content.querySelector(".home-modern-rows-scroll");
+    if (!nextScroll) {
+      return false;
+    }
+    // The row entrance animation is for rows appearing into an empty folder,
+    // not for a later in-place refresh — replaying it on every refresh reads as
+    // the whole list flashing.
+    const hadRows = Boolean(liveScroll.querySelector(".home-modern-row"));
+    if (hadRows) {
+      nextScroll.querySelectorAll(".home-row-enter").forEach((row) => {
+        row.classList.remove("home-row-enter");
+      });
+    }
+    if (typeof liveScroll.replaceChildren === "function") {
+      liveScroll.replaceChildren(...nextScroll.childNodes);
+    } else {
+      liveScroll.innerHTML = nextScroll.innerHTML;
+    }
+    return true;
   },
 
   setupModernTrackScrollPagination() {
@@ -1637,6 +1687,10 @@ export const FolderDetailScreen = {
   },
 
   async onKeyDown(event) {
+    if (this.exitBackPending) {
+      event?.preventDefault?.();
+      return;
+    }
     if (isBackEvent(event)) {
       event?.preventDefault?.();
       if (this.useHomeFollowLayout && (this.continueWatchingMenu || this.posterHoldMenu)) {
@@ -1648,7 +1702,7 @@ export const FolderDetailScreen = {
         return;
       }
       this.prepareHomeReturnAnimation();
-      Router.back();
+      this.requestExitWithFade();
       return;
     }
     if (this.useHomeFollowLayout) {
@@ -1738,7 +1792,86 @@ export const FolderDetailScreen = {
     HomeScreen.pendingCollectionRouteReturnAnimation = true;
   },
 
+  // Immediate visual ack before Router.back(): rebuilding home blocks the main
+  // thread for ~1s on the C3, so a Back press otherwise looks ignored until the
+  // screen snaps over. This opacity transition runs on the compositor, so it
+  // keeps animating straight through that block. Same idea as
+  // metaDetailsScreen.requestExitWithFade(), but driven from
+  // consumeBackRequest() — FocusEngine.handleBack() intercepts back events and
+  // returns before it ever reaches a screen's onKeyDown, so hanging this off
+  // onKeyDown would never fire on device.
+  requestExitWithFade() {
+    if (this.exitBackPending) {
+      return;
+    }
+    this.exitBackPending = true;
+    const container = this.container;
+    container?.classList.add("nuvio-route-exit-fading");
+
+    // Waiting a double-rAF before Router.back() is NOT enough — measured on the
+    // C3, the transition had still not been created when the rebuild seized the
+    // main thread, so opacity sat at 1 for the whole ~420ms block and then
+    // transitionrun/start/end all fired in the same millisecond afterwards, i.e.
+    // no visible fade at all. Hand over only once the transition is genuinely
+    // running (~50ms), by which point it lives on the compositor and keeps
+    // animating through the block. The timeout is the floor, not the plan:
+    // transitionstart never fires if the style change gets coalesced away.
+    let navigated = false;
+    const go = () => {
+      if (navigated) {
+        return;
+      }
+      navigated = true;
+      this.clearExitFadeStartWatch();
+      // skipConsume: this IS the consume — re-entering it would loop.
+      Router.back({ skipConsume: true });
+    };
+    this.exitFadeStartHandler = (event) => {
+      if (event.target === container && event.propertyName === "opacity") {
+        go();
+      }
+    };
+    container?.addEventListener("transitionstart", this.exitFadeStartHandler);
+    this.exitFadeStartTimer = setTimeout(go, 200);
+
+    // history.back() is a no-op when there is nothing to go back to (e.g. webOS
+    // resumed straight into this route), which would strand the screen at
+    // opacity 0. Undo the fade if the navigation never lands.
+    this.exitFadeSafetyTimer = setTimeout(() => {
+      this.exitFadeSafetyTimer = null;
+      if (Router.getCurrent() === "folderDetail") {
+        this.clearExitFade();
+      }
+    }, 1200);
+  },
+
+  clearExitFadeStartWatch() {
+    if (this.exitFadeStartTimer) {
+      clearTimeout(this.exitFadeStartTimer);
+      this.exitFadeStartTimer = null;
+    }
+    if (this.exitFadeStartHandler) {
+      this.container?.removeEventListener("transitionstart", this.exitFadeStartHandler);
+      this.exitFadeStartHandler = null;
+    }
+  },
+
+  clearExitFade() {
+    this.exitBackPending = false;
+    this.clearExitFadeStartWatch();
+    if (this.exitFadeSafetyTimer) {
+      clearTimeout(this.exitFadeSafetyTimer);
+      this.exitFadeSafetyTimer = null;
+    }
+    this.container?.classList.remove("nuvio-route-exit-fading");
+  },
+
   consumeBackRequest() {
+    if (this.exitBackPending) {
+      // Our own Router.back() passes skipConsume, so this is a second Back press
+      // landing while the exit is already in flight — swallow it.
+      return "history";
+    }
     if (this.useHomeFollowLayout) {
       if (this.continueWatchingMenu) {
         HomeScreen.closeContinueWatchingMenu.call(this);
@@ -1750,7 +1883,10 @@ export const FolderDetailScreen = {
       }
     }
     this.prepareHomeReturnAnimation();
-    return false;
+    this.requestExitWithFade();
+    // "history" tells FocusEngine.handleBack we are driving the history
+    // navigation ourselves, so it must not suppress the resulting popstate.
+    return "history";
   },
 
   cleanup() {
@@ -1766,6 +1902,13 @@ export const FolderDetailScreen = {
       }
       this.boundHomeViewport = null;
     }
+    if (this._followLayoutRenderTimer) {
+      // A debounced render firing after the screen is gone would paint into a
+      // hidden container and — via restoreFocus() — steal focus back from home.
+      clearTimeout(this._followLayoutRenderTimer);
+      this._followLayoutRenderTimer = null;
+    }
+    this.clearExitFade();
     ScreenUtils.hide(this.container);
   }
 };

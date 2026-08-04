@@ -3,6 +3,8 @@ import { ScreenUtils } from "../../navigation/screen.js";
 import { streamRepository } from "../../../data/repository/streamRepository.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { watchProgressRepository } from "../../../data/repository/watchProgressRepository.js";
+import { metaRepository } from "../../../data/repository/metaRepository.js";
+import { normalizeEpisodes } from "../../../data/repository/episodeUtils.js";
 import { PlayerSettingsStore } from "../../../data/local/playerSettingsStore.js";
 import {
   selectAutoPlayStream,
@@ -28,6 +30,27 @@ import {
   normalizeStreamBadgeChipColor,
   normalizeStreamBadgeRules
 } from "../../../core/streams/streamBadgeRules.js";
+
+// rAF callbacks still run before the frame is painted, so work scheduled there blocks the
+// paint it was meant to follow. The nested timeout is what actually lands after it.
+function afterNextPaint(fn) {
+  requestAnimationFrame(() => {
+    setTimeout(fn, 0);
+  });
+}
+
+function resolveImdbIdFromMeta(meta = {}, params = {}) {
+  return [
+    meta?.imdbId,
+    meta?.imdb_id,
+    meta?.externalIds?.imdb,
+    meta?.external_ids?.imdb_id,
+    meta?.id,
+    params?.itemId
+  ]
+    .map((value) => String(value || "").trim().split(":")[0])
+    .find((value) => /^tt\d+$/i.test(value)) || null;
+}
 
 const failedAddonLogoUrls = new Set();
 const addonLogoCache = new Map();
@@ -1188,6 +1211,47 @@ export const StreamScreen = {
     }, 0);
   },
 
+  // Continue Watching opens this screen directly so the source requests start on the very
+  // first frame instead of queueing behind a detail-screen metadata fetch. The parts of the
+  // metadata only the player needs — the episode list for next-up, the imdb id — are pulled
+  // alongside the sources and merged in here. Nothing the shell renders is touched, so
+  // hydrating never repaints; playStream waits on this before handing off.
+  async hydrateStreamMetaParams() {
+    const token = this.loadToken;
+    const itemId = String(this.params?.itemId || "").trim();
+    const itemType = normalizeType(this.params?.itemType);
+    if (!itemId) {
+      return;
+    }
+    let meta = null;
+    try {
+      const result = await metaRepository.getMetaFromAllAddons(itemType, itemId);
+      meta = result?.status === "success" ? result.data : null;
+    } catch (error) {
+      console.warn("Stream meta hydration failed", error);
+    }
+    if (!meta || token !== this.loadToken || Router.getCurrent() !== "stream") {
+      return;
+    }
+    const episodes = normalizeEpisodes(meta?.videos || []);
+    const currentVideoId = String(this.params?.videoId || "");
+    const currentIndex = episodes.findIndex((entry) => String(entry?.id || "") === currentVideoId);
+    const nextEpisode = currentIndex >= 0 ? (episodes[currentIndex + 1] || null) : null;
+    this.params = {
+      ...this.params,
+      imdbId: this.params?.imdbId || resolveImdbIdFromMeta(meta, this.params),
+      parentalWarnings: this.params?.parentalWarnings || meta?.parentalWarnings || null,
+      parentalGuide: this.params?.parentalGuide || meta?.parentalGuide || null,
+      episodes,
+      nextEpisodeVideoId: nextEpisode?.id || null,
+      nextEpisodeLabel: nextEpisode ? `S${nextEpisode.season}E${nextEpisode.episode}` : null,
+      nextEpisodeSeason: nextEpisode?.season ?? null,
+      nextEpisodeEpisode: nextEpisode?.episode ?? null,
+      nextEpisodeTitle: nextEpisode?.title || "",
+      nextEpisodeReleased: nextEpisode?.released || ""
+    };
+  },
+
   getBackdropUrl() {
     return this.params?.backdrop || this.params?.landscapePoster || this.params?.poster || "";
   },
@@ -1257,6 +1321,10 @@ export const StreamScreen = {
     this.addonLogoLookup = {};
     this.addonFilter = "all";
     this.hasRenderedStreamRouteShell = false;
+    // ScreenUtils.hide() empties the container on cleanup, so nothing rendered survives a
+    // remount — the diff caches have to start empty or the first render would skip work
+    // whose DOM is already gone.
+    this.resetRenderCaches();
     this.autoPlayAttempted = false;
     this.cancelAutoPlayCountdown();
     if (this.releaseImageProxyReadyListener) {
@@ -1268,8 +1336,8 @@ export const StreamScreen = {
         failedAddonLogoUrls.clear();
         this.requestRender({ delayMs: 0 });
       });
-      void ensureWebOsImageProxyReady();
     }
+    this.metaHydrationPromise = null;
 
     const restored = navigationContext?.restoredState && typeof navigationContext.restoredState === "object"
       ? navigationContext.restoredState
@@ -1295,7 +1363,24 @@ export const StreamScreen = {
       return;
     }
 
-    void this.loadStreams();
+    // The shell above is all the first frame needs. Everything below — the webOS image
+    // proxy handshake, the addon fan-out, the metadata hydration — used to run inside the
+    // same task as the key press, which is what made opening this screen feel like a freeze
+    // rather than a transition. Deferring past the first paint costs a frame and buys back
+    // ~80ms of blocked main thread.
+    const mountToken = this.loadToken;
+    afterNextPaint(() => {
+      if (!this.container || Router.getCurrent() !== "stream" || mountToken !== this.loadToken) {
+        return;
+      }
+      if (Environment.isWebOS()) {
+        void ensureWebOsImageProxyReady();
+      }
+      this.metaHydrationPromise = this.params?.hydrateMetaOnStream
+        ? this.hydrateStreamMetaParams()
+        : null;
+      void this.loadStreams();
+    });
   },
 
   async loadStreams() {
@@ -1762,8 +1847,11 @@ export const StreamScreen = {
       ? `<img src="${escapeHtml(displayAddonLogoUrl)}" alt="${escapeHtml(stream.addonName || "Addon")}" data-addon-logo="${escapeHtml(addonLogoUrl)}" decoding="async" loading="${addonLogoLoading}" referrerpolicy="no-referrer" /><span hidden>${addonBadgeLabel}</span>`
       : `<span>${addonBadgeLabel}</span>`;
 
+    // No `focused` class here: the card markup is cached and diffed by stream id, so it
+    // must not depend on focus state. applyFocus() stamps the ring in the same task, so
+    // nothing paints in between.
     return `
-      <article class="stream-route-card focusable${this.focusState.zone === "card" && this.focusState.index === index ? " focused" : ""}"
+      <article class="stream-route-card focusable"
                data-action="playStream"
                data-stream-id="${escapeHtml(stream.id)}">
         <div class="stream-route-card-copy">
@@ -1794,41 +1882,179 @@ export const StreamScreen = {
     `).join("");
   },
 
-  render() {
-    this.cancelScheduledRender();
+  // Everything outside the sources list — backdrop, gradients, title/logo block. Rebuilding
+  // the shell means re-decoding the backdrop and the title logo and restarting the panel
+  // enter animation, so it is keyed and only redone when one of its inputs actually changes.
+  buildShellSignature() {
+    const { isSeries, title, subtitle, episodeLabel, detailLine } = this.getHeaderMeta();
+    return JSON.stringify([
+      isSeries,
+      title,
+      subtitle,
+      episodeLabel,
+      detailLine,
+      this.getBackdropUrl() || "",
+      String(this.params?.logo || "")
+    ]);
+  },
+
+  resetRenderCaches() {
+    this.renderedShellSignature = null;
+    this.renderedChipsHtml = null;
+    this.renderedAutoPlayHtml = null;
+    this.renderedListPlaceholderHtml = null;
+    this.renderedListIsPlaceholder = false;
+    this.renderedCardHtmlByKey = new Map();
+    this.renderedAddonFilter = null;
+  },
+
+  buildChipsHtml() {
+    return [
+      this.renderChip("all", this.addonFilter === "all", "success"),
+      ...this.getOrderedFilterNames().map((name) => {
+        const chip = this.sourceChips.find((entry) => entry.name === name) || { name, status: "success" };
+        return this.renderChip(name, this.addonFilter === name, chip.status);
+      })
+    ].join("");
+  },
+
+  updateChips() {
+    const track = this.container?.querySelector(".stream-route-chip-track");
+    if (!track) {
+      return;
+    }
+    const html = this.buildChipsHtml();
+    if (this.renderedChipsHtml === html) {
+      return;
+    }
+    track.innerHTML = html;
+    this.renderedChipsHtml = html;
+  },
+
+  // Reconcile the sources list against `this.streams` instead of reparsing it. Addons resolve
+  // one at a time and each arrival used to reparse the whole screen (~200ms of ParseHTML +
+  // layout on the C3, once per addon), which is what made the Continue Watching handoff
+  // stutter. Cards are keyed by stream id, so a batch of new sources is an append.
+  updateStreamList() {
+    const list = this.container?.querySelector(".stream-route-list");
+    if (!list) {
+      return;
+    }
+    const filtered = this.getFilteredStreams();
+    const hasPendingForFilter = this.hasPendingSourceLoads();
+
+    if (!filtered.length) {
+      let html = "";
+      if ((this.loading && !this.streams.length) || hasPendingForFilter) {
+        html = this.renderLoadingCards();
+      } else if (this.error) {
+        html = `<div class="stream-route-empty">${escapeHtml(this.error)}</div>`;
+      } else {
+        html = `<div class="stream-route-empty">No sources found for this filter.</div>`;
+      }
+      if (!this.renderedListIsPlaceholder || this.renderedListPlaceholderHtml !== html) {
+        list.innerHTML = html;
+        this.renderedListIsPlaceholder = true;
+        this.renderedListPlaceholderHtml = html;
+        this.renderedCardHtmlByKey = new Map();
+      }
+      return;
+    }
+
+    if (this.renderedListIsPlaceholder) {
+      list.innerHTML = "";
+      this.renderedListIsPlaceholder = false;
+      this.renderedListPlaceholderHtml = null;
+      this.renderedCardHtmlByKey = new Map();
+    }
+
+    const streamBadgesEnabled = DebridSettingsStore.get().streamBadgesEnabled !== false;
+    const badgeSettings = StreamBadgeSettingsStore.snapshot();
+    const previous = this.renderedCardHtmlByKey instanceof Map ? this.renderedCardHtmlByKey : new Map();
+    const stale = new Map();
+    Array.from(list.children).forEach((node) => {
+      const key = node.dataset?.streamId;
+      if (key && !node.classList.contains("skeleton")) {
+        stale.set(key, node);
+      }
+    });
+
+    const scratch = document.createElement("div");
+    const next = new Map();
+    filtered.forEach((stream, index) => {
+      const key = String(stream.id ?? index);
+      const html = this.renderStreamCard(stream, index, streamBadgesEnabled, badgeSettings);
+      let node = stale.get(key) || null;
+      if (node && previous.get(key) !== html) {
+        scratch.innerHTML = html;
+        const fresh = scratch.firstElementChild;
+        if (fresh) {
+          list.replaceChild(fresh, node);
+          node = fresh;
+        }
+      } else if (!node) {
+        scratch.innerHTML = html;
+        node = scratch.firstElementChild;
+      }
+      if (!node) {
+        return;
+      }
+      if (list.children[index] !== node) {
+        list.insertBefore(node, list.children[index] || null);
+      }
+      stale.delete(key);
+      next.set(key, html);
+    });
+    stale.forEach((node) => node.remove());
+    this.renderedCardHtmlByKey = next;
+
+    // One trailing skeleton while sources are still arriving, always last in the list.
+    const skeletons = Array.from(list.querySelectorAll(":scope > .stream-route-card.skeleton"));
+    if (hasPendingForFilter) {
+      skeletons.slice(1).forEach((node) => node.remove());
+      const keep = skeletons[0];
+      if (keep) {
+        if (keep !== list.lastElementChild) {
+          list.appendChild(keep);
+        }
+      } else {
+        list.insertAdjacentHTML("beforeend", this.renderLoadingCards(1));
+      }
+    } else {
+      skeletons.forEach((node) => node.remove());
+    }
+  },
+
+  updateAutoPlayOverlay() {
+    const shell = this.container?.querySelector(".stream-route-shell");
+    if (!shell) {
+      return;
+    }
+    const existing = shell.querySelector(":scope > .stream-route-autoplay");
+    const html = this.renderAutoPlayOverlay();
+    if (!html) {
+      existing?.remove();
+      this.renderedAutoPlayHtml = null;
+      return;
+    }
+    if (existing && this.renderedAutoPlayHtml === html) {
+      return;
+    }
+    if (existing) {
+      existing.outerHTML = html;
+    } else {
+      shell.insertAdjacentHTML("beforeend", html);
+    }
+    this.renderedAutoPlayHtml = html;
+  },
+
+  renderFullShell(signature) {
     const { isSeries, title, subtitle, episodeLabel, detailLine } = this.getHeaderMeta();
     const backdrop = this.getBackdropUrl();
     const logo = this.params?.logo || "";
     // `streamShellPrewarmed`: the Continue Watching handoff already painted this shell on the
     // way in, so replaying the enter animation would look like the screen restarting.
     const shellStableClass = (this.hasRenderedStreamRouteShell || this.params?.streamShellPrewarmed) ? " stable" : "";
-    const orderedFilters = this.getOrderedFilterNames();
-    const chips = [
-      this.renderChip("all", this.addonFilter === "all", "success"),
-      ...orderedFilters.map((name) => {
-        const chip = this.sourceChips.find((entry) => entry.name === name) || { name, status: "success" };
-        return this.renderChip(name, this.addonFilter === name, chip.status);
-      })
-    ].join("");
-    const filtered = this.getFilteredStreams();
-    const hasPendingForFilter = this.hasPendingSourceLoads();
-    const hasAnyStreams = this.streams.length > 0;
-    const streamBadgesEnabled = DebridSettingsStore.get().streamBadgesEnabled !== false;
-    const badgeSettings = StreamBadgeSettingsStore.snapshot();
-
-    let body = "";
-    if (filtered.length) {
-      body = filtered.map((stream, index) => this.renderStreamCard(stream, index, streamBadgesEnabled, badgeSettings)).join("");
-      if (hasPendingForFilter) {
-        body += this.renderLoadingCards(1);
-      }
-    } else if ((this.loading && !hasAnyStreams) || hasPendingForFilter) {
-      body = this.renderLoadingCards();
-    } else if (this.error) {
-      body = `<div class="stream-route-empty">${escapeHtml(this.error)}</div>`;
-    } else if (!filtered.length) {
-      body = `<div class="stream-route-empty">No sources found for this filter.</div>`;
-    }
 
     this.container.innerHTML = `
       <div class="stream-route-shell${shellStableClass}">
@@ -1847,25 +2073,54 @@ export const StreamScreen = {
           </section>
           <section class="stream-route-right">
             <div class="stream-route-chip-wrap">
-              <div class="stream-route-chip-track">${chips}</div>
+              <div class="stream-route-chip-track"></div>
             </div>
             <div class="stream-route-panel-shell">
               <div class="stream-route-panel">
-                <div class="stream-route-list">${body}</div>
+                <div class="stream-route-list"></div>
               </div>
             </div>
           </section>
         </div>
-        ${this.renderAutoPlayOverlay()}
       </div>
     `;
 
+    this.resetRenderCaches();
+    this.renderedShellSignature = signature;
+    this.updateChips();
+    this.updateStreamList();
+    this.updateAutoPlayOverlay();
+    this.renderedAddonFilter = String(this.addonFilter || "all");
     this.bindAddonLogoFallbacks();
     ScreenUtils.indexFocusables(this.container);
     this.restoreScrollPosition();
     this.applyFocus();
     this.bindListScrollState();
     this.hasRenderedStreamRouteShell = true;
+  },
+
+  render() {
+    this.cancelScheduledRender();
+    if (!this.container) {
+      return;
+    }
+    const signature = this.buildShellSignature();
+    if (!this.container.querySelector(".stream-route-shell") || this.renderedShellSignature !== signature) {
+      this.renderFullShell(signature);
+      return;
+    }
+
+    const filterChanged = this.renderedAddonFilter !== String(this.addonFilter || "all");
+    this.updateChips();
+    this.updateStreamList();
+    this.updateAutoPlayOverlay();
+    this.renderedAddonFilter = String(this.addonFilter || "all");
+    this.bindAddonLogoFallbacks();
+    ScreenUtils.indexFocusables(this.container);
+    if (filterChanged) {
+      this.restoreScrollPosition();
+    }
+    this.applyFocus();
   },
 
   bindListScrollState() {
@@ -1999,6 +2254,18 @@ export const StreamScreen = {
     if (!isCurrentPlayRequest()) {
       return;
     }
+    // The player is handed `episodes`/`imdbId` by value, so a Continue Watching entry that
+    // resolves a source faster than its metadata has to wait for the merge. In practice
+    // hydration settles long before this; the cap only stops a dead addon blocking playback.
+    if (this.metaHydrationPromise) {
+      await Promise.race([
+        this.metaHydrationPromise,
+        new Promise((resolve) => setTimeout(resolve, 1500))
+      ]);
+      if (!isCurrentPlayRequest()) {
+        return;
+      }
+    }
     const playerStreamCandidates = this.getFilteredStreams();
     const itemType = normalizeType(this.params?.itemType);
     Router.navigate("player", {
@@ -2117,6 +2384,9 @@ export const StreamScreen = {
     this.autoPlayCountdown = {
       streamId: stream.id,
       label: getStreamHeadline(stream) || stream.addonName || "stream",
+      quality: getStreamQuality(stream),
+      sizeText: formatBytes(stream.behaviorHints?.videoSize),
+      totalSeconds: total,
       secondsLeft: total
     };
     this.requestRender({ delayMs: 0 });
@@ -2131,8 +2401,21 @@ export const StreamScreen = {
         void this.playStream(targetId);
         return;
       }
-      this.requestRender({ delayMs: 0 });
+      this.updateAutoPlayCountdownView();
     }, 1000);
+  },
+
+  // The dial drains in CSS over the whole countdown window, so the per-second
+  // tick only has to patch the digit inside it. Re-rendering the screen once a
+  // second (what this used to do) rebuilt the entire sources list and restarted
+  // that animation from full every time.
+  updateAutoPlayCountdownView() {
+    const node = this.container?.querySelector("[data-autoplay-seconds]");
+    if (!node) {
+      this.requestRender({ delayMs: 0 });
+      return;
+    }
+    node.textContent = String(Math.max(0, Number(this.autoPlayCountdown?.secondsLeft || 0)));
   },
 
   cancelAutoPlayCountdown() {
@@ -2150,14 +2433,40 @@ export const StreamScreen = {
     if (!this.autoPlayCountdown) {
       return "";
     }
-    const { label, secondsLeft } = this.autoPlayCountdown;
+    const { label, secondsLeft, totalSeconds, quality, sizeText } = this.autoPlayCountdown;
+    const total = Math.max(1, Number(totalSeconds || 0));
+    // The dial is one CSS animation started at render time; seeding it with a
+    // negative delay equal to the elapsed time keeps it in sync when something
+    // else (a late addon, a resolve) re-renders the screen mid-countdown.
+    const elapsed = Math.max(0, total - Math.max(0, Number(secondsLeft || 0)));
+    // Only the first paint of a countdown gets the entrance animation — a
+    // re-render mid-countdown (late addon, debrid resolve) would otherwise
+    // replay the card scaling in from nothing.
+    const settled = this.autoPlayCountdown.rendered === true;
+    this.autoPlayCountdown.rendered = true;
+    // Enough to tell which source was picked and nothing more — the release
+    // name carries the identity, quality and size settle the rest.
+    const qualityText = String(quality || "").trim();
+    const meta = [
+      qualityText && qualityText.length <= 28 ? qualityText : "",
+      sizeText || ""
+    ].filter(Boolean).join(" · ");
     return `
-      <div class="stream-route-autoplay">
-        <div class="stream-route-autoplay-card">
-          <div class="stream-route-autoplay-title">${escapeHtml(t("stream_autoplay_title", {}, "Auto-playing"))}</div>
-          <div class="stream-route-autoplay-name">${escapeHtml(label)}</div>
-          <div class="stream-route-autoplay-count">${escapeHtml(t("stream_autoplay_countdown", [secondsLeft], `Starting in ${secondsLeft}s`))}</div>
-          <div class="stream-route-autoplay-hint">${escapeHtml(t("stream_autoplay_hint", {}, "Press OK to play now, or any key to choose manually"))}</div>
+      <div class="stream-route-autoplay" role="status">
+        <div class="stream-route-autoplay-card${settled ? " is-settled" : ""}" style="--autoplay-total:${total}s;--autoplay-elapsed:-${elapsed}s">
+          <div class="stream-route-autoplay-dial">
+            <svg class="stream-route-autoplay-dial-svg" viewBox="0 0 72 72" aria-hidden="true">
+              <circle class="stream-route-autoplay-dial-track" cx="36" cy="36" r="32"></circle>
+              <circle class="stream-route-autoplay-dial-progress" cx="36" cy="36" r="32"></circle>
+            </svg>
+            <span class="stream-route-autoplay-dial-value" data-autoplay-seconds>${escapeHtml(String(Math.max(0, Number(secondsLeft || 0))))}</span>
+          </div>
+          <div class="stream-route-autoplay-copy">
+            <div class="stream-route-autoplay-eyebrow">${escapeHtml(t("stream_autoplay_title", {}, "Auto-playing"))}</div>
+            <div class="stream-route-autoplay-name">${escapeHtml(label)}</div>
+            ${meta ? `<div class="stream-route-autoplay-meta">${escapeHtml(meta)}</div>` : ""}
+            <div class="stream-route-autoplay-hint">${escapeHtml(t("stream_autoplay_hint", {}, "Press OK to play now, or any key to choose manually"))}</div>
+          </div>
         </div>
       </div>`;
   },

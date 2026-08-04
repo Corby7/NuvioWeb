@@ -1246,7 +1246,6 @@ export const MetaDetailsScreen = {
     this.episodeFocusIndexBySeason = {};
     this.railFocusIndexByKey = {};
     this.watchedEpisodeKeys = new Set();
-    this.autoOpenedContinueWatchingStream = false;
     this.restoredContentScrollTop = 0;
     this.restoredTrackScrollLeftByKey = {};
     this.exitBackPending = false;
@@ -1254,18 +1253,8 @@ export const MetaDetailsScreen = {
     this.bindBackHandler();
     this.bindTrailerProxyMessaging();
 
-    // Continue Watching hands off straight to the stream screen; this screen never
-    // becomes visible, so it must not paint the detail skeleton on the way through.
-    const isStreamHandoff = Boolean(params?.autoOpenContinueWatching) && !this.isBackNavigation;
-
     if (this.hydrateFromRouteState(navigationContext?.restoredState || null, params)) {
       this.isLoadingDetail = false;
-      if (isStreamHandoff) {
-        this.renderStreamHandoffShell();
-        if (this.maybeAutoOpenContinueWatchingStream()) {
-          return;
-        }
-      }
       this.render(this.meta, this.pendingFocusRestore);
       const refreshToken = this.detailLoadToken;
       void this.refreshEpisodePlaybackState()
@@ -1278,12 +1267,6 @@ export const MetaDetailsScreen = {
         .catch((error) => {
           console.warn("Detail playback state refresh failed", error);
         });
-      return;
-    }
-
-    if (isStreamHandoff) {
-      this.renderStreamHandoffShell();
-      await this.loadDetail();
       return;
     }
 
@@ -1411,11 +1394,6 @@ export const MetaDetailsScreen = {
       this.seriesRatingsBySeason = {};
     }
     this.isLoadingDetail = false;
-    // Continue Watching only needs the metadata to pick the stream target; building the
-    // detail DOM (and its enrichments) would be thrown away by the redirect.
-    if (this.maybeAutoOpenContinueWatchingStream()) {
-      return;
-    }
     this.render(meta);
     void this.refreshTrailerSource(meta, token);
     void this.loadTraktComments({ force: true });
@@ -1772,7 +1750,6 @@ export const MetaDetailsScreen = {
   resolvePreferredSeasonFromProgress(progress = null, progressItems = []) {
     const routeSeason = Number(
       this.params?.preferredSeason
-      ?? this.params?.resumeSeason
       ?? this.params?.initialSeason
       ?? 0
     );
@@ -1904,111 +1881,6 @@ export const MetaDetailsScreen = {
       console.warn("Movie collection enrichment failed", error);
       return { name: "", items: [] };
     }
-  },
-
-  findContinueWatchingEpisodeTarget() {
-    const resumeVideoId = String(this.params?.resumeVideoId || "").trim();
-    if (resumeVideoId) {
-      const directMatch = this.episodes.find((entry) => String(entry?.id || "") === resumeVideoId);
-      if (directMatch) {
-        return directMatch;
-      }
-    }
-    const resumeSeason = Number(this.params?.resumeSeason || 0);
-    const resumeEpisode = Number(this.params?.resumeEpisode || 0);
-    if (resumeSeason > 0 && resumeEpisode > 0) {
-      const episodeMatch = this.episodes.find((entry) => Number(entry?.season || 0) === resumeSeason && Number(entry?.episode || 0) === resumeEpisode);
-      if (episodeMatch) {
-        return episodeMatch;
-      }
-    }
-    return this.nextEpisodeToWatch || this.episodes[0] || null;
-  },
-
-  // Placeholder painted while a Continue Watching entry passes through this screen on its
-  // way to the stream list. It mirrors the stream screen chrome (backdrop, title, source
-  // skeleton) so the handoff reads as one screen loading instead of a detail screen that
-  // appears and is immediately replaced.
-  renderStreamHandoffShell() {
-    if (!this.container) {
-      return;
-    }
-    const backdrop = String(this.params?.handoffBackdrop || "").trim();
-    const logo = String(this.params?.handoffLogo || "").trim();
-    const title = String(this.params?.handoffTitle || this.params?.fallbackTitle || "").trim();
-    const season = Number(this.params?.handoffSeason || 0);
-    const episode = Number(this.params?.handoffEpisode || 0);
-    const episodeLabel = season > 0 && episode > 0 ? `S${season} E${episode}` : "";
-    const loadingCards = Array.from({ length: 6 }).map(() => `
-      <div class="stream-route-card skeleton">
-        <div class="stream-route-skeleton-badges">
-          <div class="stream-route-skeleton-badge"></div>
-          <div class="stream-route-skeleton-badge wide"></div>
-          <div class="stream-route-skeleton-badge"></div>
-          <div class="stream-route-skeleton-badge narrow"></div>
-        </div>
-        <div class="stream-route-skeleton-line title"></div>
-        <div class="stream-route-skeleton-line secondary"></div>
-      </div>
-    `).join("");
-
-    this.container.innerHTML = `
-      <div class="stream-route-shell stable" aria-label="Loading sources" aria-live="polite">
-        <div class="stream-route-backdrop"${backdrop ? ` style="background-image:url('${String(backdrop).replace(/'/g, "%27")}')"` : ""}></div>
-        <div class="stream-route-backdrop-dim"></div>
-        <div class="stream-route-left-gradient"></div>
-        <div class="stream-route-right-gradient"></div>
-        <div class="stream-route-content">
-          <section class="stream-route-left">
-            <div class="stream-route-left-inner">
-              ${logo
-                ? `<img src="${escapeHtml(logo)}" class="stream-route-logo" alt="${escapeHtml(title)}" />`
-                : `<h1 class="stream-route-title">${escapeHtml(title)}</h1>`}
-              ${episodeLabel ? `<div class="stream-route-episode-code">${escapeHtml(episodeLabel)}</div>` : ""}
-            </div>
-          </section>
-          <section class="stream-route-right">
-            <div class="stream-route-chip-wrap">
-              <div class="stream-route-chip-track"></div>
-            </div>
-            <div class="stream-route-panel-shell">
-              <div class="stream-route-panel">
-                <div class="stream-route-list">${loadingCards}</div>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    `;
-  },
-
-  maybeAutoOpenContinueWatchingStream() {
-    if (!this.params?.autoOpenContinueWatching || this.autoOpenedContinueWatchingStream || this.isBackNavigation) {
-      return false;
-    }
-    this.autoOpenedContinueWatchingStream = true;
-    const handoffBackdrop = String(this.params?.handoffBackdrop || "").trim();
-    const extraParams = {
-      resumePositionMs: Number(this.params?.resumeProgressMs || 0) || 0,
-      returnToDetail: true,
-      continueWatchingBackHome: true,
-      // The handoff shell already painted this chrome: keep the same backdrop and skip the
-      // panel enter animation so the stream screen takes over without a visible restart.
-      ...(handoffBackdrop ? { backdrop: handoffBackdrop } : {}),
-      streamShellPrewarmed: true
-    };
-    if (isSeriesDetailMeta(this.meta, this.episodes)) {
-      const episode = this.findContinueWatchingEpisodeTarget();
-      if (episode) {
-        if (!episode.id) {
-          return false;
-        }
-        this.navigateToStreamScreenForEpisode(episode, extraParams);
-        return true;
-      }
-    }
-    this.navigateToStreamScreenForMovie(extraParams);
-    return true;
   },
 
   navigateBackFromDetail() {

@@ -1398,9 +1398,17 @@ function shouldShowNextUpEpisodeForContinueWatching(candidate = {}, anchorSeason
   return daysUntil <= CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS;
 }
 
+// Phosphor clock, matching the icon idiom used elsewhere (256 viewBox,
+// currentColor fill). Sized by CSS so one copy serves every layout mode, and
+// only the "{{time}} left" state gets it — the word-only states read as labels,
+// not measurements, so an icon there is just noise.
+const CONTINUE_BADGE_CLOCK_ICON = '<svg class="home-continue-badge-icon" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"></path></svg>';
+
+// Returns the label alongside whether it is a time measurement, so the card can
+// put the clock on exactly that state without re-deriving the branch.
 function buildProgressStatus(item) {
   if (item?.isNextUp) {
-    return t("home.continueStatusNextUp", {}, "Next Up");
+    return { label: t("home.continueStatusNextUp", {}, "Next Up"), showsTimeRemaining: false };
   }
   const durationMs = Number(item?.durationMs || 0);
   const rawPositionMs = Number(item?.positionMs || 0);
@@ -1408,20 +1416,27 @@ function buildProgressStatus(item) {
   const positionMs = rawPositionMs > 0
     ? rawPositionMs
     : (durationMs > 0 && Number.isFinite(progressPercent) ? durationMs * Math.max(0, Math.min(100, progressPercent)) / 100 : 0);
+  const continueStatus = {
+    label: t("home.continueStatusContinue", {}, "Continue"),
+    showsTimeRemaining: false
+  };
   if (!durationMs || !positionMs) {
-    return t("home.continueStatusContinue", {}, "Continue");
+    return continueStatus;
   }
   const effectivePositionMs = Math.max(0, Math.min(durationMs, positionMs));
   const remainingMinutes = Math.max(0, Math.round((durationMs - effectivePositionMs) / 60000));
   const progress = Math.max(0, Math.min(1, effectivePositionMs / durationMs));
   if (progress >= 0.85 || remainingMinutes <= 10) {
-    return t("home.continueStatusAlmostDone", {}, "Almost done");
+    return { label: t("home.continueStatusAlmostDone", {}, "Almost done"), showsTimeRemaining: false };
   }
   if (remainingMinutes > 0) {
     const remainingLabel = formatDurationMinutes(remainingMinutes);
-    return t("home.timeLeftDuration", { time: remainingLabel }, "{{time}} left");
+    return {
+      label: t("home.timeLeftDuration", { time: remainingLabel }, "{{time}} left"),
+      showsTimeRemaining: true
+    };
   }
-  return t("home.continueStatusContinue", {}, "Continue");
+  return continueStatus;
 }
 
 function buildProgressFraction(item) {
@@ -1473,6 +1488,7 @@ function normalizeContinueWatchingItem(item) {
   const title = firstNonEmpty(item.title, item.name, prettyId(item.contentId));
   const type = String(item.contentType || item.type || "movie").trim() || "movie";
   const isSeries = isSeriesTypeForContinueWatching(type);
+  const progressStatus = buildProgressStatus(item);
   return {
     ...item,
     heroSource: "continueWatching",
@@ -1508,7 +1524,8 @@ function normalizeContinueWatchingItem(item) {
     status: firstNonEmpty(item.status),
     language: firstNonEmpty(item.language),
     country: firstNonEmpty(item.country),
-    progressStatus: buildProgressStatus(item),
+    progressStatus: progressStatus.label,
+    progressShowsTimeRemaining: progressStatus.showsTimeRemaining,
     progressFraction: buildProgressFraction(item),
     episodeCode: isSeries ? formatEpisodeCode(item.season, item.episode) : "",
     episodeTitle: isSeries ? firstNonEmpty(item.episodeTitle, item.subtitle) : ""
@@ -2021,7 +2038,7 @@ function renderContinueWatchingCard(item, index, options = {}) {
              data-item-title="${escapeAttribute(normalized.title || "Untitled")}">
       <div class="home-continue-media">
         ${cardImage ? `<img class="home-continue-bg" src="${escapeAttribute(cardImage)}"${fallbackQueue ? ` data-fallback-srcs="${escapeAttribute(fallbackQueue)}"` : ""} alt="" aria-hidden="true" decoding="async" loading="lazy" onerror="${getImageFallbackErrorHandler()}" />` : ""}
-        <span class="home-continue-badge">${escapeHtml(normalized.progressStatus || t("home.continueStatusContinue", {}, "Continue"))}</span>
+        <span class="home-continue-badge">${normalized.progressShowsTimeRemaining ? CONTINUE_BADGE_CLOCK_ICON : ""}${escapeHtml(normalized.progressStatus || t("home.continueStatusContinue", {}, "Continue"))}</span>
         <div class="home-continue-copy">
           ${normalized.episodeCode ? `<div class="home-continue-kicker">${escapeHtml(normalized.episodeCode)}</div>` : ""}
           <div class="home-continue-title">${escapeHtml(normalized.title)}</div>
@@ -4561,23 +4578,27 @@ export const HomeScreen = {
     this.continueWatchingMenu = null;
     this.holdMenuScrollState = null;
 
-    Router.navigate("detail", {
+    // Straight to the sources list. Continue Watching already knows the exact target
+    // (title, artwork, episode, resume position), so routing through the detail screen
+    // only bought a metadata round trip that the source requests then had to queue
+    // behind. The stream screen re-fetches that metadata in the background instead.
+    const isSeries = isSeriesTypeForContinueWatching(normalized?.type);
+    Router.navigate("stream", {
       itemId: normalized.contentId,
-      itemType: normalized.type || (isSeriesTypeForContinueWatching(normalized?.type) ? "series" : "movie"),
-      fallbackTitle: normalized.title || normalized.contentId || "Untitled",
-      autoOpenContinueWatching: true,
+      itemType: isSeries ? "series" : (params.itemType || "movie"),
+      itemTitle: params.itemTitle,
+      videoId: params.videoId || normalized.contentId,
+      season: params.season,
+      episode: params.episode,
+      episodeTitle: params.episodeTitle,
+      year: params.playerReleaseYear || "",
+      backdrop: params.backdrop || null,
+      poster: params.poster || null,
+      logo: params.logo || null,
+      resumePositionMs: Number(params.resumePositionMs || 0) || 0,
+      continueWatchingBackHome: true,
       returnHomeOnBack: true,
-      resumeProgressMs: Number(params.resumePositionMs || 0) || 0,
-      resumeVideoId: normalized.videoId || null,
-      resumeSeason: normalized.season ?? null,
-      resumeEpisode: normalized.episode ?? null,
-      // Artwork for the stream-shaped handoff shell: the detail screen is only a
-      // relay here, so it must never paint its own loading skeleton.
-      handoffBackdrop: params.backdrop || null,
-      handoffLogo: params.logo || null,
-      handoffTitle: params.itemTitle || "",
-      handoffSeason: params.season ?? null,
-      handoffEpisode: params.episode ?? null
+      hydrateMetaOnStream: true
     });
     return true;
   },
@@ -8358,7 +8379,7 @@ export const HomeScreen = {
     }
 
     const routeEnterClass = this.homeRouteEnterPending
-      ? (this.pendingCollectionRouteReturnAnimation ? " nuvio-route-slide-enter" : " home-route-content-enter")
+      ? (this.pendingCollectionRouteReturnAnimation ? " nuvio-route-fade-enter" : " home-route-content-enter")
       : "";
     this.pendingCollectionRouteReturnAnimation = false;
 
