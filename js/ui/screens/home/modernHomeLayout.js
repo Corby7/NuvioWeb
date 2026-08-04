@@ -23,7 +23,11 @@ export const MODERN_HOME_CONSTANTS = {
   cameraSafetyDurationMs: 180,
   springScrollStiffness: 180,
   springScrollDampingRatio: 0.95,
-  rowFocusInset: 64,
+  // Distance from the viewport's top edge to the focused card. Sized so the
+  // focused row's title lands just below the top dissolve band rather than
+  // inside it: --modern-rows-top-feather (46px) + the row's title block
+  // (33.6px line + the track's 16px top padding). Keep the two in step.
+  rowFocusInset: 96,
   trackEdgePadding: 104,
   verticalFastScrollVelocityPxPerSec: 6400,
   verticalFastScrollEndTimeoutMs: 160,

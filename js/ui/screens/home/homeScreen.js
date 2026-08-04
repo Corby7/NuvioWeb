@@ -5467,8 +5467,19 @@ export const HomeScreen = {
     });
   },
 
+  // The expanded backdrop/logo are only ever painted under `.is-expanded`
+  // (components.css ~7374). When neither expand pref is on, that class never
+  // lands, so hydrating those <img>s fetches and decodes artwork that renders
+  // at opacity 0 forever — measured on the C3 as 31 backdrops + 26 logos
+  // (~14 MPx) of pure waste, on a device where image decode is already the
+  // single largest line item in every scroll trace.
+  isFocusedPosterExpansionEnabled() {
+    const prefs = this.layoutPrefs || {};
+    return Boolean(prefs.focusedPosterBackdropExpandEnabled || prefs.modernLandscapePostersEnabled);
+  },
+
   hydrateFocusedPosterAssets(node, { defer = false } = {}) {
-    if (!this.isModernPosterNode(node)) {
+    if (!this.isModernPosterNode(node) || !this.isFocusedPosterExpansionEnabled()) {
       return;
     }
     const hydrate = () => {
@@ -5872,7 +5883,7 @@ export const HomeScreen = {
       return;
     }
     const prefs = this.layoutPrefs || {};
-    const shouldExpand = Boolean(prefs.focusedPosterBackdropExpandEnabled || prefs.modernLandscapePostersEnabled);
+    const shouldExpand = this.isFocusedPosterExpansionEnabled();
     const shouldPreviewTrailer = Boolean(prefs.focusedPosterBackdropTrailerEnabled) && !this.shouldSuppressAutomaticTrailerPlayback();
     const trailerTarget = String(prefs.focusedPosterBackdropTrailerPlaybackTarget || "hero_media").toLowerCase();
     if (shouldExpand) {
@@ -6121,7 +6132,7 @@ export const HomeScreen = {
     }
     this.cancelFocusedPosterFlow();
     const prefs = this.layoutPrefs || {};
-    const shouldExpand = Boolean(prefs.focusedPosterBackdropExpandEnabled || prefs.modernLandscapePostersEnabled);
+    const shouldExpand = this.isFocusedPosterExpansionEnabled();
     const shouldPreviewTrailer = Boolean(prefs.focusedPosterBackdropTrailerEnabled)
       && !this.shouldSuppressAutomaticTrailerPlayback();
     const trailerTarget = String(prefs.focusedPosterBackdropTrailerPlaybackTarget || "hero_media").toLowerCase();

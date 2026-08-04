@@ -6565,6 +6565,10 @@ img[data-lazy-src] {
   --modern-rows-viewport-height: 52%;
   --modern-rows-viewport-padding-bottom: 52vh;
   --modern-rows-page-height: 56vh;
+  /* Height of the dissolve band at the top of the rows viewport. Rows rest
+     just below it (see MODERN_HOME_CONSTANTS.rowFocusInset), so only content
+     on its way out of view is ever inside it. */
+  --modern-rows-top-feather: 46px;
   --modern-hero-media-width: 72%;
   --modern-hero-section-height: calc(100% - var(--modern-rows-viewport-height));
   --modern-hero-media-height: calc(100% + 132px);
@@ -7041,8 +7045,39 @@ img[data-lazy-src] {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
-  scroll-padding-top: 20px;
+  scroll-padding-top: calc(var(--modern-rows-top-feather) + 20px);
   will-change: scroll-position;
+  /* The viewport's top edge sits over the hero backdrop bleed, so a row leaving
+     upwards used to be sliced along a hard invisible line. The background there
+     is an image, not a flat colour, so the fade has to be an alpha mask rather
+     than the painted-once gradient the player panels use. Front-loaded stops
+     keep the feather short: opaque by 46px, which is where rows come to rest. */
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0.3) 14px,
+    rgba(0, 0, 0, 0.68) 28px,
+    rgba(0, 0, 0, 0.92) 38px,
+    #000 var(--modern-rows-top-feather),
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0.3) 14px,
+    rgba(0, 0, 0, 0.68) 28px,
+    rgba(0, 0, 0, 0.92) 38px,
+    #000 var(--modern-rows-top-feather),
+    #000 100%
+  );
+}
+
+/* A mask on a scroller costs a render surface per scrolled frame. That is a
+   fair trade on the C3, not on webOS <= 6 — those keep the hard top edge. Rows
+   still rest below the band there, so nothing else has to change. */
+.legacy-webos .home-screen-shell.home-layout-modern .home-modern-rows-viewport {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .folder-detail-home-shell .home-main {
@@ -7058,7 +7093,9 @@ img[data-lazy-src] {
   display: flex;
   flex-direction: column;
   gap: 32px;
-  padding: 0 0 var(--modern-rows-viewport-padding-bottom) 64px;
+  /* Top pad matches the feather so the first row clears it at scrollTop 0 —
+     without it the Continue Watching title would sit faded on arrival. */
+  padding: var(--modern-rows-top-feather) 0 var(--modern-rows-viewport-padding-bottom) 64px;
 }
 
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-rows-scroll {
