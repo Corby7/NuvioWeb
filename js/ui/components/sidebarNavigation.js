@@ -199,6 +199,22 @@ function getSidebarAvatarCatalog() {
   return sidebarAvatarCatalogPromise;
 }
 
+// Callers treat the resolved object's identity as "did the profile change?"
+// (RootSidebarController.afterMount does `profile !== this.profile`), so a
+// fresh literal every call made that test always true — the sidebar rebuilt
+// its markup, re-bound every item and re-ran the text-fit layout pass on every
+// single navigation. Hand back the previous instance when nothing differs.
+let lastSidebarProfileState = null;
+
+function sidebarProfileStateEquals(a, b) {
+  return Boolean(a) && Boolean(b)
+    && a.activeProfileName === b.activeProfileName
+    && a.activeProfileInitial === b.activeProfileInitial
+    && a.activeProfileColorHex === b.activeProfileColorHex
+    && a.activeProfileAvatarUrl === b.activeProfileAvatarUrl
+    && a.showProfileSelector === b.showProfileSelector;
+}
+
 export async function getSidebarProfileState() {
   const activeProfileId = String(ProfileManager.getActiveProfileId() || "");
   const [profiles, avatarCatalog] = await Promise.all([
@@ -211,13 +227,19 @@ export async function getSidebarProfileState() {
   const activeProfileAvatarUrl = String(activeProfile?.avatarUrl || "").trim()
     || AvatarRepository.getAvatarImageUrl(activeProfile?.avatarId, avatarCatalog);
 
-  return {
+  const nextState = {
     activeProfileName: String(activeProfile?.name || t("sidebar.profileFallback")).trim() || t("sidebar.profileFallback"),
     activeProfileInitial: profileInitial(activeProfile?.name || t("sidebar.profileFallback")),
     activeProfileColorHex: String(activeProfile?.avatarColorHex || getThemeAccentFallback()),
     activeProfileAvatarUrl: String(activeProfileAvatarUrl || ""),
     showProfileSelector: Boolean(activeProfile)
   };
+
+  if (sidebarProfileStateEquals(lastSidebarProfileState, nextState)) {
+    return lastSidebarProfileState;
+  }
+  lastSidebarProfileState = nextState;
+  return nextState;
 }
 
 export function activateLegacySidebarAction(action, currentRoute = "") {

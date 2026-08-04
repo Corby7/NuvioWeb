@@ -1025,6 +1025,8 @@ export const MetaDetailsScreen = {
       selectedRatingSeason: Number(this.selectedRatingSeason || 0),
       seriesInsightTab: String(this.seriesInsightTab || ""),
       movieInsightTab: String(this.movieInsightTab || ""),
+      seriesInsightTabPinned: Boolean(this.seriesInsightTabPinned),
+      movieInsightTabPinned: Boolean(this.movieInsightTabPinned),
       commentsPage: Number(this.commentsPage || 0),
       commentsPageCount: Number(this.commentsPageCount || 0),
       episodeFocusIndexBySeason: this.episodeFocusIndexBySeason ? { ...this.episodeFocusIndexBySeason } : {},
@@ -1063,6 +1065,8 @@ export const MetaDetailsScreen = {
     this.selectedRatingSeason = Number(snapshot.selectedRatingSeason || this.selectedSeason || 1);
     this.seriesInsightTab = String(snapshot.seriesInsightTab || "");
     this.movieInsightTab = String(snapshot.movieInsightTab || "");
+    this.seriesInsightTabPinned = Boolean(snapshot.seriesInsightTabPinned);
+    this.movieInsightTabPinned = Boolean(snapshot.movieInsightTabPinned);
     this.commentsPage = Number(snapshot.commentsPage || 0);
     this.commentsPageCount = Number(snapshot.commentsPageCount || 0);
     this.episodeFocusIndexBySeason = snapshot.episodeFocusIndexBySeason && typeof snapshot.episodeFocusIndexBySeason === "object"
@@ -1214,6 +1218,8 @@ export const MetaDetailsScreen = {
     this.detailLoadToken = (this.detailLoadToken || 0) + 1;
     this.seriesInsightTab = "";
     this.movieInsightTab = "";
+    this.seriesInsightTabPinned = false;
+    this.movieInsightTabPinned = false;
     this.selectedRatingSeason = 0;
     this.selectedSeason = 0;
     this.hasManualSeasonSelection = false;
@@ -2529,14 +2535,19 @@ export const MetaDetailsScreen = {
     const trailerItems = resolveTrailerItems(meta);
     const hasMovieRatings = resolveImdbRating(meta) != null || Number.isFinite(Number(meta?.tmdbRating));
     const tabItems = [
+      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
       ...(this.collectionItems.length ? [["collection", this.collectionName || "Collection"]] : []),
       ...(trailerItems.length ? [["trailer", t("detail_tab_trailer", {}, "Trailer")]] : []),
-      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
       ...(hasMovieRatings ? [["ratings", t("detail.ratings", {}, "Ratings")]] : []),
       ...(this.castItems?.length ? [["cast", t("detail.creatorCast", {}, "Creator and Cast")]] : [])
     ];
     const validTabKeys = tabItems.map(([key]) => key);
-    const activeMovieTab = validTabKeys.includes(this.movieInsightTab) ? this.movieInsightTab : (validTabKeys[0] ?? "cast");
+    // Only a deliberate user pick sticks. Auto-selection always falls back to the leftmost tab,
+    // otherwise the cast-only first paint would pin "cast" before async tabs (more like this,
+    // collection, ratings) arrive.
+    const keepMovieTab = (this.movieInsightTabPinned || this.isInsightSectionFocused())
+      && validTabKeys.includes(this.movieInsightTab);
+    const activeMovieTab = keepMovieTab ? this.movieInsightTab : (validTabKeys[0] ?? "cast");
     if (activeMovieTab !== this.movieInsightTab) {
       this.movieInsightTab = activeMovieTab;
     }
@@ -2597,14 +2608,17 @@ export const MetaDetailsScreen = {
     const trailerItems = resolveTrailerItems(this.meta);
     const hasSeriesRatings = Object.keys(this.seriesRatingsBySeason || {}).some((k) => (this.seriesRatingsBySeason[k]?.length ?? 0) > 0);
     const tabItems = [
+      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
       ...(this.collectionItems.length ? [["collection", this.collectionName || "Collection"]] : []),
       ...(trailerItems.length ? [["trailer", t("detail_tab_trailer", {}, "Trailer")]] : []),
-      ...(this.moreLikeThisItems.length ? [["morelike", t("detail.moreLikeThis", {}, "More Like This")]] : []),
       ...(hasSeriesRatings ? [["ratings", t("detail.ratings", {}, "Ratings")]] : []),
       ...(this.castItems?.length ? [["cast", t("detail.creatorCast", {}, "Creator and Cast")]] : [])
     ];
     const validTabKeys = tabItems.map(([key]) => key);
-    const activeTab = validTabKeys.includes(this.seriesInsightTab) ? this.seriesInsightTab : (validTabKeys[0] ?? "cast");
+    // See renderMovieInsightSection: auto-selection is never sticky, only an explicit tab press is.
+    const keepSeriesTab = (this.seriesInsightTabPinned || this.isInsightSectionFocused())
+      && validTabKeys.includes(this.seriesInsightTab);
+    const activeTab = keepSeriesTab ? this.seriesInsightTab : (validTabKeys[0] ?? "cast");
     if (activeTab !== this.seriesInsightTab) {
       this.seriesInsightTab = activeTab;
     }
@@ -4273,11 +4287,13 @@ export const MetaDetailsScreen = {
         }
         if (isSeriesDetailMeta(this.meta, this.episodes) && tab !== this.seriesInsightTab) {
           this.seriesInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+          this.seriesInsightTabPinned = true;
           this.updateRenderedDetailSections(this.meta);
           return;
         }
         if (!isSeriesDetailMeta(this.meta, this.episodes) && tab !== this.movieInsightTab) {
           this.movieInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+          this.movieInsightTabPinned = true;
           this.updateRenderedDetailSections(this.meta);
         }
         return;
@@ -5680,6 +5696,18 @@ export const MetaDetailsScreen = {
     return selectedIndex >= 0 ? selectedIndex : 0;
   },
 
+  // True while the user is inside the insight section (tabs, cast track, preview rail).
+  // Late-arriving data must not swap the visible tab out from under them.
+  isInsightSectionFocused() {
+    if (!this.container) {
+      return false;
+    }
+    const current = this.container.querySelector(".focusable.focused");
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const target = current || (active && this.container.contains(active) ? active : null);
+    return Boolean(target?.closest?.(".series-insight-section"));
+  },
+
   getActiveInsightTabKey() {
     return isSeriesDetailMeta(this.meta, this.episodes)
       ? String(this.seriesInsightTab || "cast")
@@ -6706,6 +6734,7 @@ export const MetaDetailsScreen = {
       const tab = String(target.dataset.tab || "cast");
       if (tab !== this.seriesInsightTab) {
         this.seriesInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+        this.seriesInsightTabPinned = true;
         this.updateRenderedDetailSections(this.meta);
       }
       return true;
@@ -6714,6 +6743,7 @@ export const MetaDetailsScreen = {
       const tab = String(target.dataset.tab || "cast");
       if (tab !== this.movieInsightTab) {
         this.movieInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+        this.movieInsightTabPinned = true;
         this.updateRenderedDetailSections(this.meta);
       }
       return true;
@@ -7062,6 +7092,7 @@ export const MetaDetailsScreen = {
       const tab = String(current.dataset.tab || "cast");
       if (tab !== this.seriesInsightTab) {
           this.seriesInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+          this.seriesInsightTabPinned = true;
           this.updateRenderedDetailSections(this.meta);
         }
         return;
@@ -7071,6 +7102,7 @@ export const MetaDetailsScreen = {
       const tab = String(current.dataset.tab || "cast");
       if (tab !== this.movieInsightTab) {
           this.movieInsightTab = ["cast", "ratings", "morelike", "trailer", "collection"].includes(tab) ? tab : "cast";
+          this.movieInsightTabPinned = true;
           this.updateRenderedDetailSections(this.meta);
         }
         return;

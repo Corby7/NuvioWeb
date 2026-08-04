@@ -59,12 +59,13 @@ export const RootSidebarController = {
     this.el.hidden = false;
     // Pass the current expanded state so modern sidebar HTML is pre-rendered
     // in the correct visual state, avoiding a re-trigger of the open animation.
-    // afterMount re-renders whenever getSidebarProfileState() resolves a new
-    // object, which is every navigation even when nothing about the profile
-    // changed — so the identical sidebar markup was written twice per route
-    // change. Re-binding below is assignment-based (node.onclick = …) and the
+    // Backstop for the other paths that call _render on state changes which
+    // often don't alter the markup (route highlight re-set to the same route,
+    // expand/collapse landing on the state already rendered). Safe because
+    // re-binding below is assignment-based (node.onclick = …) and the
     // expanded-state application re-reads the DOM, so reusing the existing
-    // nodes is safe.
+    // nodes is fine. afterMount's own redundant re-render is fixed at source
+    // in getSidebarProfileState, which now keeps a stable identity.
     ScreenUtils.setSectionHtml(
       this.el,
       renderRootSidebar({
