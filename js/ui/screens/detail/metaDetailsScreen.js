@@ -2465,35 +2465,57 @@ export const MetaDetailsScreen = {
       backdropNode.style.backgroundImage = backdrop ? `url('${backdrop.replace(/'/g, "%27")}')` : "";
     }
 
+    // This runs once per piece of data that lands (meta, episodes, comments,
+    // watched state, …) — nine times in a measured movie visit — and rebuilt
+    // every section each time even though only one had changed. Writing each
+    // mount only when its own markup actually differs keeps the re-render
+    // cost proportional to what changed.
     const heroMount = this.container.querySelector("#detailHeroSection");
     if (heroMount) {
-      heroMount.innerHTML = isSeries ? this.renderSeriesHeroMarkup(meta) : this.renderMovieHeroMarkup(meta);
+      ScreenUtils.setSectionHtml(
+        heroMount,
+        isSeries ? this.renderSeriesHeroMarkup(meta) : this.renderMovieHeroMarkup(meta)
+      );
     }
 
     const seasonMount = this.container.querySelector("#detailSeasonRowMount");
     if (isSeries && seasonMount) {
-      seasonMount.innerHTML = `<div class="series-season-row">${this.renderSeasonDropdown()}</div>`;
+      ScreenUtils.setSectionHtml(
+        seasonMount,
+        `<div class="series-season-row">${this.renderSeasonDropdown()}</div>`
+      );
     }
 
     const episodeMount = this.container.querySelector("#detailEpisodeTrackMount");
     if (isSeries && episodeMount) {
-      episodeMount.innerHTML = `<div class="series-episode-track" data-scroll-key="episodes:${this.selectedSeason || 1}">${this.renderEpisodeCards()}</div>`;
-      this.observeEpisodeThumbnails();
+      // Only re-observe when the cards were actually replaced: skipping the
+      // write leaves the existing cards, and with them the thumbnails the
+      // observer has already hydrated.
+      const wroteEpisodes = ScreenUtils.setSectionHtml(
+        episodeMount,
+        `<div class="series-episode-track" data-scroll-key="episodes:${this.selectedSeason || 1}">${this.renderEpisodeCards()}</div>`
+      );
+      if (wroteEpisodes) {
+        this.observeEpisodeThumbnails();
+      }
     }
 
     const insightMount = this.container.querySelector("#detailInsightSectionMount");
     if (insightMount) {
-      insightMount.innerHTML = isSeries ? this.renderSeriesInsightSection() : this.renderMovieInsightSection(meta);
+      ScreenUtils.setSectionHtml(
+        insightMount,
+        isSeries ? this.renderSeriesInsightSection() : this.renderMovieInsightSection(meta)
+      );
     }
 
     const commentsMount = this.container.querySelector("#detailCommentsSectionMount");
     if (commentsMount) {
-      commentsMount.innerHTML = this.renderStandaloneCommentsSection();
+      ScreenUtils.setSectionHtml(commentsMount, this.renderStandaloneCommentsSection());
     }
 
     const companyMount = this.container.querySelector("#detailCompanySectionsMount");
     if (companyMount) {
-      companyMount.innerHTML = this.renderCompanySections(meta);
+      ScreenUtils.setSectionHtml(companyMount, this.renderCompanySections(meta));
     }
 
     ScreenUtils.indexFocusables(this.container);

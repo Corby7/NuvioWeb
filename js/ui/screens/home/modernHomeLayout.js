@@ -61,6 +61,12 @@ export function renderModernHomeLayout({
 } = {}) {
   const catalogSeeAllMap = new Map();
   const sectionsMarkup = [];
+  // Per-row markup keyed by row key, so homeScreen can reconcile the rows it
+  // already has in the DOM instead of re-parsing the whole screen when one
+  // catalog batch lands. Order is tracked separately because a row's position
+  // is part of its markup (data-row-index).
+  const rowMarkupByKey = new Map();
+  const rowKeys = [];
   let eagerCount = 0;
 
   rows.forEach((rowData, rowIndex) => {
@@ -108,7 +114,7 @@ export function renderModernHomeLayout({
         preferLandscapePosters
       )).join("");
 
-      sectionsMarkup.push(`
+      const sectionMarkup = `
         <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
           <div class="home-row-head">
             <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
@@ -117,43 +123,67 @@ export function renderModernHomeLayout({
             <div class="home-track-inner">${cardsMarkup}</div>
           </div>
         </section>
-      `);
+      `;
+      sectionsMarkup.push(sectionMarkup);
+      rowKeys.push(rowKey);
+      rowMarkupByKey.set(rowKey, sectionMarkup);
     } else {
       // Deferred row — stub with title only, cards mounted lazily by initVirtualRows()
-      sectionsMarkup.push(`
+      const sectionMarkup = `
         <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}" data-row-pending="true">
           <div class="home-row-head">
             <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
           </div>
           <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}"><div class="home-track-inner"></div></div>
         </section>
-      `);
+      `;
+      sectionsMarkup.push(sectionMarkup);
+      rowKeys.push(rowKey);
+      rowMarkupByKey.set(rowKey, sectionMarkup);
     }
   });
 
+  const heroMarkup = showHeroSection
+    ? renderModernHeroMarkup({
+      heroItem,
+      heroCandidates,
+      buildModernHeroPresentation,
+      renderHeroBackdropImage,
+      escapeHtml,
+      escapeAttribute
+    })
+    : (continueWatchingLoading ? renderModernHeroSkeletonMarkup() : "");
+  const continueWatchingMarkup = renderContinueWatchingSection(continueWatchingItems, {
+    rowKey: "continue_watching",
+    loading: continueWatchingLoading,
+    loadingCount: continueWatchingLoadingCount,
+    useEpisodeThumbnails: useEpisodeThumbnailsInCw,
+    blurNextUp: blurContinueWatchingNextUp
+  });
+  const catalogsMarkup = sectionsMarkup.length
+    ? sectionsMarkup.join("")
+    : (continueWatchingLoading ? renderModernCatalogSkeletonMarkup() : "");
+
   return {
     catalogSeeAllMap,
+    // The same three regions the markup below is assembled from, handed back
+    // individually so a re-render can patch only what actually changed.
+    parts: {
+      heroMarkup,
+      continueWatchingMarkup,
+      catalogsMarkup,
+      rowKeys,
+      rowMarkupByKey,
+      hasRows: sectionsMarkup.length > 0
+    },
     markup: `
       <section class="home-modern-stage">
-        ${showHeroSection ? renderModernHeroMarkup({
-          heroItem,
-          heroCandidates,
-          buildModernHeroPresentation,
-          renderHeroBackdropImage,
-          escapeHtml,
-          escapeAttribute
-        }) : (continueWatchingLoading ? renderModernHeroSkeletonMarkup() : "")}
+        ${heroMarkup}
         <div class="home-modern-rows-viewport">
           <div class="home-modern-rows-scroll">
-            ${renderContinueWatchingSection(continueWatchingItems, {
-              rowKey: "continue_watching",
-              loading: continueWatchingLoading,
-              loadingCount: continueWatchingLoadingCount,
-              useEpisodeThumbnails: useEpisodeThumbnailsInCw,
-              blurNextUp: blurContinueWatchingNextUp
-            })}
+            ${continueWatchingMarkup}
             <div class="home-modern-catalogs">
-              ${sectionsMarkup.length ? sectionsMarkup.join("") : (continueWatchingLoading ? renderModernCatalogSkeletonMarkup() : "")}
+              ${catalogsMarkup}
             </div>
           </div>
         </div>

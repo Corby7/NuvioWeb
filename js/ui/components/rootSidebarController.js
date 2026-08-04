@@ -10,6 +10,7 @@ import {
   isSelectedSidebarAction,
   scheduleRootSidebarTextFit
 } from "./sidebarNavigation.js";
+import { ScreenUtils } from "../navigation/screen.js";
 import { LayoutPreferences } from "../../data/local/layoutPreferences.js";
 import { Router } from "../navigation/router.js";
 
@@ -58,12 +59,21 @@ export const RootSidebarController = {
     this.el.hidden = false;
     // Pass the current expanded state so modern sidebar HTML is pre-rendered
     // in the correct visual state, avoiding a re-trigger of the open animation.
-    this.el.innerHTML = renderRootSidebar({
-      selectedRoute: this._navHighlightRoute || this.currentRoute,
-      profile: this.profile,
-      layout,
-      expanded: this.expanded
-    });
+    // afterMount re-renders whenever getSidebarProfileState() resolves a new
+    // object, which is every navigation even when nothing about the profile
+    // changed — so the identical sidebar markup was written twice per route
+    // change. Re-binding below is assignment-based (node.onclick = …) and the
+    // expanded-state application re-reads the DOM, so reusing the existing
+    // nodes is safe.
+    ScreenUtils.setSectionHtml(
+      this.el,
+      renderRootSidebar({
+        selectedRoute: this._navHighlightRoute || this.currentRoute,
+        profile: this.profile,
+        layout,
+        expanded: this.expanded
+      })
+    );
     this._bindSidebarItemEvents(this.el);
     scheduleRootSidebarTextFit(this.el);
     if (this.expanded) {

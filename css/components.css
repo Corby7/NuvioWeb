@@ -14449,22 +14449,17 @@ img[data-lazy-src] {
 /* Paired with updateModalBackdrop: the rail supplies its own bottom gradient,
    so the full-screen scrim steps back and the video stays watchable.
 
-   The first layer is .player-controls-gradient-top reproduced exactly — same
-   stops, same 360px height. Opening the rail hides the whole controls overlay
-   (showEpisodePanel calls setControlsVisible(false)), which took the top ramp
-   with it, so the top of the frame visibly brightened the moment the rail
-   slid in. Carrying the same ramp on the backdrop means the two hand over to
-   each other instead of one just vanishing. Keep these stops in sync with
-   .player-controls-gradient-top. */
+   The first layer is .player-controls-gradient-top's scrim itself — the shared
+   --player-top-scrim, so the two cannot drift. Opening the rail hides the whole
+   controls overlay (showEpisodePanel calls setControlsVisible(false)), which
+   took the top scrim with it, so the top of the frame visibly brightened the
+   moment the rail slid in. Carrying the same one on the backdrop means the two
+   hand over to each other instead of one just vanishing. The scrim's radii are
+   absolute, so it lands in the same corner at the same size on this
+   full-screen element as it does on the 360px-tall gradient div. */
 .player-modal-backdrop.is-episode-rail {
   background:
-    linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.62) 0%,
-      rgba(0, 0, 0, 0.34) 38%,
-      rgba(0, 0, 0, 0.12) 68%,
-      rgba(0, 0, 0, 0) 100%
-    ) 0 0 / 100% min(18.75vw, 360px) no-repeat,
+    var(--player-top-scrim) 0 0 / 100% 100% no-repeat,
     linear-gradient(180deg, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.35) 100%) 0 0 / 100% 100% no-repeat;
 }
 
@@ -15379,6 +15374,23 @@ img[data-lazy-src] {
    ========================================================================== */
 
 #playerUiRoot {
+  /* The top scrim exists for exactly one thing: the clock / "Ends at" cluster
+     in the top-right corner. As a full-width band it was shading the whole top
+     bar — most of that strip has nothing drawn on it, so it was dimming
+     picture for free. Anchored as a corner pool instead (same idiom as the
+     pause overlay's bottom-left shade), it covers the cluster and stops.
+     Exposed as a variable because the episode rail's backdrop carries the same
+     scrim while the controls overlay is hidden — the two have to be identical
+     or the top of the frame visibly changes on the handoff. */
+  --player-top-scrim-height: min(18.75vw, 360px);
+  --player-top-scrim: radial-gradient(
+    ellipse min(31.25vw, 600px) var(--player-top-scrim-height) at 100% 0,
+    rgba(0, 0, 0, 0.62) 0%,
+    rgba(0, 0, 0, 0.5) 30%,
+    rgba(0, 0, 0, 0.28) 56%,
+    rgba(0, 0, 0, 0.1) 78%,
+    rgba(0, 0, 0, 0) 100%
+  );
   /* Resting bar is deliberately thin. The ported 12px read as a progress
      *widget* stretched across 1792px; at 8px it reads as a hairline the video
      sits behind, and the focused state still doubles it, so the d-pad
@@ -15423,16 +15435,14 @@ img[data-lazy-src] {
 /* Both ramps were two-stop, so each ended on a visible band partway up the
    frame. Extra midpoints spread the falloff over the whole height instead;
    the bottom one is also tall enough now to cover the full title-through-
-   buttons stack rather than fading out behind the middle of it. */
+   buttons stack rather than fading out behind the middle of it.
+
+   The top one is no longer a band at all — see --player-top-scrim. The element
+   still spans the width so the pool's own left falloff is what ends it, rather
+   than a box edge. */
 .player-controls-gradient-top {
-  height: min(18.75vw, 360px);
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.62) 0%,
-    rgba(0, 0, 0, 0.34) 38%,
-    rgba(0, 0, 0, 0.12) 68%,
-    rgba(0, 0, 0, 0) 100%
-  );
+  height: var(--player-top-scrim-height);
+  background: var(--player-top-scrim);
 }
 
 .player-controls-gradient-bottom {

@@ -7471,11 +7471,13 @@ export const HomeScreen = {
 
   async mount(params = {}, navigationContext = {}) {
     this.container = document.getElementById("home");
-    // #home persists across navigations and other screens' markup can have
-    // passed through it, so never let a re-entry reuse the previous visit's
-    // markup comparison.
-    this.lastRenderedMarkup = null;
-    this.lastRenderedContainer = null;
+    // Deliberately keeps the previous visit's render bookkeeping: #home is
+    // this screen's own element (renderAppShell gives every screen its own
+    // div) and it hides with preserveDom once loaded, so coming back usually
+    // finds the exact DOM we last rendered — re-entry then patches instead of
+    // rewriting the whole screen, which measured 212ms on the C3. When the DOM
+    // *was* dropped (hide() before the first successful load), render's
+    // firstElementChild guard sees an empty container and does a full write.
     ScreenUtils.show(this.container);
     this.ensureDelegatedEventsBound();
     RootSidebarController.register("home", {
@@ -8288,6 +8290,168 @@ export const HomeScreen = {
     });
   },
 
+  // Parse one region's markup into a single element. Returns null when the
+  // markup isn't exactly one element, which is the signal to fall back to a
+  // full render rather than guess.
+  parseHomeRegionNode(markup) {
+    const trimmed = String(markup || "").trim();
+    if (!trimmed) {
+      return null;
+    }
+    const template = document.createElement("template");
+    template.innerHTML = trimmed;
+    return template.content.children.length === 1 ? template.content.firstElementChild : null;
+  },
+
+  // Replace / insert / remove a single-element region in place.
+  patchHomeRegion(parent, existingNode, markup, anchor) {
+    const trimmed = String(markup || "").trim();
+    if (!trimmed) {
+      if (existingNode) {
+        existingNode.remove();
+      }
+      return true;
+    }
+    const fresh = this.parseHomeRegionNode(trimmed);
+    if (!fresh) {
+      return false;
+    }
+    if (existingNode) {
+      existingNode.replaceWith(fresh);
+      return true;
+    }
+    parent.insertBefore(fresh, anchor || null);
+    return true;
+  },
+
+  // Keyed reconcile of the catalog rows: rows whose markup is unchanged keep
+  // their DOM (and with it their mounted cards, decoded images and scroll
+  // position); only changed rows are re-parsed. A row's data-row-index is part
+  // of its markup, so a row that moved re-parses and can never be left with a
+  // stale index — which matters because dataset.rowIndex maps a card back to
+  // this.rows.
+  reconcileModernCatalogRows(catalogsEl, previousRowMarkup, nextParts) {
+    const existingByKey = new Map();
+    const strays = [];
+    Array.from(catalogsEl.children).forEach((node) => {
+      const key = node.getAttribute?.("data-row-key") || "";
+      if (key) {
+        existingByKey.set(key, node);
+      } else {
+        strays.push(node);
+      }
+    });
+    // Skeleton placeholders and anything else unkeyed have no counterpart in
+    // the model, so they can never be matched — drop them.
+    strays.forEach((node) => node.remove());
+
+    let reused = 0;
+    let cursor = null;
+    for (const key of nextParts.rowKeys) {
+      const markup = nextParts.rowMarkupByKey.get(key) || "";
+      const existing = existingByKey.get(key) || null;
+      existingByKey.delete(key);
+      let node = existing;
+      if (existing && previousRowMarkup.get(key) === markup) {
+        reused += 1;
+      } else {
+        const fresh = this.parseHomeRegionNode(markup);
+        if (!fresh) {
+          return null;
+        }
+        if (existing) {
+          existing.replaceWith(fresh);
+        }
+        node = fresh;
+      }
+      const expectedNext = cursor ? cursor.nextElementSibling : catalogsEl.firstElementChild;
+      if (expectedNext !== node) {
+        catalogsEl.insertBefore(node, expectedNext || null);
+      }
+      cursor = node;
+    }
+    existingByKey.forEach((node) => node.remove());
+    return { reused, total: nextParts.rowKeys.length };
+  },
+
+  // Patch the modern home in place instead of rewriting the whole screen.
+  // Returns false to mean "caller must do the full innerHTML write" — every
+  // condition this cannot prove safe falls back rather than patching.
+  tryPatchModernHomeDom(next) {
+    const previous = this.lastRenderSignature;
+    if (!previous || !previous.parts || !next.parts) {
+      return false;
+    }
+    if (this.lastRenderedContainer !== this.container || !this.container.firstElementChild) {
+      return false;
+    }
+    if (previous.layoutMode !== "modern" || next.layoutMode !== "modern") {
+      return false;
+    }
+    // The hold menu lives outside the three patchable regions, so a change
+    // there means a full write.
+    if (previous.holdMenuMarkup !== next.holdMenuMarkup) {
+      return false;
+    }
+    // Skeleton states swap whole regions rather than rows — not reconcilable.
+    if (!previous.parts.hasRows || !next.parts.hasRows) {
+      return false;
+    }
+
+    const shell = this.container.querySelector(".home-shell");
+    const routeContent = this.container.querySelector(".home-route-content");
+    const stage = this.container.querySelector(".home-modern-stage");
+    const rowsScroll = stage?.querySelector(".home-modern-rows-scroll") || null;
+    const catalogs = rowsScroll?.querySelector(".home-modern-catalogs") || null;
+    if (!shell || !routeContent || !stage || !rowsScroll || !catalogs) {
+      return false;
+    }
+
+    // Only ever written from render's markup — nothing mutates it at runtime —
+    // so assigning it wholesale cannot drop a class someone else added. The
+    // first re-render after mount always differs here (the route-enter class
+    // is dropped), and bailing on that alone cost a full rewrite.
+    if (previous.routeEnterClass !== next.routeEnterClass) {
+      routeContent.className = `home-route-content${next.routeEnterClass}`;
+    }
+
+    if (previous.layoutClass !== next.layoutClass) {
+      shell.className = `home-shell home-screen-shell ${next.layoutClass}`;
+    }
+    if (previous.sizingStyle !== next.sizingStyle) {
+      if (next.sizingStyle) {
+        shell.setAttribute("style", next.sizingStyle);
+      } else {
+        shell.removeAttribute("style");
+      }
+    }
+
+    if (previous.parts.heroMarkup !== next.parts.heroMarkup) {
+      const heroNode = stage.querySelector(":scope > .home-hero");
+      if (!this.patchHomeRegion(stage, heroNode, next.parts.heroMarkup, stage.firstElementChild)) {
+        return false;
+      }
+    }
+
+    if (previous.parts.continueWatchingMarkup !== next.parts.continueWatchingMarkup) {
+      const continueNode = rowsScroll.querySelector(":scope > .home-row-continue");
+      if (!this.patchHomeRegion(rowsScroll, continueNode, next.parts.continueWatchingMarkup, catalogs)) {
+        return false;
+      }
+    }
+
+    const result = this.reconcileModernCatalogRows(
+      catalogs,
+      previous.parts.rowMarkupByKey,
+      next.parts
+    );
+    if (!result) {
+      return false;
+    }
+    this.lastRowReuse = result;
+    return true;
+  },
+
   render() {
     this.cancelScheduledRender();
     this.teardownModernTrackScrollPagination();
@@ -8420,6 +8584,7 @@ export const HomeScreen = {
       : "";
     this.pendingCollectionRouteReturnAnimation = false;
 
+    const holdMenuMarkup = this.renderActiveHoldMenu();
     const nextMarkup = `
       <div class="home-shell home-screen-shell ${layoutClass}"${sizingStyle ? ` style="${escapeAttribute(sizingStyle)}"` : ""}>
         <main class="home-main home-screen-main">
@@ -8428,28 +8593,39 @@ export const HomeScreen = {
           </div>
         </main>
       </div>
-      ${this.renderActiveHoldMenu()}
+      ${holdMenuMarkup}
     `;
+    const renderSignature = {
+      layoutMode: this.layoutMode,
+      layoutClass,
+      sizingStyle,
+      routeEnterClass,
+      holdMenuMarkup,
+      parts: modernLayoutPayload?.parts || null
+    };
 
-    // Boot fires several full renders as catalog batches land, and on the C3
-    // two of them measured byte-identical to the DOM already on screen —
-    // ~130ms each of innerHTML alone, plus the style recalc, layout, paint and
-    // image re-decode that follow. Identical markup means identical state, so
-    // reuse the DOM and skip only the write; everything below re-runs and is
-    // written to re-derive its state from the current DOM. Guarded on the
-    // container identity and its contents because #home is a persistent
-    // element that other screens' content can pass through.
-    const canReuseRenderedMarkup =
-      this.lastRenderedMarkup === nextMarkup &&
-      this.lastRenderedContainer === this.container &&
-      Boolean(this.container.firstElementChild);
-    if (canReuseRenderedMarkup) {
-      this.reusedRenderCount = (this.reusedRenderCount || 0) + 1;
+    // Home re-renders several times during boot as catalog batches land, and a
+    // full rewrite of this screen costs 80-170ms of innerHTML on the C3 before
+    // the style recalc, layout, paint and image re-decode it forces. So:
+    // identical markup writes nothing at all, an otherwise-unchanged screen
+    // patches only the rows that actually differ, and anything neither of
+    // those can prove safe falls back to the full write. Everything below
+    // re-runs in all three cases — it is written to re-derive its state from
+    // whatever DOM is currently there. The container guard matters because
+    // #home is persistent and other screens' markup passes through it.
+    const domIsReusable =
+      this.lastRenderedContainer === this.container && Boolean(this.container.firstElementChild);
+    if (domIsReusable && this.lastRenderedMarkup === nextMarkup) {
+      this.lastRenderKind = "skipped";
+    } else if (this.tryPatchModernHomeDom(renderSignature)) {
+      this.lastRenderKind = "patched";
     } else {
       this.container.innerHTML = nextMarkup;
-      this.lastRenderedMarkup = nextMarkup;
-      this.lastRenderedContainer = this.container;
+      this.lastRenderKind = "full";
     }
+    this.lastRenderedMarkup = nextMarkup;
+    this.lastRenderedContainer = this.container;
+    this.lastRenderSignature = renderSignature;
 
     this.container.querySelectorAll(".home-hero-logo").forEach(applyLogoTrim);
     requestAnimationFrame(() => syncMetaLineDot(this.container?.querySelector(".home-modern-hero-meta-line")));

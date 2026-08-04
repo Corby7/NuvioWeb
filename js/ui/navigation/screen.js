@@ -33,6 +33,35 @@ export const ScreenUtils = {
     }
   },
 
+  // Write markup into a section mount only when it actually differs from what
+  // that mount last received. Screens re-render every one of their sections
+  // whenever any single piece of their data lands, so the same markup gets
+  // written over and over — a detail visit was measured writing the hero and
+  // insight mounts 9x each and the 79KB comments mount 3x, all byte-identical.
+  // Each of those costs a parse plus the style recalc, layout and image
+  // re-decode that follow, for no change on screen.
+  //
+  // Returns true when the DOM was actually written, so callers can skip the
+  // work that only matters for fresh nodes (re-observing lazy images, etc).
+  //
+  // Only safe where the caller re-derives its state from the DOM afterwards
+  // (focus indexing, event binding) rather than assuming a fresh subtree.
+  setSectionHtml(element, markup) {
+    if (!element) {
+      return false;
+    }
+    const next = String(markup ?? "");
+    const alreadyRendered =
+      element.__nuvioSectionHtml === next &&
+      (next === "" ? element.childNodes.length === 0 : element.firstChild != null);
+    if (alreadyRendered) {
+      return false;
+    }
+    element.innerHTML = next;
+    element.__nuvioSectionHtml = next;
+    return true;
+  },
+
   // A freshly-mounted node re-focused across a re-render (e.g. home's
   // stale-snapshot-then-fresh-data multi-pass render, or a screen re-entered
   // from cache) picks up a genuine CSS transition on its ring/scale/brightness
