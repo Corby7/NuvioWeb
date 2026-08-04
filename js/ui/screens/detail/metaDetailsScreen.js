@@ -105,6 +105,16 @@ function resolveMetaImdbId(meta = {}, params = {}) {
     .find((value) => /^tt\d+$/i.test(value)) || null;
 }
 
+function resolveMovieStreamIdentity(meta = {}, params = {}) {
+  const itemId = String(params?.itemId || meta?.id || "").trim() || null;
+  // Once detail metadata has been hydrated its id is the authoritative video id
+  // for stream discovery — the route may have been entered with a catalog id
+  // (tmdb:/trakt:) that no addon can resolve streams for. itemId stays separate
+  // so progress/library identity does not shift with addon metadata.
+  const videoId = String(meta?.id || itemId || "").trim() || null;
+  return { itemId, videoId };
+}
+
 function libraryActionLabels(usesTraktWatchlist) {
   return usesTraktWatchlist
     ? {
@@ -1404,6 +1414,21 @@ export const MetaDetailsScreen = {
     void this.refreshTrailerSource(meta, token);
     void this.loadTraktComments({ force: true });
 
+    // Recommendations are an independent detail-page job. Starting them from
+    // the base meta keeps slower artwork/credits enrichment (and its optional
+    // cast fallback) from delaying this section by seconds on TV.
+    void withTimeout(this.fetchMoreLikeThis(meta), 5000, [])
+      .then((items) => {
+        if (token !== this.detailLoadToken) {
+          return;
+        }
+        this.moreLikeThisItems = Array.isArray(items) ? items : [];
+        this.updateRenderedDetailSections(this.meta || meta);
+      })
+      .catch((error) => {
+        console.warn("More like this background load failed", error);
+      });
+
     // Background enrichments: do not block initial screen rendering.
     (async () => {
       const enrichedMeta = await withTimeout(this.enrichMeta(meta), 4000, meta);
@@ -1429,9 +1454,7 @@ export const MetaDetailsScreen = {
       void this.refreshTrailerSource(this.meta, token);
       void this.loadTraktComments({ force: true });
 
-      const tasks = [
-        withTimeout(this.fetchMoreLikeThis(this.meta), 5000, [])
-      ];
+      const tasks = [];
       if (isSeriesDetailMeta(this.meta, this.episodes)) {
         tasks.push(withTimeout(this.fetchSeriesRatingsBySeason(this.meta), 5000, {}));
         const traktId = this.meta?.ids?.trakt;
@@ -1461,19 +1484,18 @@ export const MetaDetailsScreen = {
       if (token !== this.detailLoadToken) {
         return;
       }
-      this.moreLikeThisItems = Array.isArray(results[0]) ? results[0] : [];
       if (isSeriesDetailMeta(this.meta, this.episodes)) {
-        this.seriesRatingsBySeason = results[1] || {};
-        if (this.meta?.ids?.trakt && results[2] instanceof Map) {
-          this.enrichedWatchedState = results[2];
+        this.seriesRatingsBySeason = results[0] || {};
+        if (this.meta?.ids?.trakt && results[1] instanceof Map) {
+          this.enrichedWatchedState = results[1];
           this.buildEpisodeState(allProgressItems, allWatchedItems, this.enrichedWatchedState);
           this.updateRenderedDetailSections(this.meta);
         }
       } else {
-        this.collectionItems = Array.isArray(results[1]?.items) ? results[1].items : [];
-        this.collectionName = results[1]?.name || "";
-        if (this.meta?.ids?.trakt && results[2]) {
-          this.enrichedMovieState = results[2];
+        this.collectionItems = Array.isArray(results[0]?.items) ? results[0].items : [];
+        this.collectionName = results[0]?.name || "";
+        if (this.meta?.ids?.trakt && results[1]) {
+          this.enrichedMovieState = results[1];
           this.isMarkedWatched = Boolean(this.enrichedMovieState?.isWatched);
           this.updateRenderedDetailSections(this.meta);
         }
@@ -5507,14 +5529,15 @@ export const MetaDetailsScreen = {
     const streamBackdrop = this.meta?.background || this.meta?.landscapePoster || this.meta?.poster || null;
     const itemType = resolvePlayableDetailType(this.params?.itemType || this.meta?.type, this.meta);
     const imdbId = resolveMetaImdbId(this.meta, this.params);
+    const { itemId, videoId } = resolveMovieStreamIdentity(this.meta, this.params);
     streamRepository.prefetchStreamsForRoute({
-      itemId: this.params?.itemId || null,
+      itemId,
       itemType,
-      videoId: this.params?.itemId || null,
+      videoId,
       ...extraParams
     });
     Router.navigate("stream", {
-      itemId: this.params?.itemId || null,
+      itemId,
       itemType,
       imdbId,
       returnToDetail: true,
@@ -5528,7 +5551,7 @@ export const MetaDetailsScreen = {
       logo: this.meta?.logo || null,
       parentalWarnings: this.meta?.parentalWarnings || null,
       parentalGuide: this.meta?.parentalGuide || null,
-      videoId: this.params?.itemId || null,
+      videoId,
       episodes: [],
       ...extraParams
     });

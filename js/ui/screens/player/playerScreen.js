@@ -61,6 +61,10 @@ import { requestWebOsCompanionService, subscribeWebOsCompanionService } from "..
 const CLOCK_FORMATTER_CACHE = new Map();
 const LANGUAGE_DISPLAY_NAME_CACHE = new Map();
 const ENGINEFS_NAVIGATION_CLEANUP_GRACE_MS = 1500;
+// webOS drops the media pipeline on transient decoder hiccups that a plain
+// restart of the same source recovers from. Bounded per source URL so a
+// genuinely dead stream still surfaces the manual source picker.
+const WEBOS_STALL_RESTART_LIMIT = 1;
 const activeEngineFsPlaybackClaims = new Map();
 const deferredEngineFsRemovalTimers = new Map();
 
@@ -2077,6 +2081,8 @@ export const PlayerScreen = {
     this.failedPlaybackUrls = new Set();
     this.failedPlaybackStreamIds = new Set();
     this.playbackStallTimer = null;
+    this.webOsStallRestartUrl = "";
+    this.webOsStallRestarts = 0;
     this.engineFsStartupRetryTimer = null;
     this.engineFsStartupErrorRetries = 0;
     this.engineFsStallExtensions = 0;
@@ -7964,6 +7970,29 @@ export const PlayerScreen = {
           forceEngine: targetEngine
         });
         return;
+      }
+
+      // No alternative engine to fall back to. Before surfacing the manual
+      // source picker, give webOS one restart of the current source.
+      if (Environment.isWebOS()) {
+        const stalledPlaybackUrl = this.activePlaybackUrl;
+        if (this.webOsStallRestartUrl !== stalledPlaybackUrl) {
+          this.webOsStallRestartUrl = stalledPlaybackUrl;
+          this.webOsStallRestarts = 0;
+        }
+        if (this.webOsStallRestarts < WEBOS_STALL_RESTART_LIMIT) {
+          this.webOsStallRestarts += 1;
+          console.warn("Playback stalled on webOS; restarting the current source", {
+            url: stalledPlaybackUrl,
+            attempt: this.webOsStallRestarts,
+            engine: PlayerController.playbackEngine
+          });
+          void this.playStreamByUrl(stalledPlaybackUrl, {
+            preservePlaybackState: true,
+            resetSilentAudioState: false
+          });
+          return;
+        }
       }
 
       this.releaseStartupAudioGate({ resume: false });

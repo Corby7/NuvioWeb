@@ -6804,11 +6804,20 @@ img[data-lazy-src] {
   content: none;
 }
 
+/* `flex: 1 1 auto` is load-bearing: applyModernHeroDescriptionBounds derives the
+   description's max-height from copy.clientHeight minus the other children. When
+   this block was content-sized that subtraction always resolved to the
+   description's own current height, pinning it to a single truncated line no
+   matter how much room the hero card actually had. Filling the card gives the
+   synopsis the card's real free space; justify-content keeps the copy
+   bottom-anchored exactly as before. */
 .home-screen-shell.home-layout-modern .home-modern-hero-copy {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  justify-content: flex-end;
   align-items: flex-start;
-  gap: 16px;
+  gap: 12px;
   transition: opacity 200ms ease;
   width: 50%;
 }
@@ -6903,10 +6912,11 @@ img[data-lazy-src] {
   margin-top: 0;
   width: min(100%, var(--modern-hero-meta-max-width));
   max-width: min(100%, var(--modern-hero-meta-max-width));
-  color: #b3b3b3;
+  color: rgba(255, 255, 255, 0.62);
   font-size: 22px;
   line-height: 1.25;
   font-weight: 500;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
   opacity: 1;
   transition: opacity 480ms ease;
 }
@@ -6939,11 +6949,14 @@ img[data-lazy-src] {
   display: none;
 }
 
+/* Status eyebrow ("1H 30M LEFT", badges) — sits between the meta caption and the
+   synopsis, so it reads as a label rather than competing with the body copy. */
 .home-screen-shell.home-layout-modern .home-modern-hero-secondary {
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 24px;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 20px;
   line-height: 1.35;
   font-weight: 600;
+  letter-spacing: 0.08em;
 }
 
 .home-screen-shell.home-layout-modern .home-modern-hero-highlight {
@@ -6982,15 +6995,18 @@ img[data-lazy-src] {
 
 .home-screen-shell.home-layout-modern .home-hero-description {
   min-height: 0;
-  margin-top: 0;
+  margin-top: 4px;
+  max-width: min(100%, 760px);
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   overflow: hidden;
-  color: #ffffff;
-  font-size: 26px;
-  line-height: 1.35;
-  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
   opacity: 1;
   transition: opacity 480ms ease;
 }

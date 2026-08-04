@@ -6007,7 +6007,7 @@ export const HomeScreen = {
       }
       const currentText = node.textContent ?? "";
       const storedText = node.dataset.fullText || "";
-      const shouldRefresh = !storedText || (currentText && currentText !== storedText && !currentText.trim().endsWith("..."));
+      const shouldRefresh = !storedText || (currentText && currentText !== storedText && !currentText.trim().endsWith("…"));
       const sourceText = shouldRefresh ? currentText : storedText;
       const isModernHeroDescription = node.classList.contains("home-hero-description")
         && Boolean(node.closest(".home-modern-hero-copy"));
@@ -6018,7 +6018,7 @@ export const HomeScreen = {
         return;
       }
       node.dataset.fullText = fullText;
-      node.textContent = wordTrimmed ? `${fullText}...` : fullText;
+      node.textContent = wordTrimmed ? `${fullText}…` : fullText;
       const maxW = node.clientWidth + 1;
       const maxH = node.clientHeight + 1;
       const fits = node.scrollWidth <= maxW && node.scrollHeight <= maxH;
@@ -6027,7 +6027,7 @@ export const HomeScreen = {
         return;
       }
 
-      const ellipsis = "...";
+      const ellipsis = "…";
       let low = 0;
       let high = fullText.length;
       while (low < high) {
@@ -6050,7 +6050,8 @@ export const HomeScreen = {
     if (!this.container || this.layoutMode !== "modern") {
       return;
     }
-    const modernHeroDescriptionMaxLines = 5;
+    // Keep in step with the -webkit-line-clamp on .home-layout-modern .home-hero-description.
+    const modernHeroDescriptionMaxLines = 4;
     const scope = root instanceof HTMLElement ? root : this.container;
     const heroNodes = scope.classList?.contains("home-hero-card")
       ? [scope]

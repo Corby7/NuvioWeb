@@ -141,8 +141,10 @@ function buildSearchTargets(addons = []) {
   const targets = [];
   addons.forEach((addon) => {
     (addon.catalogs || []).forEach((catalog) => {
+      // Any catalog advertising the "search" extra is a valid search target,
+      // including custom types (anime, channels, …). Restricting to
+      // movie/series/tv silently dropped those addons from every query.
       if (!catalogSupportsExtra(catalog, "search")) return;
-      if (!isSearchableCatalogType(catalog.apiType)) return;
       targets.push({
         addonBaseUrl: addon.baseUrl,
         addonId: addon.id,
