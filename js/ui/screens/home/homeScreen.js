@@ -7471,6 +7471,11 @@ export const HomeScreen = {
 
   async mount(params = {}, navigationContext = {}) {
     this.container = document.getElementById("home");
+    // #home persists across navigations and other screens' markup can have
+    // passed through it, so never let a re-entry reuse the previous visit's
+    // markup comparison.
+    this.lastRenderedMarkup = null;
+    this.lastRenderedContainer = null;
     ScreenUtils.show(this.container);
     this.ensureDelegatedEventsBound();
     RootSidebarController.register("home", {
@@ -8415,7 +8420,7 @@ export const HomeScreen = {
       : "";
     this.pendingCollectionRouteReturnAnimation = false;
 
-    this.container.innerHTML = `
+    const nextMarkup = `
       <div class="home-shell home-screen-shell ${layoutClass}"${sizingStyle ? ` style="${escapeAttribute(sizingStyle)}"` : ""}>
         <main class="home-main home-screen-main">
           <div class="home-route-content${routeEnterClass}">
@@ -8425,6 +8430,26 @@ export const HomeScreen = {
       </div>
       ${this.renderActiveHoldMenu()}
     `;
+
+    // Boot fires several full renders as catalog batches land, and on the C3
+    // two of them measured byte-identical to the DOM already on screen —
+    // ~130ms each of innerHTML alone, plus the style recalc, layout, paint and
+    // image re-decode that follow. Identical markup means identical state, so
+    // reuse the DOM and skip only the write; everything below re-runs and is
+    // written to re-derive its state from the current DOM. Guarded on the
+    // container identity and its contents because #home is a persistent
+    // element that other screens' content can pass through.
+    const canReuseRenderedMarkup =
+      this.lastRenderedMarkup === nextMarkup &&
+      this.lastRenderedContainer === this.container &&
+      Boolean(this.container.firstElementChild);
+    if (canReuseRenderedMarkup) {
+      this.reusedRenderCount = (this.reusedRenderCount || 0) + 1;
+    } else {
+      this.container.innerHTML = nextMarkup;
+      this.lastRenderedMarkup = nextMarkup;
+      this.lastRenderedContainer = this.container;
+    }
 
     this.container.querySelectorAll(".home-hero-logo").forEach(applyLogoTrim);
     requestAnimationFrame(() => syncMetaLineDot(this.container?.querySelector(".home-modern-hero-meta-line")));

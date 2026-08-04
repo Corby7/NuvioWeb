@@ -5874,6 +5874,11 @@ img[data-lazy-src] {
   background-color: var(--focus-bg);
 }
 
+/* Copy scrim. The old two-stop ramp left a visible hard edge and topped out too
+   low to carry white text over bright artwork (a sunlit reality-show still would
+   wash the title out). This is the same ink, re-spread over an eased multi-stop
+   curve: opaque enough at the baseline to guarantee contrast, fading out early
+   and gradually enough that no banding line reads across the frame. */
 .home-screen-shell .home-continue-media::after {
   content: "";
   position: absolute;
@@ -5882,7 +5887,16 @@ img[data-lazy-src] {
   right: 0;
   bottom: 0;
   left: 0;
-  background: linear-gradient(180deg, transparent 0%, transparent 45%, rgba(13, 13, 13, 0.7) 78%, rgba(13, 13, 13, 0.95) 100%);
+  background: linear-gradient(
+    to top,
+    rgba(8, 8, 10, 0.96) 0%,
+    rgba(8, 8, 10, 0.9) 12%,
+    rgba(8, 8, 10, 0.74) 28%,
+    rgba(8, 8, 10, 0.48) 46%,
+    rgba(8, 8, 10, 0.22) 64%,
+    rgba(8, 8, 10, 0.06) 82%,
+    transparent 100%
+  );
 }
 
 /* Remaining-time pill — the .nuvio-dialog-panel glass recipe at pill scale:
@@ -5948,44 +5962,81 @@ img[data-lazy-src] {
   bottom: 12px;
 }
 
+/* The kicker and subtitle are supporting lines — clip them to one line so they
+   never steal vertical room from the title. */
+.home-screen-shell .home-continue-kicker,
+.home-screen-shell .home-continue-subtitle {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The title gets two lines rather than one. Clipping it to a single line ate
+   real titles ("The Shawshank Redempt…") on cards this narrow; two lines fit
+   nearly everything intact while still capping the runaway case. The block is
+   bottom-anchored, so a second line grows upward into the scrim instead of
+   pushing the subtitle onto the progress bar. */
+.home-screen-shell .home-continue-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Kicker / title / subtitle were 13 / 17 / 13px in near-identical weights and
+   opacities, so the block read as three equal lines. Pulling the kicker down to
+   a tracked uppercase label and pushing the title up in weight gives the card a
+   single obvious focal point. */
 .home-screen-shell .home-continue-kicker {
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 13px;
-  line-height: 1.33;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .home-screen-shell .home-continue-title {
-  margin-top: 2px;
+  margin-top: 3px;
   color: #fff;
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.25;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  /* Insurance for the rare frame bright enough to survive the scrim. */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .home-screen-shell .home-continue-subtitle {
   margin-top: 2px;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.62);
   font-size: 13px;
   line-height: 1.33;
+  font-weight: 400;
 }
 
+/* Full-bleed against the bottom edge rather than a floating inset capsule — the
+   card's own overflow clip rounds the ends into the corner radius, so the bar
+   reads as the artwork's scrubber instead of a stray grey dash sitting on it. */
 .home-screen-shell .home-continue-progress {
   position: absolute;
   z-index: 2;
-  left: 10px;
-  right: 10px;
-  bottom: 4px;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.3);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.16);
   overflow: hidden;
 }
 
 .home-screen-shell .home-continue-progress span {
   display: block;
   height: 100%;
-  border-radius: inherit;
-  background: #9e9e9e;
+  /* A just-started episode is a 1% sliver that would otherwise vanish; the floor
+     keeps "you've been here" legible across the row. */
+  min-width: 8px;
+  background: var(--secondary-color);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
 }
 
 .home-screen-shell .home-continue-media-loading {
@@ -7335,27 +7386,27 @@ img[data-lazy-src] {
 .home-screen-shell.home-layout-modern .home-continue-copy {
   left: 24px;
   right: 24px;
-  bottom: 24px;
+  bottom: 22px;
 }
 
 .home-screen-shell.home-layout-modern .home-continue-kicker {
-  font-size: 24px;
-  line-height: 1.33;
-  letter-spacing: 1px;
+  font-size: 17px;
+  line-height: 1.3;
+  letter-spacing: 0.14em;
 }
 
 .home-screen-shell.home-layout-modern .home-continue-title {
-  margin-top: 0;
-  font-size: 28px;
-  line-height: 1.42;
-  letter-spacing: 0.2px;
+  margin-top: 4px;
+  font-size: 30px;
+  line-height: 1.24;
+  letter-spacing: -0.01em;
 }
 
 .home-screen-shell.home-layout-modern .home-continue-subtitle {
-  margin-top: 0;
-  font-size: 24px;
-  line-height: 1.33;
-  letter-spacing: 0.8px;
+  margin-top: 3px;
+  font-size: 21px;
+  line-height: 1.3;
+  letter-spacing: 0;
 }
 
 .home-screen-shell.home-layout-modern .home-continue-badge {
@@ -7369,11 +7420,14 @@ img[data-lazy-src] {
 }
 
 .home-screen-shell.home-layout-modern .home-continue-progress {
-  left: 20px;
-  right: 20px;
-  bottom: 8px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   height: 6px;
-  border-radius: 3px;
+}
+
+.home-screen-shell.home-layout-modern .home-continue-progress span {
+  min-width: 12px;
 }
 
 .home-screen-shell.home-layout-modern .home-content-card.focused {

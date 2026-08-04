@@ -21,6 +21,12 @@ const requireConfiguredRuntimeEnv = /^(1|true|yes|on)$/i.test(
   String(process.env.NUVIO_REQUIRE_LOCAL_PROPERTIES || "")
 );
 const debugBundle = /^(1|true|yes|on)$/i.test(String(process.env.NUVIO_DEBUG_BUNDLE || ""));
+// NUVIO_MODERN_BUNDLE=1 skips the es2015 down-level + Babel passes and builds
+// once for the target engine. Safe for the webOS/browser targets this fork
+// aims at; the default (legacy) path is what the Tizen .wgt should keep using
+// until its engine floor is confirmed.
+const modernBundle = /^(1|true|yes|on)$/i.test(String(process.env.NUVIO_MODERN_BUNDLE || ""));
+const MODERN_BUNDLE_TARGET = process.env.NUVIO_MODERN_BUNDLE_TARGET || "chrome108";
 async function buildCSS() {
   console.log("processing CSS with PostCSS (chrome132 target)...");
   const cssDir = path.join(rootDir, "css");
@@ -80,6 +86,30 @@ async function buildBundle() {
 
   console.log("starting bundle build...");
   await mkdir(cacheDir, { recursive: true });
+
+  if (modernBundle) {
+    // Single esbuild pass straight to the target engine. The default path
+    // below down-levels to es2015 first, which rewrites every async function
+    // into a generator + state machine that the following chrome-targeted
+    // passes never undo — dead weight on an engine that has native async.
+    console.log(`building single-pass modern bundle (${MODERN_BUNDLE_TARGET})...`);
+    await build({
+      entryPoints: [path.join(rootDir, "js/app.js")],
+      outfile: path.join(distDir, bundleFileName),
+      bundle: true,
+      minify: !debugBundle,
+      format: "iife",
+      sourcemap: debugBundle,
+      target: [MODERN_BUNDLE_TARGET],
+      define: {
+        "process.env.NODE_ENV": '"production"',
+        __NUVIO_APP_VERSION__: JSON.stringify(version)
+      }
+    });
+    await cp(path.join(distDir, bundleFileName), path.join(rootDir, bundleFileName));
+    console.log("bundle build complete");
+    return;
+  }
 
   // create a temporary bundle for babel to process
   await build({
