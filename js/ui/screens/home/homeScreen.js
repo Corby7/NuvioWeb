@@ -82,6 +82,9 @@ const CW_META_TIMEOUT_TV_MS = 4200;
 const CW_NEXT_UP_META_TIMEOUT_MS = 2200;
 const CW_META_RETRY_TIMEOUT_MS = 8000;
 const CW_ENRICHMENT_CACHE_KEY = "homeContinueWatchingEnrichmentCache";
+const CW_DISPLAY_SNAPSHOT_KEY = "homeContinueWatchingDisplaySnapshot";
+const CW_DISPLAY_SNAPSHOT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const CW_DISPLAY_SNAPSHOT_MAX_SCOPES = 4;
 const HOME_RETURN_FOCUS_STATE_KEY = "homeReturnFocusState";
 const CW_ENRICHMENT_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const CW_NEXT_UP_NEW_SEASON_UNAIRED_WINDOW_DAYS = 7;
@@ -241,10 +244,14 @@ export function buildModernHomeSizingStyle(layoutPrefs = {}) {
 // ─── Transform-scrolled tracks ───────────────────────────────────────────────
 // Modern-layout rows are `overflow-x: clip` and scroll by translating the
 // `.home-track-inner` wrapper: no scroll events, no scroll anchoring, and it
-// enables the card virtualization below. Tracks without an inner wrapper (the
-// continue row, classic/grid layouts) keep native scrollLeft — every helper
-// falls back transparently. Module-level (not methods) because HomeScreen
-// methods are frequently borrowed with `this` = FolderDetailScreen.
+// enables the card virtualization below. This includes the continue row —
+// it was the last native scrollLeft holdout in modern layout and scrolled
+// visibly worse than the catalog rows because of it (no compositor layer, so
+// every d-pad press re-rastered the row on the main thread, and no windowing,
+// so every CW card stayed live). Tracks without an inner wrapper (classic/grid
+// layouts) still keep native scrollLeft — every helper falls back
+// transparently. Module-level (not methods) because HomeScreen methods are
+// frequently borrowed with `this` = FolderDetailScreen.
 const trackTransformPositions = new WeakMap();
 const trackWindowUpdateTimers = new WeakMap();
 const trackLayerDemoteTimers = new WeakMap();
@@ -305,20 +312,24 @@ function getTrackMaxScrollPx(track) {
   if (!inner) {
     return Math.max(0, (track?.scrollWidth || 0) - (track?.clientWidth || 0));
   }
-  let padLeft = Number.parseFloat(track?.dataset?.trackPadLeft || "");
-  let padRight = Number.parseFloat(track?.dataset?.trackPadRight || "");
+  // The cache is keyed on clientWidth: the continue row's padding-right is a
+  // percentage (see the .home-row-continue .home-track rule), so unlike the
+  // fixed-px catalog rows its used value moves with the viewport and a stale
+  // cache would put the row's max scroll off by the resize delta.
+  const cacheWidth = Number(track.clientWidth || 0);
+  const cachedFor = Number.parseFloat(track?.dataset?.trackPadWidth || "");
+  const cacheValid = Number.isFinite(cachedFor) && cachedFor === cacheWidth;
+  let padLeft = cacheValid ? Number.parseFloat(track?.dataset?.trackPadLeft || "") : Number.NaN;
+  let padRight = cacheValid ? Number.parseFloat(track?.dataset?.trackPadRight || "") : Number.NaN;
   if (!Number.isFinite(padLeft) || !Number.isFinite(padRight)) {
     const computed = getComputedStyle(track);
-    if (!Number.isFinite(padLeft)) {
-      padLeft = Number.parseFloat(computed.paddingLeft) || 0;
-      track.dataset.trackPadLeft = String(padLeft);
-    }
-    if (!Number.isFinite(padRight)) {
-      padRight = Number.parseFloat(computed.paddingRight) || 0;
-      track.dataset.trackPadRight = String(padRight);
-    }
+    padLeft = Number.parseFloat(computed.paddingLeft) || 0;
+    padRight = Number.parseFloat(computed.paddingRight) || 0;
+    track.dataset.trackPadLeft = String(padLeft);
+    track.dataset.trackPadRight = String(padRight);
+    track.dataset.trackPadWidth = String(cacheWidth);
   }
-  return Math.max(0, inner.offsetWidth + padLeft + padRight - (track.clientWidth || 0));
+  return Math.max(0, inner.offsetWidth + padLeft + padRight - cacheWidth);
 }
 
 // Promote the inner to a compositor layer (and refresh the demote timer).
@@ -457,7 +468,7 @@ function updateTrackVirtualWindow(track, { targetScrollLeft = null } = {}) {
     // for the first paint attempt mid-tween; kick it now so the bitmap is
     // ready before the card scrolls into view. decode() rejects on aborted
     // loads — ignore, the normal paint path handles it.
-    const poster = card.querySelector(".content-poster");
+    const poster = card.querySelector(".content-poster, .home-continue-bg");
     if (poster instanceof HTMLImageElement && poster.src && typeof poster.decode === "function") {
       poster.decode().catch(() => {});
     }
@@ -1717,6 +1728,87 @@ function saveContinueWatchingEnrichment(item = {}) {
   LocalStore.set(CW_ENRICHMENT_CACHE_KEY, Object.fromEntries(entries));
 }
 
+// Continue Watching had no cold-start cache: catalog rows repaint instantly from
+// the home snapshot while this row sat on skeletons for the length of a
+// three-stage network chain (progress meta -> enrichment -> next-up lookups).
+// Persisting the resolved display gives it the same stale-while-revalidate first
+// paint. Scoped by profile+source key so a local/Trakt switch never shows the
+// other source's list; watchProgressRepository drops the matching scope whenever
+// progress is written, so a stale row can never outlive an actual change.
+const CW_DISPLAY_SNAPSHOT_FIELDS = [
+  "contentId", "contentType", "id", "type", "videoId", "season", "episode",
+  "positionMs", "durationMs", "progressPercent", "updatedAt", "source",
+  "isNextUp", "hasAired", "title", "name", "landscapePoster", "episodeThumbnail",
+  "poster", "background", "backdrop", "thumbnail", "logo", "description",
+  "episodeDescription", "episodeTitle", "releaseInfo", "released", "imdbRating",
+  "genres", "runtimeMinutes", "ageRating", "status", "language", "country"
+];
+
+function readContinueWatchingDisplaySnapshotStore() {
+  const store = LocalStore.get(CW_DISPLAY_SNAPSHOT_KEY, {});
+  return store && typeof store === "object" ? store : {};
+}
+
+function readContinueWatchingDisplaySnapshot(sourceKey) {
+  if (!sourceKey) {
+    return [];
+  }
+  const entry = readContinueWatchingDisplaySnapshotStore()[sourceKey];
+  if (!entry || typeof entry !== "object" || !Array.isArray(entry.items)) {
+    return [];
+  }
+  if ((Date.now() - Number(entry.savedAt || 0)) > CW_DISPLAY_SNAPSHOT_MAX_AGE_MS) {
+    return [];
+  }
+  // Only the raw fields are stored; every derived one (progress label, episode
+  // code, hero source) is rebuilt here, exactly as on the live path.
+  return buildVisibleContinueWatchingItems(entry.items, { requireArtwork: true });
+}
+
+function persistContinueWatchingDisplaySnapshot(sourceKey, items = []) {
+  if (!sourceKey) {
+    return;
+  }
+  try {
+    const store = readContinueWatchingDisplaySnapshotStore();
+    const presentable = (items || [])
+      .filter((item) => isPresentableContinueWatchingItem(item, { requireArtwork: true }));
+    if (!presentable.length) {
+      if (!Object.prototype.hasOwnProperty.call(store, sourceKey)) {
+        return;
+      }
+      const cleared = { ...store };
+      delete cleared[sourceKey];
+      LocalStore.set(CW_DISPLAY_SNAPSHOT_KEY, cleared);
+      return;
+    }
+    // enrichedMeta can ride along on a progress item and carries a full episode
+    // list — picking explicit fields keeps an entry at a few KB, not megabytes.
+    const next = {
+      ...store,
+      [sourceKey]: {
+        savedAt: Date.now(),
+        items: presentable.slice(0, CW_MAX_VISIBLE_ITEMS).map((item) => {
+          const picked = {};
+          CW_DISPLAY_SNAPSHOT_FIELDS.forEach((field) => {
+            const value = item?.[field];
+            if (value !== undefined && value !== null && value !== "") {
+              picked[field] = value;
+            }
+          });
+          return picked;
+        })
+      }
+    };
+    const entries = Object.entries(next)
+      .sort(([, left], [, right]) => Number(right?.savedAt || 0) - Number(left?.savedAt || 0))
+      .slice(0, CW_DISPLAY_SNAPSHOT_MAX_SCOPES);
+    LocalStore.set(CW_DISPLAY_SNAPSHOT_KEY, Object.fromEntries(entries));
+  } catch (error) {
+    console.warn("Failed to persist continue watching snapshot", error);
+  }
+}
+
 function buildContinueWatchingSignature(items = []) {
   return (items || [])
     .map((item) => {
@@ -2110,15 +2202,23 @@ export function renderContinueWatchingSection(items = [], options = {}) {
     useEpisodeThumbnails: options?.useEpisodeThumbnails,
     blurNextUp: options?.blurNextUp
   };
+  const cardsMarkup = items.length
+    ? items.map((item, index) => renderContinueWatchingCard(item, index, cardOptions)).join("")
+    : Array.from({ length: loadingCount }, (_, index) => renderContinueWatchingLoadingCard(index)).join("");
+  // Modern callers opt into the .home-track-inner wrapper, which is what puts a
+  // track on the transform-scroll path (compositor layer + card windowing).
+  // Classic/grid tracks are native scrollers throughout and have no CSS for the
+  // wrapper, so they must keep the cards as direct children of the track.
+  const trackBody = options?.useTrackInner
+    ? `<div class="home-track-inner">${cardsMarkup}</div>`
+    : cardsMarkup;
   return `
     <section class="home-row home-row-continue"${rowKey ? ` data-row-key="${escapeAttribute(rowKey)}"` : ""}>
       <div class="home-row-head">
         <h2 class="home-row-title">${escapeHtml(t("home.continueWatching", {}, "Continue Watching"))}</h2>
       </div>
       <div class="home-track home-track-continue"${rowKey ? ` data-track-row-key="${escapeAttribute(rowKey)}"` : ""}>
-        ${items.length
-      ? items.map((item, index) => renderContinueWatchingCard(item, index, cardOptions)).join("")
-      : Array.from({ length: loadingCount }, (_, index) => renderContinueWatchingLoadingCard(index)).join("")}
+        ${trackBody}
       </div>
     </section>
   `;
@@ -3453,7 +3553,9 @@ export const HomeScreen = {
       loading: Boolean(this.continueWatchingLoading),
       loadingCount: this._getEffectiveCwLoadingCount(),
       useEpisodeThumbnails: this.layoutPrefs?.useEpisodeThumbnailsInCw !== false,
-      blurNextUp: Boolean(this.layoutPrefs?.blurContinueWatchingNextUp)
+      blurNextUp: Boolean(this.layoutPrefs?.blurContinueWatchingNextUp),
+      // This patch path only runs on the modern rows-scroll container.
+      useTrackInner: true
     });
     if (newCwHtml) {
       const temp = document.createElement("div");
@@ -4704,6 +4806,10 @@ export const HomeScreen = {
       ? this.nextUpProgressCandidates.filter((entry) => !matchesItem(entry))
       : [];
     this.continueWatchingLoading = false;
+    // Dismissing a next-up card only writes a preference key, never progress,
+    // so the repository's snapshot invalidation doesn't fire for it — persist
+    // the pruned list here or the card returns on the next cold start.
+    this.persistContinueWatchingSnapshot();
     if (this.layoutMode === "modern") {
       this.heroItem = this.pickInitialHero();
     }
@@ -7627,13 +7733,20 @@ export const HomeScreen = {
     // fresh catalogs and swaps them in row by row.
     const snapshot = this.readHomeSnapshot();
     const warmStart = Boolean(snapshot?.rows?.length);
+    // Restored independently of the row snapshot: Continue Watching gets the
+    // same stale-while-revalidate first paint instead of sitting on skeletons
+    // for the length of its metadata chain. Must run before pickInitialHero —
+    // in modern layout the first CW card *is* the hero, so restoring it here
+    // also stops the hero from swapping once the live chain resolves.
+    this.persistedContinueWatchingSignature = "";
+    const warmContinueWatching = this.restoreContinueWatchingSnapshot();
     if (warmStart) {
       this.collections = CollectionsStore.get();
       this.rows = this.sortAndFilterRows(snapshot.rows, this.collections);
       this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
       this.heroIndex = 0;
       this.heroItem = this.pickInitialHero();
-      this.continueWatchingLoading = true;
+      this.continueWatchingLoading = !warmContinueWatching;
       this.isInitialHomeLoading = false;
     }
     this.render();
@@ -7782,6 +7895,71 @@ export const HomeScreen = {
     }
   },
 
+  continueWatchingSnapshotScope() {
+    // Mirrors watchProgressRepository's invalidation key so a write there and a
+    // restore here can never disagree about which scope they refer to.
+    return String(ProfileManager.getActiveProfileId() || "")
+      ? watchProgressRepository.getContinueWatchingSourceKey()
+      : "";
+  },
+
+  restoreContinueWatchingSnapshot() {
+    try {
+      const items = readContinueWatchingDisplaySnapshot(this.continueWatchingSnapshotScope());
+      if (!items.length) {
+        return false;
+      }
+      this.continueWatchingDisplay = items;
+      // Seed the dedupe signature so an unchanged fresh result doesn't rewrite
+      // the same entry back to localStorage on every load.
+      this.persistedContinueWatchingSignature = buildContinueWatchingSignature(items);
+      return true;
+    } catch (error) {
+      console.warn("Failed to restore continue watching snapshot", error);
+      return false;
+    }
+  },
+
+  persistContinueWatchingSnapshot() {
+    const signature = buildContinueWatchingSignature(this.continueWatchingDisplay || []);
+    if (signature === this.persistedContinueWatchingSignature) {
+      return;
+    }
+    this.persistedContinueWatchingSignature = signature;
+    persistContinueWatchingDisplaySnapshot(
+      this.continueWatchingSnapshotScope(),
+      this.continueWatchingDisplay || []
+    );
+  },
+
+  // Shared by loadData's early paint and its post-catalog assignment so the two
+  // can't disagree about when a resolved-but-empty result may blank the row.
+  // Idempotent: applying the same state twice is a no-op.
+  applyInitialContinueWatchingState(state, {
+    fallbackAllProgress = [],
+    fallbackContinueWatching = [],
+    fallbackNextUpCandidates = []
+  } = {}) {
+    const resolvedDisplay = Array.isArray(state?.display) ? state.display : null;
+    // A thrown chain (null state) and a resolved one whose enrichment produced
+    // nothing while candidates still exist are both retried by the second pass;
+    // keep snapshot-restored cards up rather than flashing back to skeletons.
+    const keepExistingDisplay = Boolean(this.continueWatchingDisplay?.length)
+      && (!resolvedDisplay || (!resolvedDisplay.length && state?.hasCandidates));
+    if (!keepExistingDisplay) {
+      this.continueWatchingDisplay = resolvedDisplay || [];
+    }
+    this.continueWatchingLoading = false;
+    this.allProgress = state?.allProgress || fallbackAllProgress;
+    this.continueWatching = state?.continueWatching || fallbackContinueWatching;
+    this.watchedItems = state?.watchedItems || [];
+    this.nextUpProgressCandidates = state?.nextUpProgressCandidates || fallbackNextUpCandidates;
+    this.warmFirstContinueWatchingItem();
+    if (!keepExistingDisplay && resolvedDisplay) {
+      this.persistContinueWatchingSnapshot();
+    }
+  },
+
   async loadData({ background = false, warmStart = false } = {}) {
     const token = this.homeLoadToken;
     const prefs = LayoutPreferences.get();
@@ -7812,7 +7990,13 @@ export const HomeScreen = {
       progressAllError = error;
       return [];
     });
-    const recentProgressPromise = watchProgressRepository.getRecent(10).catch((error) => {
+    // enrichMetadata: false — the repository's own enrichment pass is a 10-item,
+    // 4-wide fan-out of getMetaFromAllAddons calls with an 8s timeout behind
+    // only a 5-minute in-memory cache, so it always misses on a cold boot and
+    // blocks the whole CW chain before enrichment has even started.
+    // enrichContinueWatching below covers the same ground from its 14-day
+    // localStorage cache and only reaches the network on an actual miss.
+    const recentProgressPromise = watchProgressRepository.getRecent(10, { enrichMetadata: false }).catch((error) => {
       recentProgressError = error;
       return [];
     });
@@ -7865,6 +8049,39 @@ export const HomeScreen = {
       return null;
     });
 
+    // The CW chain is independent of the catalog fetches, but the assignment
+    // below sits after `await this.fetchCatalogRows(initialDescriptors)`, so the
+    // row could never paint before the initial catalog batch even when it
+    // resolved first. Paint it the moment it lands instead; the assignment below
+    // re-applies the same state and is a no-op when this already ran.
+    if (initialContinueWatchingPromise) {
+      initialContinueWatchingPromise.then((state) => {
+        if (token !== this.homeLoadToken || Router.getCurrent() !== "home" || !state) {
+          return;
+        }
+        // Nothing has rendered yet on a cold start with no snapshot — there is
+        // no DOM to patch, and loadData's own render() is a beat away.
+        if (this.isInitialHomeLoading || preserveContinueWatching) {
+          return;
+        }
+        const previousSignature = buildContinueWatchingSignature(this.continueWatchingDisplay);
+        const previousLoading = Boolean(this.continueWatchingLoading);
+        this.applyInitialContinueWatchingState(state);
+        // In modern layout the first CW card is the hero, so a changed list has
+        // to take the hero with it — otherwise applyContinueWatchingToDom below
+        // repaints the row against the previous hero for one frame.
+        if (this.layoutMode === "modern" && this.continueWatchingDisplay?.length) {
+          this.heroItem = this.pickInitialHero();
+        }
+        if (previousLoading !== Boolean(this.continueWatchingLoading)
+          || previousSignature !== buildContinueWatchingSignature(this.continueWatchingDisplay)) {
+          this.requestContinueWatchingUpdate();
+        }
+      }).catch((error) => {
+        console.warn("Continue watching early paint failed", error);
+      });
+    }
+
     const addons = await addonRepository.getInstalledAddons();
     this.collections = CollectionsStore.get();
     const catalogDescriptors = [];
@@ -7898,7 +8115,9 @@ export const HomeScreen = {
         loadingItems: buildCatalogLoadingItems(buildModernRowKey(desc), loadingCount)
       }));
       this.rows = this.sortAndFilterRows(skeletonRows, this.collections);
-      this.continueWatchingLoading = !suppressContinueWatchingLoading;
+      // A restored CW snapshot survives a cold start with no row snapshot;
+      // don't drop real cards back to skeletons just to render catalog ones.
+      this.continueWatchingLoading = !suppressContinueWatchingLoading && !this.continueWatchingDisplay?.length;
       this.isInitialHomeLoading = false;
       this.render();
     }
@@ -7949,16 +8168,14 @@ export const HomeScreen = {
       });
     });
     if (!preserveContinueWatching) {
-      this.continueWatchingDisplay = initialContinueWatchingState?.display || [];
-      this.continueWatchingLoading = false;
-      this.allProgress = initialContinueWatchingState?.allProgress || initialAllProgressItems;
-      this.continueWatching = initialContinueWatchingState?.continueWatching || initialContinueWatchingItems;
-      this.watchedItems = initialContinueWatchingState?.watchedItems || [];
-      this.nextUpProgressCandidates = initialNextUpProgressCandidates;
+      this.applyInitialContinueWatchingState(initialContinueWatchingState, {
+        fallbackAllProgress: initialAllProgressItems,
+        fallbackContinueWatching: initialContinueWatchingItems,
+        fallbackNextUpCandidates: initialNextUpProgressCandidates
+      });
       if (!background && this.layoutMode === "modern" && hasInitialContinueWatchingCandidates && this.continueWatchingDisplay.length) {
         this.forceInitialContinueWatchingFocus = true;
       }
-      this.warmFirstContinueWatchingItem();
     } else {
       this.continueWatchingLoading = false;
     }
@@ -8109,6 +8326,9 @@ export const HomeScreen = {
         }
         this.continueWatchingLoading = false;
         this.continueWatchingDisplay = [];
+        // Genuinely nothing left to continue — clear the stored scope too, or
+        // the next cold start would restore a row the user just emptied.
+        this.persistContinueWatchingSnapshot();
         if (previousLoadingState || previousDisplaySignature) {
           this.requestContinueWatchingUpdate();
         }
@@ -8141,6 +8361,7 @@ export const HomeScreen = {
         }
         this.continueWatchingDisplay = nextDisplay;
         this.continueWatchingLoading = false;
+        this.persistContinueWatchingSnapshot();
         // Enrichment can reorder the row or resolve a better id for the top
         // card; re-warming is a no-op when the target did not move.
         this.warmFirstContinueWatchingItem();
@@ -8701,7 +8922,7 @@ export const HomeScreen = {
       this.initVirtualRows();
       this.initRowVisibilityObserver();
       this.schedulePendingRowFallbackMount();
-      this.container.querySelectorAll(".home-modern-row .home-track").forEach((track) => {
+      this.container.querySelectorAll(".home-modern-row .home-track, .home-row-continue .home-track").forEach((track) => {
         scheduleTrackVirtualWindowUpdate(track);
       });
     }

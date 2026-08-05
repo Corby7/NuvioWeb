@@ -162,7 +162,8 @@ export function renderModernHomeLayout({
     loading: continueWatchingLoading,
     loadingCount: continueWatchingLoadingCount,
     useEpisodeThumbnails: useEpisodeThumbnailsInCw,
-    blurNextUp: blurContinueWatchingNextUp
+    blurNextUp: blurContinueWatchingNextUp,
+    useTrackInner: true
   });
   const catalogsMarkup = sectionsMarkup.length
     ? sectionsMarkup.join("")

@@ -96,6 +96,26 @@ function invalidateContinueWatchingDisplaySnapshot() {
   LocalStore.set(CW_DISPLAY_SNAPSHOT_KEY, next);
 }
 
+// Only the fields that can change what the Continue Watching row renders.
+// A sync pull replaces the whole store on every cycle, almost always with
+// byte-identical data, so invalidating on the write itself would delete the
+// home screen's display snapshot seconds after every boot (and again every
+// sync interval), leaving it permanently cold.
+function buildProgressChangeSignature(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => [
+      String(item?.contentId || ""),
+      String(item?.videoId || ""),
+      String(item?.season ?? ""),
+      String(item?.episode ?? ""),
+      Math.round(Number(item?.positionMs || 0) / 1000),
+      Math.round(Number(item?.durationMs || 0) / 1000),
+      Number(item?.updatedAt || 0)
+    ].join(":"))
+    .sort()
+    .join("|");
+}
+
 function isSeriesType(type) {
   const normalized = String(type || "").toLowerCase();
   return normalized === "series" || normalized === "tv";
@@ -671,8 +691,16 @@ class WatchProgressRepository {
   }
 
   async replaceAll(items) {
-    WatchProgressStore.replaceForProfile(activeProfileId(), items || []);
-    invalidateContinueWatchingDisplaySnapshot();
+    const profileId = activeProfileId();
+    const previousSignature = buildProgressChangeSignature(
+      WatchProgressStore.listForProfile(profileId)
+    );
+    WatchProgressStore.replaceForProfile(profileId, items || []);
+    // Sync pulls land here every cycle with unchanged data; only a real change
+    // may drop the home screen's Continue Watching snapshot.
+    if (buildProgressChangeSignature(items) !== previousSignature) {
+      invalidateContinueWatchingDisplaySnapshot();
+    }
   }
 }
 

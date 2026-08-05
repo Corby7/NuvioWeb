@@ -413,9 +413,12 @@ export const DiscoverScreen = {
       : "Choose a catalog to start browsing";
   },
 
-  renderDiscoverCards(selectedCatalog = null) {
-    return this.items.length
-      ? this.items.map((item, index) => `
+  renderDiscoverCards(selectedCatalog = null, { fromIndex = 0 } = {}) {
+    const slice = fromIndex > 0 ? this.items.slice(fromIndex) : this.items;
+    return slice.length
+      ? slice.map((item, sliceIndex) => {
+        const index = fromIndex + sliceIndex;
+        return `
               <article class="discover-card library-grid-card focusable"
                         data-action="openDetail"
                         data-item-id="${item.id || ""}"
@@ -434,8 +437,40 @@ export const DiscoverScreen = {
                    <div class="library-grid-title">${escapeHtml(item.name || "Untitled")}</div>
                  ` : ""}
                </article>
-             `).join("")
-      : `<div class="seeall-empty">${escapeHtml(t("catalog_see_all_empty_title", {}, "No items available"))}</div>`;
+             `;
+      }).join("")
+      : (fromIndex > 0
+        ? ""
+        : `<div class="seeall-empty">${escapeHtml(t("catalog_see_all_empty_title", {}, "No items available"))}</div>`);
+  },
+
+  /* Pagination appends to the live grid instead of rewriting it. A full
+     innerHTML swap tears down every poster mid-scroll — the lazy-load observer
+     then re-hydrates them all, which reads as a flicker on the TV. */
+  appendRenderedDiscoverCards(selectedCatalog, fromIndex) {
+    const gridNode = this.container?.querySelector("#discoverGridMount");
+    if (!(gridNode instanceof HTMLElement)) {
+      return false;
+    }
+    if (gridNode.querySelectorAll(".discover-card").length !== fromIndex) {
+      return false;
+    }
+    const markup = this.renderDiscoverCards(selectedCatalog, { fromIndex });
+    if (!markup) {
+      return false;
+    }
+    gridNode.insertAdjacentHTML("beforeend", markup);
+
+    const loadingNode = this.container?.querySelector("#discoverLoadingMount");
+    if (loadingNode instanceof HTMLElement) {
+      loadingNode.innerHTML = this.renderDiscoverLoadingMarkup();
+    }
+
+    ScreenUtils.indexFocusables(this.container);
+    observeLazyPosterImages(this, this.container);
+    this.buildNavigationModel();
+    this.bindCardEvents();
+    return true;
   },
 
   renderDiscoverLoadingMarkup() {
@@ -532,6 +567,7 @@ export const DiscoverScreen = {
 
     const incoming = Array.isArray(result?.data?.items) ? result.data.items : [];
     let addedCount = 0;
+    const previousCount = replaceExistingItems ? 0 : this.items.length;
     if (replaceExistingItems) {
       this.items = [];
     } else if (!this.items.length) {
@@ -558,6 +594,18 @@ export const DiscoverScreen = {
     this.pendingRestoreFocus = Boolean(restoreFocusToGrid);
     this.preserveViewportOnNextRender = Boolean(preserveViewport && addedCount > 0);
     this.suppressInitialLoadingRenders = false;
+
+    // Grew an already-rendered grid: append the new cards and leave the rest of
+    // the screen (and the user's scroll position + focus) untouched.
+    if (previousCount > 0
+      && addedCount > 0
+      && this.container?.querySelector(".discover-shell")
+      && this.appendRenderedDiscoverCards(selectedCatalog, previousCount)) {
+      this.pendingRestoreFocus = false;
+      this.preserveViewportOnNextRender = false;
+      return;
+    }
+
     if (partialRender) {
       this.updateRenderedDiscoverResults();
     } else {

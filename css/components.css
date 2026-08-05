@@ -3190,6 +3190,11 @@ body:has(#root-nav-sidebar .root-sidebar-legacy.expanded) .home-shell::before {
 .catalog-seeall-grid {
   width: 100%;
   padding-bottom: 32px;
+}
+
+/* Catalog see-all only: .seeall-header carries the same inset, so the grid has
+   to match it. Discover sits inside .discover-main's 64px padding already. */
+.catalog-seeall-grid {
   margin-left: 64px;
 }
 
@@ -5900,12 +5905,15 @@ img[data-lazy-src] {
 }
 
 /* Remaining-time pill — the .nuvio-dialog-panel glass recipe at pill scale:
-   light translucent white base (never a dark fill, that reads as a chip rather
-   than glass), blur + saturation so the artwork behind it distorts, a bright
-   hairline edge, and the lit-rim shadow pair. Blur radius is scaled down from
-   the dialog's 28px because the pill only samples a ~150x36 region — the look
-   is identical at this size and the per-frame cost stays small even with a full
-   row of them over decoding artwork. */
+   light translucent white sheet, a bright hairline edge, and the lit-rim shadow
+   pair.
+   NO backdrop-filter here, deliberately. The dialog panel can afford one because
+   it is a single static surface; this pill ships one per card. backdrop-filter
+   is never cached — the compositor re-samples and re-blurs the region behind it
+   on every frame its backdrop moves — so a scrolling CW row ran a live blur pass
+   per visible badge and was visibly jankier than the catalog rows below it. The
+   glass is faked instead: the dark base carries the legibility the blur used to,
+   and at this size (~150x36 over a dark scrim) the difference does not read. */
 .home-screen-shell .home-continue-badge {
   position: absolute;
   z-index: 2;
@@ -5918,15 +5926,14 @@ img[data-lazy-src] {
   padding: 0 10px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
-  /* The white sheet is the glass; the dark base under it is a legibility floor
+  /* The white sheet is the glass; the dark base under it is the legibility floor
      the dialog does not need — that panel always sits over its own dimmed
      backdrop, whereas this pill sits over raw artwork and would wash out on a
-     bright frame. */
+     bright frame. Base opacity is up from 0.46 to cover what the dropped
+     backdrop blur used to do for contrast. */
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
-    rgba(12, 12, 14, 0.46);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
+    rgba(12, 12, 14, 0.62);
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.28),
     inset 0 1px 1px rgba(255, 255, 255, 0.25),
@@ -7167,7 +7174,9 @@ img[data-lazy-src] {
   overflow-y: visible;
 }
 
-.home-screen-shell.home-layout-modern .home-modern-row .home-track-inner {
+/* Not scoped to .home-modern-row: the continue row carries an inner too, so it
+   scrolls on the compositor like every other modern row. */
+.home-screen-shell.home-layout-modern .home-track-inner {
   display: flex;
   flex: 0 0 auto;
   gap: var(--home-track-gap);
@@ -7179,7 +7188,7 @@ img[data-lazy-src] {
 
 /* Promote to a compositor layer only while the row is actually moving — a
    permanent will-change on every row-width inner would pin too much GPU memory. */
-.home-screen-shell.home-layout-modern .home-modern-row .home-track.is-track-animating .home-track-inner {
+.home-screen-shell.home-layout-modern .home-track.is-track-animating .home-track-inner {
   will-change: transform;
 }
 
@@ -7206,8 +7215,11 @@ img[data-lazy-src] {
      clientWidth = containerWidth + 104, so the required padding-right = clientWidth
      - leftPad - cardWidth = (100% + 104) - 104 - cardWidth = 100% - cardWidth. */
   padding-right: calc(100% - var(--home-continue-width));
-  /* The continue row has no .home-track-inner — it stays a native scroller. */
-  overflow-x: auto;
+  /* Kept as clip like every other modern track — the row translates its
+     .home-track-inner rather than scrolling natively. The padding above still
+     feeds getTrackMaxScrollPx (inner.offsetWidth + padLeft + padRight -
+     clientWidth), so the scroll extent is unchanged by the transport switch. */
+  overflow-x: clip;
   overflow-y: visible;
 }
 
