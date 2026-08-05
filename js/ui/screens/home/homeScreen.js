@@ -7496,6 +7496,37 @@ export const HomeScreen = {
     return false;
   },
 
+  // Hover focus for a card, shared by the mouseover listener and by
+  // FocusEngine's onPointerFocus hook. The pointer scrollers move content under
+  // a stationary cursor, so they re-resolve focus through FocusEngine instead of
+  // a real mouseover — both routes have to land on the same bookkeeping or the
+  // hero stops following the cursor.
+  applyPointerHoverFocus(target) {
+    if (!target || !this.container?.contains(target)) {
+      return false;
+    }
+    this.container.querySelectorAll(".home-main .focusable.focused").forEach((node) => {
+      if (node !== target) {
+        node.classList.remove("focused");
+      }
+    });
+    target.classList.add("focused");
+    if (this.isMainNode(target)) {
+      this.lastMainFocus = target;
+    }
+    this.syncFocusedCollectionCardState();
+    this.scheduleModernHeroUpdate(target);
+    this.scheduleFocusedPosterFlow(target);
+    return true;
+  },
+
+  onPointerFocus(target) {
+    if (!target?.closest?.(".home-main .home-content-card.focusable")) {
+      return;
+    }
+    this.applyPointerHoverFocus(target);
+  },
+
   ensureDelegatedEventsBound() {
     if (!this.container) {
       return;
@@ -7551,17 +7582,10 @@ export const HomeScreen = {
     if (!this.boundHomeMouseOverHandler) {
       this.boundHomeMouseOverHandler = (event) => {
         const target = event?.target?.closest?.(".home-main .home-content-card.focusable");
-        if (!target || !this.container?.contains(target) || target.classList.contains("focused")) {
+        if (!target || target.classList.contains("focused")) {
           return;
         }
-        this.container.querySelectorAll(".home-main .focusable.focused").forEach((node) => node.classList.remove("focused"));
-        target.classList.add("focused");
-        if (this.isMainNode(target)) {
-          this.lastMainFocus = target;
-        }
-        this.syncFocusedCollectionCardState();
-        this.scheduleModernHeroUpdate(target);
-        this.scheduleFocusedPosterFlow(target);
+        this.applyPointerHoverFocus(target);
       };
     }
     if (!this.boundHomeWheelHandler) {

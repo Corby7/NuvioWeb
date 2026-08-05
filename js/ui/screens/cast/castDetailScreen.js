@@ -532,6 +532,17 @@ export const CastDetailScreen = {
     }
   },
 
+  // A click is the short-press half of the OK button: the hold menu stays a
+  // key-only gesture.
+  onPointerActivate(target) {
+    if (String(target?.dataset?.action || "") !== "openDetail") {
+      return false;
+    }
+    this.cancelPendingPosterHold();
+    this.openDetailFromNode(target);
+    return true;
+  },
+
   onKeyUp(event) {
     if (Number(event?.keyCode || 0) !== 13) {
       return;

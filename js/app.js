@@ -8,6 +8,7 @@ import { detailWatchedEnrichmentService } from "./data/repository/detailWatchedE
 import { Router } from "./ui/navigation/router.js";
 import { FocusEngine } from "./ui/navigation/focusEngine.js";
 import { PointerEdgeScroll } from "./ui/navigation/pointerEdgeScroll.js";
+import { PointerWheelScroll } from "./ui/navigation/pointerWheelScroll.js";
 import { PlayerController } from "./core/player/playerController.js";
 import { AuthManager } from "./core/auth/authManager.js";
 import { AuthState } from "./core/auth/authState.js";
@@ -533,6 +534,7 @@ async function bootstrapApp() {
 
   FocusEngine.init();
   PointerEdgeScroll.init();
+  PointerWheelScroll.init();
   setupWebOsAppLifecycle();
 
   ThemeManager.apply();

@@ -1,6 +1,14 @@
 import { Router } from "./router.js";
 import { Platform } from "../../platform/index.js";
 import { FocusEngine } from "./focusEngine.js";
+import {
+  findScrollableAncestor,
+  getMaxScrollLeft,
+  getTransformTrackApi,
+  isScrollableX,
+  isScrollableY,
+  readScrollLeft
+} from "./pointerScrollTargets.js";
 
 // ─── Magic-remote edge auto-scroll ──────────────────────────────────────────
 // Resting the pointer near a screen edge scrolls the surface under it: the row
@@ -43,8 +51,6 @@ const TRACK_WINDOW_LOOKAHEAD_S = 1.2;
 const IDLE_STOP_MS = 900;
 
 const DISABLED_ROUTES = new Set(["player"]);
-const SCROLLABLE_OVERFLOW = /(auto|scroll|overlay)/;
-const ANCESTOR_WALK_LIMIT = 14;
 const DEFAULT_RAIL_WIDTH = 144;
 
 function isFeatureEnabled() {
@@ -62,74 +68,6 @@ function isFeatureEnabled() {
   } catch (_) {
     return false;
   }
-}
-
-// Class-gated before the subtree query: this runs for every ancestor in the
-// walk, and an unguarded querySelector on `.home-main` would scan the whole
-// home DOM each time.
-function getTrackInner(node) {
-  if (!node?.classList?.contains("home-track")) {
-    return null;
-  }
-  return node.querySelector(".home-track-inner") || null;
-}
-
-// Modern home rows are `overflow-x: clip` and move by translating their inner
-// wrapper, so they have no scrollWidth/scrollLeft to read. The owning screen
-// holds the position bookkeeping (HomeScreen's WeakMap) — go through it.
-function getTransformTrackApi(track) {
-  if (!getTrackInner(track)) {
-    return null;
-  }
-  const screen = Router.getCurrentScreen();
-  if (
-    typeof screen?.applyTrackScrollLeft !== "function" ||
-    typeof screen?.getTrackScrollLeft !== "function" ||
-    typeof screen?.getTrackMaxScroll !== "function"
-  ) {
-    return null;
-  }
-  return screen;
-}
-
-function isScrollableX(node) {
-  if (!(node instanceof HTMLElement)) {
-    return false;
-  }
-  const transformApi = getTransformTrackApi(node);
-  if (transformApi) {
-    return transformApi.getTrackMaxScroll(node) > 2;
-  }
-  if ((node.scrollWidth || 0) - (node.clientWidth || 0) <= 2) {
-    return false;
-  }
-  return SCROLLABLE_OVERFLOW.test(getComputedStyle(node).overflowX);
-}
-
-function isScrollableY(node) {
-  if (!(node instanceof HTMLElement)) {
-    return false;
-  }
-  if ((node.scrollHeight || 0) - (node.clientHeight || 0) <= 2) {
-    return false;
-  }
-  return SCROLLABLE_OVERFLOW.test(getComputedStyle(node).overflowY);
-}
-
-function findScrollableAncestor(start, predicate) {
-  let node = start;
-  let steps = 0;
-  while (node instanceof HTMLElement && steps < ANCESTOR_WALK_LIMIT) {
-    if (predicate(node)) {
-      return node;
-    }
-    if (node.id === "app" || node === document.body) {
-      return null;
-    }
-    node = node.parentElement;
-    steps += 1;
-  }
-  return null;
 }
 
 export const PointerEdgeScroll = {
@@ -349,7 +287,7 @@ export const PointerEdgeScroll = {
   adoptScroller(scroller, axis) {
     Router.getCurrentScreen()?.cancelScrollAnimation?.(scroller, axis);
     if (axis === "x") {
-      this.hPos = this.readHorizontal(scroller);
+      this.hPos = readScrollLeft(scroller);
     } else {
       this.vPos = Number(scroller.scrollTop || 0);
     }
@@ -412,14 +350,6 @@ export const PointerEdgeScroll = {
     return minSpeed + (maxSpeed - minSpeed) * t * t;
   },
 
-  readHorizontal(scroller) {
-    const transformApi = getTransformTrackApi(scroller);
-    if (transformApi) {
-      return Number(transformApi.getTrackScrollLeft(scroller) || 0);
-    }
-    return Number(scroller.scrollLeft || 0);
-  },
-
   stepHorizontal(deltaSeconds, timestamp) {
     const scroller = this.hScroller;
     if (!scroller?.isConnected) {
@@ -440,14 +370,12 @@ export const PointerEdgeScroll = {
     }
 
     const transformApi = getTransformTrackApi(scroller);
-    const max = transformApi
-      ? Math.max(0, transformApi.getTrackMaxScroll(scroller))
-      : Math.max(0, (scroller.scrollWidth || 0) - (scroller.clientWidth || 0));
+    const max = getMaxScrollLeft(scroller);
     if (max <= 0) {
       return false;
     }
 
-    const current = this.readHorizontal(scroller);
+    const current = readScrollLeft(scroller);
     // Resync when something else (d-pad, focus restore) moved the container.
     if (Math.abs(current - this.hPos) > 4) {
       this.hPos = current;

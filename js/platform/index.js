@@ -125,6 +125,21 @@ export const Platform = {
     return this.getName() === "browser";
   },
 
+  // The Electron shell exposes `nuvioDesktop` from its preload. The renderer is
+  // an ordinary browser otherwise, so this rides alongside the adapter name
+  // instead of being an adapter of its own.
+  isDesktop() {
+    return Boolean(globalThis.nuvioDesktop);
+  },
+
+  // Surfaces driven by a free-moving cursor: the webOS magic remote and the
+  // desktop shell's mouse/trackpad. Hover focus and pointer activation are
+  // wired up only where one of those exists — a plain browser tab keeps the
+  // d-pad-only behaviour.
+  hasPointerInput() {
+    return this.isWebOS() || this.isDesktop();
+  },
+
   exitApp() {
     if (globalThis.document && typeof globalThis.CustomEvent === "function") {
       const beforeExitEvent = new CustomEvent("nuvio:beforeExitApp", {

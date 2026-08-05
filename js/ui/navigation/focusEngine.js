@@ -67,12 +67,13 @@ export const FocusEngine = {
       document.addEventListener("tizenhwkey", this.boundHandleTizenHardwareKey, true);
       window.addEventListener("tizenhwkey", this.boundHandleTizenHardwareKey, true);
     }
-    if (Platform.isWebOS()) {
+    // Magic remote and desktop mouse/trackpad drive the same hover-focus path.
+    if (Platform.hasPointerInput()) {
       document.addEventListener("mousemove", this.boundHandlePointerMove, true);
       document.addEventListener("pointermove", this.boundHandlePointerMove, true);
       document.addEventListener("click", this.boundHandlePointerClick, true);
-      document.documentElement?.classList?.add("webos-pointer-remote");
-      document.body?.classList?.add("webos-pointer-remote");
+      document.documentElement?.classList?.add("nuvio-pointer-input");
+      document.body?.classList?.add("nuvio-pointer-input");
     }
   },
 
@@ -240,7 +241,7 @@ export const FocusEngine = {
   },
 
   handlePointerMove(event) {
-    if (!Platform.isWebOS()) {
+    if (!Platform.hasPointerInput()) {
       return;
     }
     this.pendingPointerMoveEvent = event;
@@ -261,7 +262,7 @@ export const FocusEngine = {
   },
 
   processPointerMove(event) {
-    if (!Platform.isWebOS()) {
+    if (!Platform.hasPointerInput()) {
       return;
     }
     const currentScreen = Router.getCurrentScreen();
@@ -277,7 +278,7 @@ export const FocusEngine = {
   },
 
   async handlePointerClick(event) {
-    if (!Platform.isWebOS()) {
+    if (!Platform.hasPointerInput()) {
       return;
     }
     const target = this.getPointerFocusable(event);

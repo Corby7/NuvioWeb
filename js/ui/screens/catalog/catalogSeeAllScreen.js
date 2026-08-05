@@ -693,6 +693,17 @@ export const CatalogSeeAllScreen = {
     }
   },
 
+  // A click is the short-press half of the OK button: the poster options menu
+  // stays a key-only hold gesture.
+  onPointerActivate(target) {
+    if (String(target?.dataset?.action || "") !== "openDetail") {
+      return false;
+    }
+    this.cancelPendingPosterHold();
+    this.openDetailFromNode(target);
+    return true;
+  },
+
   onKeyUp(event) {
     if (Number(event?.keyCode || 0) !== 13) {
       return;
