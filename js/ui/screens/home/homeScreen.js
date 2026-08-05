@@ -16,6 +16,7 @@ import { TmdbMetadataService } from "../../../core/tmdb/tmdbMetadataService.js";
 import { TmdbSettingsStore } from "../../../data/local/tmdbSettingsStore.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
 import { streamRepository } from "../../../data/repository/streamRepository.js";
+import { PlayPathWarmer } from "../../../core/streams/playPathWarmer.js";
 import { ProfileManager } from "../../../core/profile/profileManager.js";
 import { AvatarRepository } from "../../../data/remote/supabase/avatarRepository.js";
 import { Platform } from "../../../platform/index.js";
@@ -4591,6 +4592,31 @@ export const HomeScreen = {
     return true;
   },
 
+  // The top Continue Watching card is the highest-intent target in the app: it
+  // is what the first OK press plays more often than anything else, and it
+  // routes straight to the stream screen with no detail-screen hop to hide the
+  // fan-out behind. Warming it mirrors what openContinueWatchingFromItem fires
+  // on the click, just early enough to be finished by then.
+  warmFirstContinueWatchingItem() {
+    const first = this.continueWatchingDisplay?.[0] || this.continueWatching?.[0] || null;
+    const normalized = normalizeContinueWatchingItem(first);
+    if (!normalized?.contentId) {
+      return;
+    }
+    const params = continueWatchingStreamParams(normalized);
+    if (!params) {
+      return;
+    }
+    const isSeries = isSeriesTypeForContinueWatching(normalized.type);
+    PlayPathWarmer.warmBackground({
+      itemId: normalized.contentId,
+      itemType: isSeries ? "series" : (params.itemType || "movie"),
+      videoId: params.videoId || normalized.contentId,
+      season: params.season,
+      episode: params.episode
+    });
+  },
+
   openContinueWatchingFromItem(item, options = {}) {
     const params = continueWatchingStreamParams(item, options);
     if (!params) {
@@ -5979,15 +6005,21 @@ export const HomeScreen = {
       return;
     }
     if (this.isPerformanceConstrained()) {
+      // The per-node binary-search text measuring stays off here — that is what
+      // the perf gate was for. The hero description bounds pass is a handful of
+      // offsetHeight reads on one element and cannot be skipped: without it the
+      // description flex-shrinks to a fractional line and gets sliced through
+      // the middle of its last row of glyphs (Continue Watching heroes, which
+      // carry the extra status eyebrow, hit this every time).
       this.homeTruncationScope = null;
       if (this.homeTruncationFrame) {
         cancelAnimationFrame(this.homeTruncationFrame);
         this.homeTruncationFrame = null;
       }
-      this.container.querySelectorAll(".home-hero-description").forEach((node) => {
-        if (node instanceof HTMLElement && node.style.maxHeight) {
-          node.style.maxHeight = "";
-        }
+      const boundsScope = scope instanceof HTMLElement ? scope : this.container;
+      this.homeTruncationFrame = requestAnimationFrame(() => {
+        this.homeTruncationFrame = null;
+        this.applyModernHeroDescriptionBounds(boundsScope);
       });
       return;
     }
@@ -6075,6 +6107,7 @@ export const HomeScreen = {
       }
 
       description.style.maxHeight = "";
+      description.style.webkitLineClamp = "";
       if (description.classList.contains("is-empty")) {
         return;
       }
@@ -6097,15 +6130,23 @@ export const HomeScreen = {
       const gapCount = Math.max(0, visibleCount - 1);
       const availableHeight = Math.floor(copyClientHeight - reservedHeight - (gapCount * gapValue));
       const lineHeight = parseFloat(getComputedStyle(description).lineHeight || "0") || 0;
-      if (availableHeight <= 0) {
-        description.style.maxHeight = lineHeight > 0 ? `${lineHeight}px` : "0px";
+      if (lineHeight <= 0) {
+        description.style.maxHeight = availableHeight > 0 ? `${availableHeight}px` : "0px";
         return;
       }
-      const maxDescriptionHeight = lineHeight > 0
-        ? (lineHeight * modernHeroDescriptionMaxLines)
-        : availableHeight;
-      const constrainedHeight = Math.min(availableHeight, maxDescriptionHeight);
-      description.style.maxHeight = `${Math.max(lineHeight, constrainedHeight)}px`;
+      // Quantise to whole lines. The description is a shrinkable flex item with
+      // min-height 0, so any leftover that is not a multiple of the line height
+      // is spent rendering a partial row of glyphs clipped through the middle.
+      // Clamping max-height to floor(lines) keeps the item's hypothetical size
+      // inside the copy column, which also stops flexbox shrinking it further.
+      const fittingLines = Math.max(
+        1,
+        Math.min(modernHeroDescriptionMaxLines, Math.floor(availableHeight / lineHeight))
+      );
+      description.style.maxHeight = `${fittingLines * lineHeight}px`;
+      // Keep the clamp in step so the ellipsis lands on the last visible line
+      // instead of the CSS-default fourth one that no longer fits.
+      description.style.webkitLineClamp = String(fittingLines);
     });
   },
 
@@ -7917,6 +7958,7 @@ export const HomeScreen = {
       if (!background && this.layoutMode === "modern" && hasInitialContinueWatchingCandidates && this.continueWatchingDisplay.length) {
         this.forceInitialContinueWatchingFocus = true;
       }
+      this.warmFirstContinueWatchingItem();
     } else {
       this.continueWatchingLoading = false;
     }
@@ -8099,6 +8141,9 @@ export const HomeScreen = {
         }
         this.continueWatchingDisplay = nextDisplay;
         this.continueWatchingLoading = false;
+        // Enrichment can reorder the row or resolve a better id for the top
+        // card; re-warming is a no-op when the target did not move.
+        this.warmFirstContinueWatchingItem();
         if (this.layoutMode === "modern" && this.continueWatchingDisplay.length) {
           this.heroItem = this.pickInitialHero();
           if (!background && !this.hasAppliedInitialContinueWatchingFocus) {
@@ -9657,6 +9702,7 @@ export const HomeScreen = {
 
   cleanup() {
     RootSidebarController.unregister("home");
+    PlayPathWarmer.cancel();
     this.cancelPendingContinueWatchingEnter();
     this.cancelPendingContinueWatchingHold();
     this.suppressHoldMenuEnterUntilKeyUp = false;

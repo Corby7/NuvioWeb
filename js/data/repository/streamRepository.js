@@ -125,18 +125,28 @@ class StreamRepository {
 
   // Mirrors how the stream screen derives its request from route params, so a
   // prefetch fired on the click that navigates and the screen's own call land
-  // on the same run.
-  prefetchStreamsForRoute(params = {}) {
+  // on the same run. Callers that need to wait on the fan-out — the play-path
+  // warmer — take the run from here rather than re-deriving the key.
+  ensureStreamRunForRoute(params = {}) {
     const type = String(params?.itemType || "movie").toLowerCase() || "movie";
     const videoId = String(params?.videoId || params?.itemId || "");
     if (!videoId) {
-      return;
+      return null;
     }
-    this.prefetchStreams(type, videoId, {
+    return this.ensureStreamRun(type, videoId, {
       itemId: String(params?.itemId || ""),
       season: params?.season ?? null,
       episode: params?.episode ?? null
     });
+  }
+
+  prefetchStreamsForRoute(params = {}) {
+    try {
+      const run = this.ensureStreamRunForRoute(params);
+      run?.promise?.catch(() => {});
+    } catch (error) {
+      console.warn("Stream prefetch failed", error);
+    }
   }
 
   buildStreamRunKey(type, videoId, options = {}) {

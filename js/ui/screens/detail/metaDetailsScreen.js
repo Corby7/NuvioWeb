@@ -2,6 +2,7 @@
 import { ScreenUtils } from "../../navigation/screen.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
 import { streamRepository } from "../../../data/repository/streamRepository.js";
+import { PlayPathWarmer } from "../../../core/streams/playPathWarmer.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
 import { watchProgressRepository } from "../../../data/repository/watchProgressRepository.js";
@@ -1411,6 +1412,7 @@ export const MetaDetailsScreen = {
     }
     this.isLoadingDetail = false;
     this.render(meta);
+    this.warmPrimaryPlayTarget();
     void this.refreshTrailerSource(meta, token);
     void this.loadTraktComments({ force: true });
 
@@ -1451,6 +1453,9 @@ export const MetaDetailsScreen = {
       this.selectedRatingSeason = this.selectedRatingSeason || this.selectedSeason || 1;
       this.nextEpisodeToWatch = this.computeNextEpisodeToWatch(progress);
       this.updateRenderedDetailSections(this.meta);
+      // Enrichment can move the play target (a richer id, a corrected episode
+      // list); re-warming is a no-op when it did not.
+      this.warmPrimaryPlayTarget();
       void this.refreshTrailerSource(this.meta, token);
       void this.loadTraktComments({ force: true });
 
@@ -4113,78 +4118,112 @@ export const MetaDetailsScreen = {
     return `<div class="detail-morelike-track detail-trailer-track" data-scroll-key="trailer:${escapeHtml(kind)}">${cards}</div>`;
   },
 
-  renderCommentsSection() {
-    const loadingSkeleton = () => `<article class="detail-comment-card is-loading"><span></span><span></span><span></span></article>`;
-    if (this.commentsLoading) {
-      const cards = Array.from({ length: 3 }).map(loadingSkeleton).join("");
-      return `<div class="detail-comments-track" data-scroll-key="comments:loading">${cards}</div>`;
-    }
-    if (this.commentsError) {
-      return `
-        <div class="detail-comments-error">
-          <p>${escapeHtml(this.commentsError)}</p>
-          <button class="series-season-btn focusable" data-action="retryComments">${escapeHtml(t("action_retry", {}, "Retry"))}</button>
+  renderCommentsSkeletonCard() {
+    return `
+      <article class="detail-comment-card is-loading" aria-hidden="true">
+        <div class="detail-comment-head">
+          <span class="detail-comment-skeleton-name"></span>
+          <span class="detail-comment-skeleton-rating"></span>
         </div>
-      `;
-    }
+        <div class="detail-comment-skeleton-body">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="detail-comment-meta"><span class="detail-comment-skeleton-meta"></span></div>
+      </article>
+    `;
+  },
+
+  // Heading, subtitle and mode pills render in every state (loading, error,
+  // empty, loaded). Earlier the loading and error branches returned bare
+  // fragments, so the section title and the Show/Episode pills popped in and out
+  // as data landed and the rows below it jumped.
+  renderCommentsHeader() {
     const heading = `
       <div class="detail-comments-heading">
-        <img src="assets/icons/trakt_tv_glyph.svg" alt="" aria-hidden="true" />
         <span>${escapeHtml(t("detail_comments_title", {}, "Comments"))}</span>
       </div>
     `;
+    const subtitle = this.commentsMode === "episode" && this.commentsEpisodeTarget
+      ? t("detail_comments_subtitle_episode", { season: this.commentsEpisodeTarget.season, episode: this.commentsEpisodeTarget.episode }, "Reviews for S{{season}}E{{episode}}")
+      : t("detail_comments_subtitle", {}, "Top Trakt reviews");
     const modeButtons = isSeriesDetailMeta(this.meta, this.episodes)
       ? `<div class="detail-comments-modes">
           <button class="detail-comments-mode focusable${this.commentsMode !== "episode" ? " selected" : ""}" data-action="setCommentsMode" data-comments-mode="title">${escapeHtml(t("detail_comments_mode_show", {}, "Show"))}</button>
           <button class="detail-comments-mode focusable${this.commentsMode === "episode" ? " selected" : ""}" data-action="setCommentsMode" data-comments-mode="episode">${escapeHtml(this.commentsEpisodeTarget ? `S${this.commentsEpisodeTarget.season}E${this.commentsEpisodeTarget.episode}` : t("detail_comments_mode_episode", {}, "Episode"))}</button>
         </div>`
       : "";
-    const subtitle = this.commentsMode === "episode" && this.commentsEpisodeTarget
-      ? t("detail_comments_subtitle_episode", { season: this.commentsEpisodeTarget.season, episode: this.commentsEpisodeTarget.episode }, "Reviews for S{{season}}E{{episode}}")
-      : t("detail_comments_subtitle", {}, "Top Trakt reviews");
-    const subtitleMarkup = `<p class="detail-comments-subtitle">${escapeHtml(subtitle)}</p>`;
-    if (!this.commentsItems.length) {
+    return `${heading}<p class="detail-comments-subtitle">${escapeHtml(subtitle)}</p>${modeButtons}`;
+  },
+
+  renderCommentCard(review, index) {
+    const isSpoiler = Boolean(review.spoiler || review.containsInlineSpoilers);
+    const chips = [
+      review.review ? { type: "review", label: t("detail_comments_badge_review", {}, "Review") } : null,
+      isSpoiler ? { type: "spoiler", label: t("detail_comments_badge_spoiler", {}, "Spoiler") } : null
+    ].filter(Boolean).map((chip) => `<span class="detail-comment-chip-${chip.type}">${escapeHtml(chip.label)}</span>`).join("");
+    const displayName = review.authorDisplayName || "Trakt user";
+    const ratingBadge = review.rating != null
+      ? `<div class="detail-comment-rating ${ratingToneClass(review.rating)}">${escapeHtml(formatRatingValue(review.rating, { digits: 0, stripTrailingZero: true }))}</div>`
+      : "";
+    const age = formatCommentAge(review.createdAt);
+    // The real comment text is always in the DOM; for spoilers CSS hides it
+    // behind the hint until openComment adds .is-expanded. Rendering only the
+    // hint (the old behaviour) meant OK had nothing to reveal.
+    const spoilerHint = isSpoiler
+      ? `<p class="detail-comment-spoiler">${escapeHtml(t("detail_comments_spoiler_hidden", {}, "Spoiler review. Press OK to reveal."))}</p>`
+      : "";
+    return `
+      <article class="detail-comment-card focusable${isSpoiler ? " has-spoiler" : ""}" data-action="openComment" data-comment-index="${index}">
+        <div class="detail-comment-head">
+          <h4>${escapeHtml(displayName)}</h4>
+          ${ratingBadge}
+        </div>
+        ${chips ? `<div class="detail-comment-chips">${chips}</div>` : ""}
+        ${spoilerHint}
+        <p class="detail-comment-body">${escapeHtml(review.comment || "")}</p>
+        <div class="detail-comment-meta">
+          <small>${escapeHtml(t("detail_comments_likes", { likes: review.likes || 0 }, "{{likes}} likes"))}</small>
+          ${age ? `<small class="detail-comment-age">${escapeHtml(age)}</small>` : ""}
+        </div>
+      </article>
+    `;
+  },
+
+  renderCommentsSection() {
+    const header = this.renderCommentsHeader();
+    if (this.commentsLoading) {
+      const cards = Array.from({ length: 3 }).map(() => this.renderCommentsSkeletonCard()).join("");
       return `
         <div class="detail-comments-section">
-          ${heading}
-          ${subtitleMarkup}
-          ${modeButtons}
-          <p class="series-insight-empty">${escapeHtml(t("detail_comments_empty", {}, "No Trakt comments yet."))}</p>
+          ${header}
+          <div class="detail-comments-track" data-scroll-key="comments:loading">${cards}</div>
         </div>
       `;
     }
-    const cards = this.commentsItems.map((review, index) => {
-      const body = review.spoiler || review.containsInlineSpoilers
-        ? t("detail_comments_spoiler_hidden", {}, "Spoiler review. Press OK to reveal.")
-        : review.comment;
-      const chips = [
-        review.review ? { type: "review", label: t("detail_comments_badge_review", {}, "Review") } : null,
-        (review.spoiler || review.containsInlineSpoilers) ? { type: "spoiler", label: t("detail_comments_badge_spoiler", {}, "Spoiler") } : null
-      ].filter(Boolean).map((chip) => `<span class="detail-comment-chip-${chip.type}">${escapeHtml(chip.label)}</span>`).join("");
-      const displayName = review.authorDisplayName || "Trakt user";
-      const ratingBadge = review.rating != null
-        ? `<div class="detail-comment-rating ${ratingToneClass(review.rating)}">${escapeHtml(formatRatingValue(review.rating, { digits: 0, stripTrailingZero: true }))}</div>`
-        : "";
-      const age = formatCommentAge(review.createdAt);
+    if (this.commentsError) {
       return `
-        <article class="detail-comment-card focusable" data-action="openComment" data-comment-index="${index}">
-          ${ratingBadge}
-          <h4>${escapeHtml(displayName)}</h4>
-          ${chips ? `<div class="detail-comment-chips">${chips}</div>` : ""}
-          <p>${escapeHtml(body)}</p>
-          <div class="detail-comment-meta">
-            <small>${escapeHtml(t("detail_comments_likes", { likes: review.likes || 0 }, "{{likes}} likes"))}</small>
-            ${age ? `<small class="detail-comment-age">${escapeHtml(age)}</small>` : ""}
+        <div class="detail-comments-section">
+          ${header}
+          <div class="detail-comments-error">
+            <p>${escapeHtml(this.commentsError)}</p>
+            <button class="series-season-btn focusable" data-action="retryComments">${escapeHtml(t("action_retry", {}, "Retry"))}</button>
           </div>
-        </article>
+        </div>
       `;
-    }).join("");
-    const loadingMore = this.commentsLoadingMore ? loadingSkeleton() : "";
+    }
+    if (!this.commentsItems.length) {
+      return `
+        <div class="detail-comments-section">
+          ${header}
+          <p class="detail-comments-empty">${escapeHtml(t("detail_comments_empty", {}, "No Trakt comments yet."))}</p>
+        </div>
+      `;
+    }
+    const cards = this.commentsItems.map((review, index) => this.renderCommentCard(review, index)).join("");
+    const loadingMore = this.commentsLoadingMore ? this.renderCommentsSkeletonCard() : "";
     return `
       <div class="detail-comments-section">
-        ${heading}
-        ${subtitleMarkup}
-        ${modeButtons}
+        ${header}
         <div class="detail-comments-track" data-scroll-key="comments:${escapeHtml(this.commentsMode)}">${cards}${loadingMore}</div>
       </div>
     `;
@@ -4288,6 +4327,7 @@ export const MetaDetailsScreen = {
       }
       if (target.matches(".series-episode-card.focusable")) {
         this.syncEpisodeDesc(target);
+        this.warmFocusedEpisode(target);
         return;
       }
       if (target.matches(".series-season-btn.focusable")) {
@@ -5476,6 +5516,56 @@ export const MetaDetailsScreen = {
       nextEpisodeEpisode: nextEpisode?.episode ?? null,
       nextEpisodeTitle: nextEpisode?.title || "",
       nextEpisodeReleased: nextEpisode?.released || ""
+    });
+  },
+
+  // The main Play button has exactly one target the moment metadata lands, so
+  // the fan-out for it can start while the user is still reading the synopsis
+  // instead of on the click that leaves this screen.
+  warmPrimaryPlayTarget() {
+    const meta = this.meta;
+    if (!meta) {
+      return;
+    }
+    if (isSeriesDetailMeta(meta, this.episodes)) {
+      const episode = this.nextEpisodeToWatch;
+      if (!episode?.id) {
+        return;
+      }
+      PlayPathWarmer.warmNow({
+        itemId: this.params?.itemId || null,
+        itemType: "series",
+        videoId: episode.id,
+        season: episode.season,
+        episode: episode.episode
+      });
+      return;
+    }
+    const itemType = resolvePlayableDetailType(this.params?.itemType || meta?.type, meta);
+    const { itemId, videoId } = resolveMovieStreamIdentity(meta, this.params);
+    if (!videoId) {
+      return;
+    }
+    PlayPathWarmer.warmNow({ itemId, itemType, videoId });
+  },
+
+  // Resting on an episode card is the other reliable intent signal; the warmer
+  // applies its own dwell so travelling past a card costs nothing.
+  warmFocusedEpisode(card) {
+    const videoId = String(card?.dataset?.videoId || "");
+    if (!videoId) {
+      return;
+    }
+    const episode = (this.episodes || []).find((entry) => String(entry?.id || "") === videoId);
+    if (!episode) {
+      return;
+    }
+    PlayPathWarmer.warmOnFocus({
+      itemId: this.params?.itemId || null,
+      itemType: "series",
+      videoId,
+      season: episode.season,
+      episode: episode.episode
     });
   },
 
@@ -7319,6 +7409,7 @@ export const MetaDetailsScreen = {
 
   cleanup() {
     this.detailLoadToken = (this.detailLoadToken || 0) + 1;
+    PlayPathWarmer.cancel();
     this.exitBackPending = false;
     this.container?.classList.remove("detail-exit-fading");
     if (this.episodeThumbObserver) {

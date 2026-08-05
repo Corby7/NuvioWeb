@@ -6,6 +6,7 @@ import { TraktSettingsStore, WatchProgressSource } from "../local/traktSettingsS
 import { TraktAuthStore } from "../local/traktAuthStore.js";
 import { TraktAuthService } from "./traktAuthService.js";
 import { metaRepository } from "./metaRepository.js";
+import { mapWithConcurrency } from "../../core/network/mapWithConcurrency.js";
 import {
   WATCH_PROGRESS_COMPLETED_THRESHOLD,
   WATCH_PROGRESS_STARTED_THRESHOLD,
@@ -25,6 +26,9 @@ const CW_PROGRESS_END_THRESHOLD = WATCH_PROGRESS_COMPLETED_THRESHOLD;
 // generous — only a genuinely stuck request is abandoned.
 const TRAKT_API_TIMEOUT_MS = 10000;
 const PROGRESS_META_TIMEOUT_MS = 8000;
+// Each enrichment is a getMetaFromAllAddons fan-out of its own, so an
+// unbounded batch multiplies into dozens of concurrent addon requests.
+const PROGRESS_META_CONCURRENCY = 4;
 
 function withTimeout(promise, ms, fallback) {
   let timer = null;
@@ -511,30 +515,28 @@ async function batchEnrichProgressItems(items) {
   if (!items.length) return [];
   const now = Date.now();
   pruneEnrichedMetaCache(now);
-  return Promise.all(
-    items.map(async (item) => {
-      const lookupId = item.imdbId || item.contentId;
-      const cacheKey = `${item.contentType}:${lookupId}`;
-      const cached = enrichedMetaCache.get(cacheKey);
-      let meta = null;
-      if (cached && now - cached.timestamp < ENRICHED_META_CACHE_TTL_MS) {
-        meta = cached.meta;
-      } else {
-        const canonicalType = item.contentType === "series" ? "series" : "movie";
-        meta = await withTimeout(
-          metaRepository.getMetaFromAllAddons(canonicalType, lookupId),
-          PROGRESS_META_TIMEOUT_MS,
-          null
-        ).catch(() => null);
-        // Only cache real metadata. Caching a null (timeout/miss) would leave the
-        // item unenriched for the full TTL after a single slow response.
-        if (meta) {
-          enrichedMetaCache.set(cacheKey, { meta, timestamp: now });
-        }
+  return mapWithConcurrency(items, PROGRESS_META_CONCURRENCY, async (item) => {
+    const lookupId = item.imdbId || item.contentId;
+    const cacheKey = `${item.contentType}:${lookupId}`;
+    const cached = enrichedMetaCache.get(cacheKey);
+    let meta = null;
+    if (cached && now - cached.timestamp < ENRICHED_META_CACHE_TTL_MS) {
+      meta = cached.meta;
+    } else {
+      const canonicalType = item.contentType === "series" ? "series" : "movie";
+      meta = await withTimeout(
+        metaRepository.getMetaFromAllAddons(canonicalType, lookupId),
+        PROGRESS_META_TIMEOUT_MS,
+        null
+      ).catch(() => null);
+      // Only cache real metadata. Caching a null (timeout/miss) would leave the
+      // item unenriched for the full TTL after a single slow response.
+      if (meta) {
+        enrichedMetaCache.set(cacheKey, { meta, timestamp: now });
       }
-      return meta ? { ...item, enrichedMeta: meta } : item;
-    })
-  );
+    }
+    return meta ? { ...item, enrichedMeta: meta } : item;
+  });
 }
 
 class WatchProgressRepository {
@@ -575,7 +577,10 @@ class WatchProgressRepository {
       selectedContinueWatchingSource() === WatchProgressSource.TRAKT &&
       TraktAuthStore.isAuthenticated()
     ) {
-      sourceItems = await this.getRecent(300).catch((error) => {
+      // Resume selection only reads progress fields, never enrichedMeta, so
+      // skip the per-item addon meta fan-out this would otherwise trigger for
+      // up to 300 items on every resume lookup.
+      sourceItems = await this.getRecent(300, { enrichMetadata: false }).catch((error) => {
         console.warn("[CW] Resume lookup failed", error);
         return sourceItems;
       });
@@ -606,7 +611,7 @@ class WatchProgressRepository {
     return isRemovedFromContinueWatching(item);
   }
 
-  async getRecent(limit = 30) {
+  async getRecent(limit = 30, { enrichMetadata = true } = {}) {
     const now = Date.now();
     const useTraktProgress = selectedContinueWatchingSource() === WatchProgressSource.TRAKT;
     const daysCap = Number(TraktSettingsStore.get().continueWatchingDaysCap || 60);
@@ -635,8 +640,8 @@ class WatchProgressRepository {
       recentItems.filter((item) => shouldTreatAsInProgressForContinueWatching(item))
     );
 
-    const enrichedItems = await batchEnrichProgressItems(inProgressOnly.slice(0, limit));
-    return enrichedItems;
+    const limitedItems = inProgressOnly.slice(0, limit);
+    return enrichMetadata ? batchEnrichProgressItems(limitedItems) : limitedItems;
   }
 
   async getAll() {
