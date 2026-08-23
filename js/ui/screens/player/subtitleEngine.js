@@ -6,6 +6,9 @@
 // browsers). Cue text is sanitized HTML: everything is escaped except
 // <i>/<b>/<u>, so it is safe to assign to innerHTML.
 
+import { parseVttCueLayout } from "../../../core/player/subtitleCueLayout.js";
+import { isAssSubtitle, convertAssBodyToVtt } from "../../../core/player/assSubtitle.js";
+
 // Subtitle files from addons are frequently not UTF-8 (SubDL and
 // OpenSubtitles serve plenty of Windows-125x content). Map the declared
 // subtitle language to the legacy codepage used when a strict UTF-8 decode
@@ -165,8 +168,15 @@ function parseTimestamp(value) {
 // Parses SRT or VTT text into sorted cue objects. Tolerates missing cue
 // numbers, missing hours, VTT settings after the timing line, and blank
 // cues (skipped).
-export function parseSubtitleText(content) {
-  const normalized = String(content || "")
+export function parseSubtitleText(content, { sourceUrl = "", contentType = "" } = {}) {
+  const raw = String(content || "");
+  // ASS/SSA carries its own layout (\an alignment, \pos, \move, per-style font
+  // sizes). Converting to VTT first keeps that placement instead of flattening
+  // every sign and karaoke line onto the default bottom-centre band.
+  const source = isAssSubtitle(raw, { sourceUrl, contentType })
+    ? convertAssBodyToVtt(raw)
+    : raw;
+  const normalized = String(source || "")
     .replace(/^\uFEFF/, "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
@@ -197,7 +207,9 @@ export function parseSubtitleText(content) {
     if (!text) {
       return;
     }
-    cues.push({ start, end, text, align });
+    // VTT cue settings live on the timing line and were previously discarded.
+    const layout = parseVttCueLayout(lines[timingIndex]);
+    cues.push({ start, end, text, align, layout });
   });
 
   cues.sort((left, right) => left.start - right.start || left.end - right.end);
@@ -264,9 +276,10 @@ export async function fetchSubtitleCues(url, { headers = {}, languageHint = "", 
     if (!response.ok) {
       return [];
     }
+    const contentType = String(response.headers?.get?.("content-type") || "");
     const buffer = await response.arrayBuffer();
     const text = decodeSubtitleBuffer(buffer, { languageHint });
-    return parseSubtitleText(text);
+    return parseSubtitleText(text, { sourceUrl: target, contentType });
   } catch (_) {
     return [];
   } finally {

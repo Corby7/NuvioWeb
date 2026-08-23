@@ -51,6 +51,7 @@ import {
 import { RootSidebarController } from "../../components/rootSidebarController.js";
 import { NuvioDialog } from "../../components/nuvioDialog.js";
 import { DIALOG_ICONS } from "../../components/dialogIcons.js";
+import { filterReleasedItems } from "../../../core/util/releaseInfoUtils.js";
 
 const HERO_ROTATE_FIRST_DELAY_MS = 20000;
 const HERO_ROTATE_INTERVAL_MS = 10000;
@@ -1363,8 +1364,19 @@ function parseEpisodeReleaseDateForContinueWatching(released) {
   if (!raw) {
     return null;
   }
-  const datePortion = raw.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0] || raw;
-  const parsedTime = Date.parse(datePortion);
+  // Only a strict ISO 8601 date-time parses identically across engines, so keep its
+  // exact instant. Anything else falls back to the extracted ISO date portion:
+  // Date.parse on locale or space-separated date strings is implementation- and
+  // timezone-dependent and resolved a day or more off on TV browsers, which made
+  // Continue Watching treat episodes as aired before their real release date.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw)) {
+    const exactTime = Date.parse(raw);
+    if (Number.isFinite(exactTime)) {
+      return exactTime;
+    }
+  }
+  const datePortion = raw.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
+  const parsedTime = datePortion ? Date.parse(datePortion) : NaN;
   return Number.isFinite(parsedTime) ? parsedTime : null;
 }
 
@@ -4029,6 +4041,22 @@ export const HomeScreen = {
       this.pendingDelegatedFocusTarget = target;
     }
     focusWithoutAutoScroll(target);
+  },
+
+  // Moves the .focused marker to one node and gives it real DOM focus. The same
+  // five-step sequence was open-coded at every focus-restore site; folderDetailScreen
+  // borrows this one via .call(this) to place focus on a restored card, so keep it
+  // free of anything home-specific.
+  setFocusedNode(target) {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+    this.container?.querySelectorAll(".focusable.focused").forEach((node) => node.classList.remove("focused"));
+    ScreenUtils.suppressFocusTransition(target);
+    target.classList.add("focused");
+    this.focusWithoutAutoScroll(target);
+    this.syncFocusedCollectionCardState?.();
+    return true;
   },
 
   getInitialFocusSelector() {
@@ -8437,6 +8465,27 @@ export const HomeScreen = {
     return this.heroCandidates[0] || this.pickHeroItem(this.rows);
   },
 
+  // Honours the "hide unreleased content" layout setting. Returns the same array
+  // reference when nothing is dropped so callers can skip needless rebuilds.
+  filterUnreleasedItems(items) {
+    if (!this.layoutPrefs?.hideUnreleasedContent || !Array.isArray(items)) {
+      return items;
+    }
+    return filterReleasedItems(items);
+  },
+
+  filterUnreleasedResult(result) {
+    if (!this.layoutPrefs?.hideUnreleasedContent || result?.status !== "success") {
+      return result;
+    }
+    const items = result.data?.items;
+    const filtered = this.filterUnreleasedItems(items);
+    if (filtered === items) {
+      return result;
+    }
+    return { ...result, data: { ...result.data, items: filtered } };
+  },
+
   async fetchCatalogRows(descriptors = [], options = {}) {
     const allowLoading = Boolean(options?.allowLoading);
     const timeoutMs = Number(options?.timeoutMs || HOME_ROW_TIMEOUT_MS);
@@ -8458,11 +8507,12 @@ export const HomeScreen = {
           skip: 0,
           supportsSkip: true
         }), timeoutMs, { status: "error", message: "timeout" });
+        const filteredResult = this.filterUnreleasedResult(result);
         const rowKey = buildModernRowKey(catalog);
         return {
           ...catalog,
-          result: result?.status === "success" ? result : (allowLoading ? { status: "loading" } : result),
-          loadingItems: allowLoading && result?.status !== "success"
+          result: filteredResult?.status === "success" ? filteredResult : (allowLoading ? { status: "loading" } : filteredResult),
+          loadingItems: allowLoading && filteredResult?.status !== "success"
             ? buildCatalogLoadingItems(rowKey, loadingCount)
             : null
         };
@@ -9831,7 +9881,8 @@ export const HomeScreen = {
           if (token !== this.homeLoadToken || result?.status !== "success") {
             return;
           }
-          const newItems = Array.isArray(result.data?.items) ? result.data.items : [];
+          const rawItems = Array.isArray(result.data?.items) ? result.data.items : [];
+          const newItems = this.filterUnreleasedItems(rawItems);
           // Re-derive rowIndex and rowData from the stable rowKey at callback time, since
           // this.rows entries may have been replaced by reference during the async gap.
           const rowIndex = (this.rows || []).findIndex((row) => buildModernRowKey(row) === rowKey);
@@ -9840,10 +9891,20 @@ export const HomeScreen = {
           }
           const liveRowData = this.rows[rowIndex];
           const liveCurrentItems = Array.isArray(liveRowData?.result?.data?.items) ? liveRowData.result.data.items : [];
-          if (!newItems.length) {
+          if (!rawItems.length) {
             // Mark hasMore=false so we stop trying
             if (liveRowData?.result?.data) {
               liveRowData.result.data.hasMore = false;
+            }
+            return;
+          }
+          if (!newItems.length) {
+            // The whole page was unreleased. The catalog still has more pages, so
+            // record the advance and keep hasMore set rather than ending pagination
+            // on a page the release filter happened to empty.
+            if (liveRowData?.result?.data) {
+              liveRowData.result.data.hasMore = result.data?.hasMore ?? true;
+              liveRowData.result.data.currentPage = result.data?.currentPage ?? liveRowData.result.data.currentPage;
             }
             return;
           }

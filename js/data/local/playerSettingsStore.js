@@ -1,3 +1,7 @@
+import {
+  SUBTITLE_TEXT_OPACITY_DEFAULT,
+  normalizeSubtitleTextOpacity
+} from "../../core/player/subtitleTextOpacity.js";
 import { createProfileScopedStore } from "./profileScopedStore.js";
 
 const KEY = "playerSettings";
@@ -24,6 +28,7 @@ const DEFAULTS = {
   subtitleStyle: {
     fontSize: 100,
     textColor: "#FFFFFF",
+    textOpacity: SUBTITLE_TEXT_OPACITY_DEFAULT,
     bold: false,
     outlineEnabled: true,
     outlineColor: "#000000",
@@ -150,6 +155,7 @@ function normalizePlayerSettings(settings = {}) {
     ...DEFAULTS.subtitleStyle,
     ...(settings.subtitleStyle || {})
   };
+  subtitleStyle.textOpacity = normalizeSubtitleTextOpacity(subtitleStyle.textOpacity);
   let preferredLanguage = normalizeSelectableSubtitleLanguageCode(
     subtitleStyle.preferredLanguage ?? settings.subtitleLanguage,
     DEFAULTS.subtitleStyle.preferredLanguage

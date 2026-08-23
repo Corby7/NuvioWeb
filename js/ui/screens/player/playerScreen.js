@@ -55,6 +55,17 @@ import { DesktopMediaBridge } from "../../../platform/desktop/desktopMediaBridge
 import { Router } from "../../navigation/router.js";
 import { DirectDebridResolver } from "../../../core/debrid/directDebridResolver.js";
 import { TraktScrobbleService } from "../../../data/repository/traktScrobbleService.js";
+import { shouldTreatAsNaturalPlaybackCompletion } from "../../../core/player/naturalPlaybackCompletion.js";
+import {
+  ASPECT_MODE_DEFINITIONS,
+  normalizeAspectMode,
+  resolveAspectRender
+} from "../../../core/player/playerAspect.js";
+import {
+  SUBTITLE_TEXT_OPACITY_STEP,
+  normalizeSubtitleTextOpacity,
+  subtitleTextColorWithOpacity
+} from "../../../core/player/subtitleTextOpacity.js";
 import { WebOsEngineFsResolver } from "../../../core/p2p/webosEngineFsResolver.js";
 import { TizenStreamingServerResolver } from "../../../core/p2p/tizenStreamingServerResolver.js";
 import { requestWebOsCompanionService, subscribeWebOsCompanionService } from "../../../platform/webos/webosCompanionService.js";
@@ -395,7 +406,21 @@ const BITMAP_SUBTITLE_WINDOW_BUCKET_SECONDS = 90;
 // window the service allows (it caps a request at 180s).
 const TEXT_SUBTITLE_WINDOW_SECONDS = 180;
 const TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS = 120;
-const TEXT_SUBTITLE_PREFETCH_SECONDS = 25;
+// A window costs 11-25s to extract on desktop and ~19.7s on the C3 (both have to read the
+// container index before they can seek), so the old fixed 25s lead left no margin at all: an
+// extraction that ran a few seconds long emptied the overlay between the end of the loaded
+// window and the arrival of the next one, which is exactly the "subtitles vanish for a few
+// seconds, several times a movie" symptom. The lead now follows what the last extraction
+// actually cost, so a slow source simply starts fetching earlier.
+const TEXT_SUBTITLE_PREFETCH_MIN_SECONDS = 45;
+// Above ~113s the lead would outrun the window itself (a 180s window anchored at the playhead
+// only has 165s of runway), leaving no time to consume what was fetched. Stay well under.
+const TEXT_SUBTITLE_PREFETCH_MAX_SECONDS = 90;
+// Prefetched windows are anchored just behind the playhead instead of on a bucket boundary, so
+// they always contain it whenever the load lands. The look-back keeps a cue that is on screen at
+// the swap from being clipped: ffmpeg's input seek drops packets before the seek point, so a cue
+// straddling the window start would otherwise disappear mid-sentence.
+const TEXT_SUBTITLE_PREFETCH_LOOKBACK_SECONDS = 15;
 // Measured on the C3 against a 25GB remux: a fresh window costs ~6.4s fixed
 // (range-request setup) plus ~0.074s per second of span, so a 180s window takes
 // ~19.7s but a 30s one takes ~8.6s. Load a narrow window first so subtitles
@@ -1888,11 +1913,12 @@ export const PlayerScreen = {
       void PlayerController.refreshWebOsDeviceInfo?.();
     }
 
-    this.aspectModes = [
-      { objectFit: "contain", label: t("player_aspect_fit", {}, "Fit") },
-      { objectFit: "cover", label: t("player_aspect_fill", {}, "Fill") },
-      { objectFit: "fill", label: t("player_aspect_stretch", {}, "Stretch") }
-    ];
+    // Fit / Crop / Stretch / Slight Zoom / Cinema Zoom / Fit Height / Fit Width,
+    // matching the Android TV app. Geometry lives in core/player/playerAspect.js.
+    this.aspectModes = ASPECT_MODE_DEFINITIONS.map((definition) => ({
+      id: definition.id,
+      label: t(definition.labelKey, {}, definition.fallbackLabel)
+    }));
 
     this.rememberedAudioTrackPreference = TrackPreferencesStore.getAudio(this.getTrackPreferenceContentId());
 
@@ -1961,6 +1987,7 @@ export const PlayerScreen = {
     this.embeddedTextSubtitleWindowStart = 0;
     this.embeddedTextSubtitleWindowEnd = 0;
     this.embeddedTextSubtitleLastErrorAt = 0;
+    this.embeddedTextSubtitleLoadSeconds = 0;
 
     this.audioDialogVisible = false;
     this.audioDialogIndex = 0;
@@ -2107,6 +2134,8 @@ export const PlayerScreen = {
     this.playbackStallTimer = null;
     this.webOsStallRestartUrl = "";
     this.webOsStallRestarts = 0;
+    this.webOsNativeReadyStartupRetryUrl = "";
+    this.webOsNativeReadyStartupRetries = 0;
     this.engineFsStartupRetryTimer = null;
     this.engineFsStartupErrorRetries = 0;
     this.engineFsStallExtensions = 0;
@@ -5009,6 +5038,35 @@ export const PlayerScreen = {
     return true;
   },
 
+  hasFatalPlaybackError() {
+    const controllerErrorCode =
+      typeof PlayerController.getLastPlaybackErrorCode === "function"
+        ? Number(PlayerController.getLastPlaybackErrorCode() || 0)
+        : 0;
+    const nativeErrorCode = Number(PlayerController.video?.error?.code || 0);
+    return (
+      Boolean(String(this.sourcesError || "").trim()) ||
+      controllerErrorCode > 0 ||
+      nativeErrorCode > 0
+    );
+  },
+
+  // A stream that never rendered a frame, errored, or runs for only a couple of
+  // minutes is a placeholder or error clip, not a finished episode. Everything
+  // keyed off "playback finished" — watched state, the next-episode card, stream
+  // prefetch and auto-play — has to agree on that.
+  isNaturalPlaybackCompletionEligible(durationSeconds = this.getPlaybackDurationSeconds()) {
+    const duration = Number(durationSeconds);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return false;
+    }
+    return shouldTreatAsNaturalPlaybackCompletion({
+      hasRenderedFirstFrame: Boolean(this.hasPresentedPlaybackFrame),
+      hasFatalError: this.hasFatalPlaybackError(),
+      durationMs: duration * 1000
+    });
+  },
+
   shouldShowNextEpisodeCard() {
     const nextEpisode = this.resolveNextEpisodeInfo();
     if (!nextEpisode) {
@@ -5024,6 +5082,9 @@ export const PlayerScreen = {
     // a hardcoded 0.985 and the module was imported by nothing, so the three
     // "Next episode threshold" settings persisted correctly and then changed
     // nothing about playback.
+    if (!this.isNaturalPlaybackCompletionEligible(durationSeconds)) {
+      return false;
+    }
     const settings = PlayerSettingsStore.get();
     return evaluateNextEpisodeCardThreshold({
       positionSeconds: currentSeconds,
@@ -5043,13 +5104,17 @@ export const PlayerScreen = {
     }
     const remainingSeconds = durationSeconds - currentSeconds;
     const progress = currentSeconds / durationSeconds;
-    return remainingSeconds <= 8 || progress >= 0.985;
+    const reachedEnd = remainingSeconds <= 8 || progress >= 0.985;
+    return reachedEnd && this.isNaturalPlaybackCompletionEligible(durationSeconds);
   },
 
   shouldPrefetchNextEpisodeStreams() {
     const durationSeconds = Number(this.getPlaybackDurationSeconds() || 0);
     const currentSeconds = Number(this.getPlaybackCurrentSeconds() || 0);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || !Number.isFinite(currentSeconds) || currentSeconds < 0) {
+      return false;
+    }
+    if (!this.isNaturalPlaybackCompletionEligible(durationSeconds)) {
       return false;
     }
     return (currentSeconds / durationSeconds) >= NEXT_EPISODE_PREFETCH_PERCENT
@@ -5357,7 +5422,12 @@ export const PlayerScreen = {
     }
     const style = this.subtitleStyleSettings || {};
     const verticalOffset = splitSubtitleVerticalOffset(style.verticalOffset);
-    const subtitleColor = String(style.textColor || "#FFFFFF");
+    // Opacity rides on the colour itself so it reaches the native ::cue pipeline
+    // and the HTML overlay through the same custom property.
+    const subtitleColor = subtitleTextColorWithOpacity(
+      String(style.textColor || "#FFFFFF"),
+      style.textOpacity
+    );
     const outlineColor = String(style.outlineColor || "#000000");
     const subtitleFontWeight = style.bold ? "800" : "500";
     const boldShadow = style.bold
@@ -5366,13 +5436,13 @@ export const PlayerScreen = {
     const outlineShadow = style.outlineEnabled ? `0 0 2px ${outlineColor}, 0 0 4px ${outlineColor}` : "";
     const subtitleShadow = [outlineShadow, boldShadow].filter(Boolean).join(", ") || "none";
     const subtitleFontSize = normalizeSubtitleFontSize(style.fontSize);
-    uiRoot.style.setProperty("--player-subtitle-color", String(style.textColor || "#FFFFFF"));
+    uiRoot.style.setProperty("--player-subtitle-color", subtitleColor);
     uiRoot.style.setProperty("--player-subtitle-outline-color", outlineColor);
     uiRoot.style.setProperty("--player-subtitle-font-size", `${subtitleFontSize}%`);
     uiRoot.style.setProperty("--player-subtitle-font-weight", subtitleFontWeight);
     uiRoot.style.setProperty("--player-subtitle-shadow", subtitleShadow);
     uiRoot.style.setProperty("--player-subtitle-offset", `${(verticalOffset.residualOffset * -2).toFixed(2)}vh`);
-    video.style.setProperty("--player-subtitle-color", String(style.textColor || "#FFFFFF"));
+    video.style.setProperty("--player-subtitle-color", subtitleColor);
     video.style.setProperty("--player-subtitle-outline-color", outlineColor);
     video.style.setProperty("--player-subtitle-font-size", `${subtitleFontSize}%`);
     video.style.setProperty("--player-subtitle-font-weight", subtitleFontWeight);
@@ -7993,6 +8063,44 @@ export const PlayerScreen = {
           return;
         }
       }
+      // webOS can report a fully prepared pipeline (readyState >= 3, networkState 2)
+      // that never actually starts. The branch below reads that as healthy and just
+      // hides the spinner, which left a frozen first frame and no way forward, so
+      // give the source one restart first. Keyed on the URL like the stall restart
+      // below, so switching sources gets a fresh allowance.
+      if (
+        startup
+        && Environment.isWebOS()
+        && readyState >= 3
+        && !this.currentEngineFsStream
+        && String(PlayerController.playbackEngine || "") === "native-file"
+        && Number(PlayerController.getLastPlaybackErrorCode?.() || 0) === 0
+        && Number(PlayerController.video?.networkState || 0) === 2
+      ) {
+        const stalledPlaybackUrl = this.activePlaybackUrl;
+        if (this.webOsNativeReadyStartupRetryUrl !== stalledPlaybackUrl) {
+          this.webOsNativeReadyStartupRetryUrl = stalledPlaybackUrl;
+          this.webOsNativeReadyStartupRetries = 0;
+        }
+        if (Number(this.webOsNativeReadyStartupRetries || 0) < 1) {
+          this.webOsNativeReadyStartupRetries = Number(this.webOsNativeReadyStartupRetries || 0) + 1;
+          const sourceCandidate = this.getStreamCandidateByUrl(stalledPlaybackUrl)
+            || this.getCurrentStreamCandidate();
+          console.warn("webOS native playback is ready but has not started; retrying the current source once", {
+            engine: PlayerController.playbackEngine,
+            readyState,
+            networkState: Number(PlayerController.video?.networkState || 0)
+          });
+          void this.playStreamByUrl(stalledPlaybackUrl, {
+            preservePanel: true,
+            preservePlaybackState: true,
+            resetSilentAudioState: false,
+            sourceCandidate
+          });
+          return;
+        }
+      }
+
       if (readyState >= 3 && !(startup && this.currentEngineFsStream)) {
         this.loadingVisible = false;
         this.updateLoadingVisibility();
@@ -10220,6 +10328,7 @@ export const PlayerScreen = {
       { id: "fontSize", label: t("subtitle_style_font_size", {}, "Font Size"), value: `${normalizeSubtitleFontSize(style.fontSize)}%` },
       { id: "bold", label: t("subtitle_style_bold", {}, "Bold"), value: style.bold ? t("subtitle_style_on", {}, "On") : t("subtitle_style_off", {}, "Off") },
       { id: "textColor", label: t("subtitle_style_text_color", {}, "Text Color"), value: styleChipLabel(style.textColor || "#FFFFFF") },
+      { id: "textOpacity", label: t("subtitle_style_text_opacity", {}, "Text Opacity"), value: `${normalizeSubtitleTextOpacity(style.textOpacity)}%` },
       { id: "outlineEnabled", label: t("subtitle_style_outline", {}, "Outline"), value: style.outlineEnabled ? t("subtitle_style_on", {}, "On") : t("subtitle_style_off", {}, "Off") },
       { id: "outlineColor", label: t("subtitle_style_outline_color", {}, "Outline Color"), value: styleChipLabel(style.outlineColor || "#000000") },
       { id: "verticalOffset", label: t("subtitle_style_bottom_offset", {}, "Bottom Offset"), value: formatSubtitleVerticalOffset(style.verticalOffset) },
@@ -10243,6 +10352,10 @@ export const PlayerScreen = {
     } else if (controlId === "textColor" && delta !== 0) {
       const currentIndex = Math.max(0, SUBTITLE_TEXT_COLORS.indexOf(String(style.textColor || "#FFFFFF").toUpperCase()));
       style.textColor = SUBTITLE_TEXT_COLORS[clamp(currentIndex + delta, 0, SUBTITLE_TEXT_COLORS.length - 1)];
+    } else if (controlId === "textOpacity") {
+      style.textOpacity = normalizeSubtitleTextOpacity(
+        normalizeSubtitleTextOpacity(style.textOpacity) + (delta * SUBTITLE_TEXT_OPACITY_STEP)
+      );
     } else if (controlId === "outlineEnabled" && delta !== 0) {
       style.outlineEnabled = !style.outlineEnabled;
     } else if (controlId === "outlineColor" && delta !== 0) {
@@ -10550,6 +10663,8 @@ export const PlayerScreen = {
         this.embeddedTextSubtitleWindowStart = 0;
         this.embeddedTextSubtitleWindowEnd = 0;
         this.embeddedTextSubtitleLastErrorAt = 0;
+        // A different track means a different extraction cost; do not carry the old lead over.
+        this.embeddedTextSubtitleLoadSeconds = 0;
         this.invalidateTrackDialogCaches();
         this.renderControlButtons();
         this.renderSubtitleDialog();
@@ -10776,6 +10891,20 @@ export const PlayerScreen = {
     return Environment.isWebOS() || this.canExtractDesktopEmbeddedSubtitles();
   },
 
+  // How far ahead of the loaded window's end the next one has to start loading. Twice the last
+  // measured extraction (plus a fixed cushion) keeps the overlay fed even when a window takes
+  // roughly double what the previous one did, which is the usual shape of a slow range request.
+  getEmbeddedTextSubtitlePrefetchSeconds() {
+    const measured = Number(this.embeddedTextSubtitleLoadSeconds || 0);
+    if (!Number.isFinite(measured) || measured <= 0) {
+      return TEXT_SUBTITLE_PREFETCH_MIN_SECONDS;
+    }
+    return Math.min(
+      TEXT_SUBTITLE_PREFETCH_MAX_SECONDS,
+      Math.max(TEXT_SUBTITLE_PREFETCH_MIN_SECONDS, (measured * 2) + 10)
+    );
+  },
+
   // The service caps a window at 180s, so text cues are paged around the
   // playhead exactly like bitmap ones rather than fetched whole.
   ensureEmbeddedTextSubtitleWindow(timeSeconds) {
@@ -10787,18 +10916,20 @@ export const PlayerScreen = {
     const outsideWindow = time < this.embeddedTextSubtitleWindowStart
       || time >= this.embeddedTextSubtitleWindowEnd;
     const approachingEnd = this.embeddedTextSubtitleWindowEnd > 0
-      && time >= this.embeddedTextSubtitleWindowEnd - TEXT_SUBTITLE_PREFETCH_SECONDS;
+      && time >= this.embeddedTextSubtitleWindowEnd - this.getEmbeddedTextSubtitlePrefetchSeconds();
     if (!outsideWindow && !approachingEnd) {
       return;
     }
     const retryAllowed = !this.embeddedTextSubtitleLastErrorAt
       || Date.now() - this.embeddedTextSubtitleLastErrorAt >= 5000;
     if (retryAllowed) {
-      void this.loadEmbeddedTextSubtitleCues(track, time);
+      // Only a seek can land outside the window; everything else is the playhead running into
+      // the end of it, which wants a window anchored where playback actually is.
+      void this.loadEmbeddedTextSubtitleCues(track, time, { prefetch: !outsideWindow });
     }
   },
 
-  async loadEmbeddedTextSubtitleCues(track, timeSeconds = 0, { quick = false } = {}) {
+  async loadEmbeddedTextSubtitleCues(track, timeSeconds = 0, { quick = false, prefetch = false } = {}) {
     const sourceUrl = this.getTrackProbeUrl();
     const trackNumber = Number(track?.sourceTrackId);
     if (!sourceUrl || !Number.isFinite(trackNumber) || trackNumber <= 0) {
@@ -10813,11 +10944,18 @@ export const PlayerScreen = {
 
     const time = Math.max(0, Number(timeSeconds || 0));
     // The quick pass sits tight around the playhead rather than snapping to a
-    // bucket, so it fetches the least possible to get something on screen.
+    // bucket, so it fetches the least possible to get something on screen. A prefetch anchors
+    // just behind the playhead for the same reason plus one more: bucketing it would waste most
+    // of the window on already-played time, and with a long lead the next bucket may not even
+    // have started yet, so the load would re-fetch the window it is trying to replace. Seeks
+    // still bucket, so scrubbing around one region reuses a single loaded window.
     const startSeconds = quick
       ? Math.max(0, Math.floor(time) - 2)
-      : Math.floor(time / TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS) * TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS;
+      : prefetch
+        ? Math.max(0, Math.floor(time) - TEXT_SUBTITLE_PREFETCH_LOOKBACK_SECONDS)
+        : Math.floor(time / TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS) * TEXT_SUBTITLE_WINDOW_BUCKET_SECONDS;
     const windowSeconds = quick ? SUBTITLE_FIRST_WINDOW_SECONDS : TEXT_SUBTITLE_WINDOW_SECONDS;
+    const startedAt = Date.now();
     try {
       const windowData = await localMediaBitmapSubtitleRepository.getWindow({
         url: sourceUrl,
@@ -10873,6 +11011,12 @@ export const PlayerScreen = {
     } finally {
       if (requestToken === this.embeddedTextSubtitleToken) {
         this.embeddedTextSubtitleLoading = false;
+        // Failures count too: a window that timed out is the strongest possible signal that the
+        // next one needs a longer lead. The quick pass is deliberately excluded, being a much
+        // narrower window than the ones this is meant to predict.
+        if (!quick) {
+          this.embeddedTextSubtitleLoadSeconds = (Date.now() - startedAt) / 1000;
+        }
       }
       if (quick) {
         this.setSubtitleLoadingIndicator(false);
@@ -11086,7 +11230,7 @@ export const PlayerScreen = {
     const sizeScale = normalizeSubtitleFontSize(styleSettings.fontSize) / 100;
     const verticalOffsetPx = splitSubtitleVerticalOffset(styleSettings.verticalOffset).value * -0.02 * viewportHeight;
     const mode = this.aspectModes[this.aspectModeIndex] || this.aspectModes[0];
-    const rect = this.calculateAspectRect(mode.objectFit, PlayerController.video);
+    const rect = this.calculateAspectRect(mode.id, PlayerController.video);
     // Second-level check, now that geometry is known: catches a moved video rect
     // (e.g. new stream dimensions) that the cheap guard above cannot see.
     const renderKey = [
@@ -12892,7 +13036,7 @@ export const PlayerScreen = {
     const mode = this.aspectModes[this.aspectModeIndex] || this.aspectModes[0];
     const video = PlayerController.video;
     if (video) {
-      const rect = this.calculateAspectRect(mode.objectFit, video);
+      const rect = this.calculateAspectRect(mode.id, video);
       video.style.position = "fixed";
       video.style.left = `${Math.round(rect.x)}px`;
       video.style.top = `${Math.round(rect.y)}px`;
@@ -12911,7 +13055,7 @@ export const PlayerScreen = {
     }
   },
 
-  calculateAspectRect(objectFit = "contain", video = PlayerController.video) {
+  calculateAspectRect(mode = "ORIGINAL", video = PlayerController.video) {
     const viewport = typeof PlayerController.getPlayerViewportSize === "function"
       ? PlayerController.getPlayerViewportSize()
       : {
@@ -12920,15 +13064,6 @@ export const PlayerScreen = {
       };
     const viewportWidth = viewport.width;
     const viewportHeight = viewport.height;
-    if (objectFit === "fill") {
-      return {
-        x: 0,
-        y: 0,
-        width: viewportWidth,
-        height: viewportHeight,
-        displayMethod: "PLAYER_DISPLAY_MODE_FULL_SCREEN"
-      };
-    }
 
     const avplayDimensions = typeof PlayerController.getAvPlayVideoDimensions === "function"
       ? PlayerController.getAvPlayVideoDimensions()
@@ -12938,20 +13073,26 @@ export const PlayerScreen = {
     const mediaRatio = videoWidth > 0 && videoHeight > 0
       ? videoWidth / videoHeight
       : 16 / 9;
-    const viewportRatio = viewportWidth / viewportHeight;
-    const shouldCover = objectFit === "cover";
-    const widthLimited = shouldCover
-      ? viewportRatio > mediaRatio
-      : viewportRatio < mediaRatio;
-    const width = widthLimited ? viewportWidth : viewportHeight * mediaRatio;
-    const height = widthLimited ? viewportWidth / mediaRatio : viewportHeight;
+
+    // playerAspect gives the aspect-preserving content rect plus the per-mode
+    // scale factors. The video element is absolutely placed with object-fit:fill,
+    // so the scale is folded into the rect instead of applied as a transform;
+    // anything larger than the viewport is clipped by it, which is the crop.
+    const render = resolveAspectRender(
+      normalizeAspectMode(mode),
+      viewportWidth,
+      viewportHeight,
+      mediaRatio
+    );
+    const width = render.width * render.scaleX;
+    const height = render.height * render.scaleY;
 
     return {
       x: (viewportWidth - width) / 2,
       y: (viewportHeight - height) / 2,
       width,
       height,
-      displayMethod: shouldCover ? "PLAYER_DISPLAY_MODE_FULL_SCREEN" : "PLAYER_DISPLAY_MODE_LETTER_BOX"
+      displayMethod: render.displayMethod
     };
   },
 
@@ -14524,6 +14665,25 @@ export const PlayerScreen = {
   },
 
   async handlePlaybackEnded() {
+    if (!this.isNaturalPlaybackCompletionEligible()) {
+      // An error or placeholder clip reaching its end is not a completion: cancel
+      // the scrobble rather than stopping it (stop can mark watched), and stay put
+      // instead of navigating away or chaining into the next episode.
+      TraktScrobbleService.cancel();
+      this.clearPlaybackStallGuard();
+      this.releaseStartupAudioGate({ resume: false });
+      this.loadingVisible = false;
+      this.paused = true;
+      this.dismissPauseOverlay();
+      this.updateLoadingVisibility();
+      this.updateMediaSessionPlaybackState();
+      this.setControlsVisible(true, { focus: false });
+      this.renderControlButtons();
+      this.renderNextEpisodeCard();
+      this.updateUiTick();
+      return;
+    }
+
     // Immediate scrobble stop (may trigger mark-as-watched)
     if (TraktScrobbleService.isEnabled()) {
       TraktScrobbleService.stop(this.buildScrobbleContext());

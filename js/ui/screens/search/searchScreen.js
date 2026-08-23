@@ -3,6 +3,7 @@ import { ScreenUtils } from "../../navigation/screen.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
+import { filterReleasedItems } from "../../../core/util/releaseInfoUtils.js";
 import { I18n } from "../../../i18n/index.js";
 import { Platform } from "../../../platform/index.js";
 import { MODERN_HOME_CONSTANTS } from "../home/modernHomeLayout.js";
@@ -679,7 +680,10 @@ export const SearchScreen = {
     return resolved
       .filter((entry) => entry.result?.status === "success" && entry.result?.data?.items?.length)
       .map((entry) => {
-        const items = entry.result?.data?.items || [];
+        const rawItems = entry.result?.data?.items || [];
+        const items = this.layoutPrefs?.hideUnreleasedContent
+          ? filterReleasedItems(rawItems)
+          : rawItems;
         return {
           title: formatCatalogRowTitle(entry.catalogName, entry.addonName, entry.type),
           subtitle: `from ${entry.addonName || "Addon"}`,
@@ -719,7 +723,10 @@ export const SearchScreen = {
           { status: "error", message: "timeout" },
         );
         if (result?.status === "success" && result?.data?.items?.length && onRow) {
-          const items = result.data.items || [];
+          const rawItems = result.data.items || [];
+          const items = this.layoutPrefs?.hideUnreleasedContent
+            ? filterReleasedItems(rawItems)
+            : rawItems;
           onRow({
             title: formatCatalogRowTitle(catalog.catalogName, catalog.addonName, catalog.type),
             subtitle: `from ${catalog.addonName || "Addon"}`,

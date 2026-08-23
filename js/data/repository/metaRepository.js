@@ -189,7 +189,14 @@ class MetaRepository {
   }
 
   mapMeta(meta) {
-    if (!meta) {
+    // An addon answering with `{"meta": {}}` used to pass the bare `!meta` guard
+    // and surface as a successful-but-blank detail page.
+    if (
+      !meta ||
+      typeof meta !== "object" ||
+      Array.isArray(meta) ||
+      Object.keys(meta).length === 0
+    ) {
       return null;
     }
 

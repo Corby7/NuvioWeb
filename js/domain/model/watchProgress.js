@@ -18,6 +18,9 @@ export function createWatchProgress({
 
 export const WATCH_PROGRESS_STARTED_THRESHOLD = 0.02;
 export const WATCH_PROGRESS_COMPLETED_THRESHOLD = 0.9;
+// Playback with no meaningful duration (the usual case for live streams) keeps a
+// small in-progress marker rather than a computed fraction.
+export const WATCH_PROGRESS_UNKNOWN_DURATION_PERCENT = 5;
 
 export function getWatchProgressFraction(progress = {}) {
   const positionMs = Number(progress?.positionMs || 0);

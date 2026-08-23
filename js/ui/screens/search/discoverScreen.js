@@ -3,6 +3,7 @@ import { ScreenUtils } from "../../navigation/screen.js";
 import { addonRepository } from "../../../data/repository/addonRepository.js";
 import { catalogRepository } from "../../../data/repository/catalogRepository.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
+import { filterReleasedItems } from "../../../core/util/releaseInfoUtils.js";
 import { I18n } from "../../../i18n/index.js";
 import { Platform } from "../../../platform/index.js";
 import { renderContentFilterPicker } from "../../components/filterPicker.js";
@@ -565,7 +566,12 @@ export const DiscoverScreen = {
       return;
     }
 
-    const incoming = Array.isArray(result?.data?.items) ? result.data.items : [];
+    const rawIncoming = Array.isArray(result?.data?.items) ? result.data.items : [];
+    // Filtered for display, but pagination below still keys off the raw page so a
+    // page the release filter empties does not read as "no more results".
+    const incoming = this.layoutPrefs?.hideUnreleasedContent
+      ? filterReleasedItems(rawIncoming)
+      : rawIncoming;
     let addedCount = 0;
     const previousCount = replaceExistingItems ? 0 : this.items.length;
     if (replaceExistingItems) {
@@ -585,7 +591,10 @@ export const DiscoverScreen = {
       });
       this.nextSkip = Math.max(0, Number(this.nextSkip || 0)) + 100;
     }
-    this.hasMore = incoming.length > 0;
+    if (!incoming.length && rawIncoming.length) {
+      this.nextSkip = Math.max(0, Number(this.nextSkip || 0)) + 100;
+    }
+    this.hasMore = rawIncoming.length > 0;
     this.loading = false;
     if (!this.lastFocusedKey && this.items[0]?.id) {
       this.lastFocusedKey = `item:${this.items[0].id}`;

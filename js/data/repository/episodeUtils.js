@@ -88,7 +88,7 @@ function toEpisodeEntry(video = {}) {
     runtimeMinutes: Number.isFinite(runtimeMinutes) && runtimeMinutes > 0 ? runtimeMinutes : 0,
     released: video.released || video.releaseDate || video.release_date || video.firstAired || video.first_aired || video.airDate || video.air_date || "",
     available: video.available,
-    imdbRating: video.imdbRating ?? video.imdb_score ?? video.ratings?.imdb ?? video.mdbListRatings?.imdb ?? null
+    imdbRating: video.imdbRating ?? video.imdb_score ?? video.ratings?.imdb ?? video.mdbListRatings?.imdb ?? video.rating ?? null
   };
 }
 

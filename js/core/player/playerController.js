@@ -13,8 +13,13 @@ import {
   detectWebOsAudioCapabilities
 } from "../../platform/webos/webosAudioCapabilities.js";
 import { loadStreamingLibs } from "../../runtime/loadStreamingLibs.js";
+import { isTerminalHlsHttpStatus } from "./hlsNetworkErrorPolicy.js";
+import { isShortPlaceholderDuration } from "./naturalPlaybackCompletion.js";
+import { WATCH_PROGRESS_UNKNOWN_DURATION_PERCENT } from "../../domain/model/watchProgress.js";
 
 const MIN_PROGRESS_SYNC_DURATION_MS = 60000;
+const HLS_TRANSIENT_PLAYLIST_404_RETRY_LIMIT = 2;
+const HLS_TRANSIENT_PLAYLIST_404_RETRY_BASE_DELAY_MS = 1500;
 const WEBOS_AUDIO_TRACK_SELECTION_TIMEOUT_MS = 4000;
 const WEBOS_SUBTITLE_TRACK_SELECTION_TIMEOUT_MS = 4000;
 
@@ -1873,10 +1878,18 @@ export const PlayerController = {
 
   isLivePlaybackItemType(itemType = this.currentItemType) {
     const normalized = String(itemType || "").trim().toLowerCase();
+    // A "tv" item carrying season/episode is a series episode; without that identity
+    // it is a channel, and channels must not be treated as finite-duration content.
+    const hasEpisodeIdentity =
+      this.currentSeason != null
+      && this.currentEpisode != null
+      && Number.isFinite(Number(this.currentSeason))
+      && Number.isFinite(Number(this.currentEpisode));
     return normalized === "channel"
       || normalized === "live"
       || normalized === "tvchannel"
-      || normalized === "stream";
+      || normalized === "stream"
+      || (normalized === "tv" && !hasEpisodeIdentity);
   },
 
   getPlaybackEngineCandidates(url, sourceType = null, itemType = this.currentItemType) {
@@ -2224,7 +2237,7 @@ export const PlayerController = {
     return initialLevel;
   },
 
-  playWithHlsJs(url, requestHeaders = {}) {
+  playWithHlsJs(url, requestHeaders = {}, playToken = null) {
     if (!this.video || !this.canUseHlsJs()) {
       return false;
     }
@@ -2243,21 +2256,129 @@ export const PlayerController = {
     this.playbackEngine = "hls.js";
     let networkRecoveryAttempts = 0;
     let mediaRecoveryAttempts = 0;
+    // Bridge-generated playlist URLs can 404 briefly while a live window advances
+    // or an alternate audio rendition is still being published. Those used to burn
+    // the single network retry and kill playback outright.
+    const transientPlaylist404Retries = {
+      levelLoadError: 0,
+      audioTrackLoadError: 0
+    };
+    let transientPlaylist404RetryDetails = null;
+    let transientPlaylist404RetryTimer = null;
+    const isCurrentRequest = () =>
+      (playToken == null || Number(this.playRequestToken || 0) === Number(playToken)) &&
+      this.hlsInstance === hls;
 
-    hls.on(Hls.Events.ERROR, (_, data = {}) => {
-      if (!data?.fatal) {
-        return;
+    const clearTransientPlaylist404Retry = () => {
+      if (transientPlaylist404RetryTimer) {
+        clearTimeout(transientPlaylist404RetryTimer);
+        transientPlaylist404RetryTimer = null;
       }
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-        if (networkRecoveryAttempts >= 1) {
+      transientPlaylist404RetryDetails = null;
+    };
+
+    const resetTransientPlaylist404Retry = (details) => {
+      transientPlaylist404Retries[details] = 0;
+      if (transientPlaylist404RetryDetails === details) {
+        clearTransientPlaylist404Retry();
+      }
+    };
+
+    const emitFatalHlsNetworkError = (data = {}, responseCode = 0) => {
+      clearTransientPlaylist404Retry();
+      this.lastPlaybackErrorCode = 2;
+      this.teardownHlsInstance();
+      this.emitVideoEvent("error", {
+        playbackEngine: "hls.js",
+        mediaErrorCode: 2,
+        hlsErrorType: String(data.type || ""),
+        hlsErrorDetails: String(data.details || ""),
+        hlsResponseCode: Number(responseCode) || null
+      });
+    };
+
+    const scheduleTransientPlaylist404Retry = (details) => {
+      const retryAttempt = (transientPlaylist404Retries[details] || 0) + 1;
+      transientPlaylist404Retries[details] = retryAttempt;
+      const retryDelayMs = HLS_TRANSIENT_PLAYLIST_404_RETRY_BASE_DELAY_MS * retryAttempt;
+      clearTransientPlaylist404Retry();
+      transientPlaylist404RetryDetails = details;
+      console.warn("[Nuvio playback] retrying transient HLS playlist 404", {
+        details,
+        attempt: retryAttempt,
+        limit: HLS_TRANSIENT_PLAYLIST_404_RETRY_LIMIT,
+        delayMs: retryDelayMs
+      });
+      transientPlaylist404RetryTimer = setTimeout(() => {
+        transientPlaylist404RetryTimer = null;
+        if (!isCurrentRequest()) {
+          return;
+        }
+        try {
+          // Reload the master manifest rather than the failing child playlist: the
+          // child URL is what went stale.
+          hls.loadSource(url);
+        } catch (error) {
+          console.warn("HLS playlist 404 retry failed", error);
           this.lastPlaybackErrorCode = 2;
           this.teardownHlsInstance();
           this.emitVideoEvent("error", {
             playbackEngine: "hls.js",
             mediaErrorCode: 2,
-            hlsErrorType: String(data.type || ""),
-            hlsErrorDetails: String(data.details || "")
+            hlsErrorType: "networkError",
+            hlsErrorDetails: details
           });
+        }
+      }, retryDelayMs);
+    };
+
+    hls.on(Hls.Events.ERROR, (_, data = {}) => {
+      if (!isCurrentRequest()) {
+        return;
+      }
+      const responseCode = Number(data?.response?.code || data?.networkDetails?.status || 0);
+      const hlsErrorDetails = String(data?.details || "");
+      const isTransientPlaylist404 =
+        data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+        responseCode === 404 &&
+        (hlsErrorDetails === "levelLoadError" || hlsErrorDetails === "audioTrackLoadError");
+      // hls.js reports an alternate-audio 404 as non-fatal. Recover only while
+      // startup has no media data; established playback must not be restarted
+      // because an optional track briefly disappears.
+      const isStartupAudioPlaylist404 =
+        !data?.fatal &&
+        isTransientPlaylist404 &&
+        hlsErrorDetails === "audioTrackLoadError" &&
+        Number(this.video?.readyState || 0) === 0 &&
+        !this.isPlaying;
+      if (isStartupAudioPlaylist404) {
+        if (
+          transientPlaylist404Retries[hlsErrorDetails] < HLS_TRANSIENT_PLAYLIST_404_RETRY_LIMIT &&
+          !transientPlaylist404RetryTimer
+        ) {
+          scheduleTransientPlaylist404Retry(hlsErrorDetails);
+        }
+        return;
+      }
+      if (!data?.fatal) {
+        return;
+      }
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        if (
+          isTransientPlaylist404 &&
+          transientPlaylist404Retries[hlsErrorDetails] < HLS_TRANSIENT_PLAYLIST_404_RETRY_LIMIT
+        ) {
+          scheduleTransientPlaylist404Retry(hlsErrorDetails);
+          return;
+        }
+        // A hard HTTP status will not heal on a retry; fail now instead of stalling
+        // the user through a pointless reload.
+        if (isTerminalHlsHttpStatus(responseCode)) {
+          emitFatalHlsNetworkError(data, responseCode);
+          return;
+        }
+        if (networkRecoveryAttempts >= 1) {
+          emitFatalHlsNetworkError(data, responseCode);
           return;
         }
         try {
@@ -2297,6 +2418,15 @@ export const PlayerController = {
         hlsErrorDetails: String(data.details || "")
       });
     });
+
+    hls.on(Hls.Events.LEVEL_LOADED, () => {
+      resetTransientPlaylist404Retry("levelLoadError");
+    });
+    if (Hls.Events.AUDIO_TRACK_LOADED) {
+      hls.on(Hls.Events.AUDIO_TRACK_LOADED, () => {
+        resetTransientPlaylist404Retry("audioTrackLoadError");
+      });
+    }
 
     hls.on(Hls.Events.MEDIA_ATTACHED, () => {
       try {
@@ -3129,10 +3259,11 @@ export const PlayerController = {
       this.isPlaying = false;
       const context = this.createProgressContext();
       const durationMs = Math.floor(this.getDurationSeconds() * 1000);
-      const completedMs = durationMs > 0
-        ? durationMs
-        : Math.floor(this.getCurrentTimeSeconds() * 1000);
-      this.flushProgress(completedMs, durationMs > 0 ? durationMs : completedMs, false, context);
+      const positionMs = Math.floor(this.getCurrentTimeSeconds() * 1000);
+      // Passing the live position as the duration made every unknown-duration stream
+      // look 100% complete, which marked it watched and cleared it from Continue
+      // Watching. Report the real pair and let flushProgress decide.
+      this.flushProgress(positionMs, durationMs, false, context);
     });
 
     this.video.addEventListener("error", (e) => {
@@ -3316,7 +3447,7 @@ export const PlayerController = {
         });
       }
     } else if (preferredEngine === "hls.js") {
-      const hlsStarted = this.playWithHlsJs(url, requestHeaders);
+      const hlsStarted = this.playWithHlsJs(url, requestHeaders, playToken);
       if (!hlsStarted) {
         this.applyNativeSource(url, sourceType || "application/vnd.apple.mpegurl", "native-hls");
         this.attemptVideoPlay({
@@ -3345,7 +3476,7 @@ export const PlayerController = {
           if (!this.isUnsupportedSourceError(error)) {
             return false;
           }
-          const fallbackStarted = this.playWithHlsJs(url, requestHeaders);
+          const fallbackStarted = this.playWithHlsJs(url, requestHeaders, playToken);
           if (fallbackStarted) {
             this.isPlaying = true;
           }
@@ -3566,6 +3697,12 @@ export const PlayerController = {
 
     const safePosition = Number(positionMs || 0);
     const safeDuration = Number(durationMs || 0);
+    // Debrid cache-sync placeholders and "source unavailable" clips run a couple of
+    // minutes and then reach their end, which reads as 100% complete and bypasses the
+    // short-duration guard below. They must not create watched state or progress.
+    if (isShortPlaceholderDuration(safeDuration)) {
+      return false;
+    }
     const hasFiniteDuration = Number.isFinite(safeDuration) && safeDuration > 0;
     const hasReachedMinimumSyncPosition = Number.isFinite(safePosition)
       && safePosition >= MIN_PROGRESS_SYNC_DURATION_MS;
@@ -3613,7 +3750,8 @@ export const PlayerController = {
       background: active.background || null,
       episodeTitle: active.episodeTitle || null,
       positionMs: Math.max(0, Math.trunc(safePosition)),
-      durationMs: hasFiniteDuration ? Math.max(0, Math.trunc(safeDuration)) : 0
+      durationMs: hasFiniteDuration ? Math.max(0, Math.trunc(safeDuration)) : 0,
+      progressPercent: hasFiniteDuration ? null : WATCH_PROGRESS_UNKNOWN_DURATION_PERCENT
     });
     if (!allowCloudSync) {
       return true;

@@ -180,6 +180,11 @@ function buildFolderSourceRows(tabs = []) {
             items: Array.isArray(tab.items) ? tab.items : []
           }
         },
+        // A source that failed has no items, and the modern layout drops itemless rows —
+        // which turned a folder whose addon is missing into a hero and nothing else, with
+        // the reason ("Addon not found") never reaching the screen or the console. The
+        // tabbed-grid path already prints tab.error; this carries it into follow layout.
+        rowErrorMessage: !tab.loading && tab.error ? String(tab.error) : "",
         suppressPosterText: true
       };
     });
@@ -651,7 +656,7 @@ export const FolderDetailScreen = {
         : [],
       heroItem: this.heroItem ? { ...this.heroItem } : null,
       followLayoutFocusState: this.useHomeFollowLayout
-        ? HomeScreen.captureCurrentContentFocusState.call(this)
+        ? HomeScreen.captureCurrentFocusState.call(this)
         : null
     };
   },

@@ -329,6 +329,7 @@ export const LibraryScreen = {
     this.pendingPosterHoldTimer = null;
     this.lastPrivacyFocus = "private";
     this.partialContentRefresh = null;
+    this.gridNavModel = { rows: [] };
 
     this.render();
     this.bindEvents();
@@ -592,6 +593,7 @@ export const LibraryScreen = {
       contentMount.outerHTML = this.renderLibraryContentArea(state);
     }
 
+    this.buildGridNavModel();
     ScreenUtils.indexFocusables(this.container);
     ScreenUtils.buildNavGrid(this.container, ".home-main .focusable");
     observeLazyPosterImages(this, this.container);
@@ -843,6 +845,7 @@ export const LibraryScreen = {
     `;
     this.libraryRouteEnterPending = false;
 
+    this.buildGridNavModel();
     ScreenUtils.indexFocusables(this.container);
     ScreenUtils.buildNavGrid(this.container, ".home-main .focusable");
     observeLazyPosterImages(this, this.container);
@@ -1142,6 +1145,36 @@ export const LibraryScreen = {
     return true;
   },
 
+  // Grid geometry is resolved once per render instead of on every d-pad move.
+  // resolveRelativeGridNode used to re-query the card list and read offsetTop /
+  // offsetLeft on every card per keypress — a forced layout over the whole grid,
+  // which also defeated the content-visibility windowing on .library-grid-card.
+  // Same approach the See All grid already uses (catalogSeeAllScreen
+  // buildNavigationModel): stamp row/column onto each card and navigate by index.
+  buildGridNavModel() {
+    const cards = Array.from(this.container?.querySelectorAll(".library-grid-card.focusable") || []);
+    const rows = cards.length ? groupNodesByRow(cards).map((row) => row.nodes) : [];
+    rows.forEach((rowNodes, rowIndex) => {
+      rowNodes.forEach((node, colIndex) => {
+        node.dataset.navRow = String(rowIndex);
+        node.dataset.navCol = String(colIndex);
+      });
+    });
+    this.gridNavModel = { rows };
+    return this.gridNavModel;
+  },
+
+  // Rebuilds when a card is missing its stamp, so a DOM change that skipped
+  // buildGridNavModel degrades to the old cost rather than to broken navigation.
+  getGridNavModel(current = null) {
+    const model = this.gridNavModel;
+    const hasRows = Array.isArray(model?.rows) && model.rows.length > 0;
+    if (hasRows && (!current || current.dataset?.navRow != null)) {
+      return model;
+    }
+    return this.buildGridNavModel();
+  },
+
   resolvePreferredGridNode(referenceNode = null) {
     const cards = Array.from(this.container?.querySelectorAll(".library-grid-card.focusable") || []);
     if (!cards.length) {
@@ -1160,50 +1193,41 @@ export const LibraryScreen = {
     if (!current || !current.matches?.(".library-grid-card.focusable")) {
       return null;
     }
-    const cards = Array.from(this.container?.querySelectorAll(".library-grid-card.focusable") || []);
-    if (!cards.length) {
-      return null;
-    }
-    const rows = groupNodesByRow(cards);
+    const rows = this.getGridNavModel(current)?.rows || [];
     if (!rows.length) {
       return null;
     }
-    const currentRect = current.getBoundingClientRect();
-    const currentCenterX = currentRect.left + (currentRect.width / 2);
-    const rowIndex = rows.findIndex((row) => row.nodes.includes(current));
-    if (rowIndex < 0) {
+    const rowIndex = Number(current.dataset?.navRow);
+    const columnIndex = Number(current.dataset?.navCol);
+    if (!Number.isInteger(rowIndex) || !Number.isInteger(columnIndex) || !rows[rowIndex]) {
       return null;
     }
     const currentRow = rows[rowIndex];
-    const columnIndex = Math.max(0, currentRow.nodes.indexOf(current));
 
     if (direction === "left") {
-      return currentRow.nodes[columnIndex - 1] || current;
+      return currentRow[columnIndex - 1] || current;
     }
     if (direction === "right") {
-      return currentRow.nodes[columnIndex + 1] || current;
+      return currentRow[columnIndex + 1] || current;
     }
+    // The grid is fixed-width columns, so the column index is the horizontal
+    // position: clamping it into the target row picks the same card the old
+    // centre-X search did, including on a short final row.
     if (direction === "up") {
       const previousRow = rows[rowIndex - 1];
-      return previousRow ? findNearestNodeByCenterX(current, previousRow.nodes) : null;
+      // null (not `current`) is load-bearing: callers read it as "already on the
+      // top row" and move focus out of the grid.
+      if (!previousRow?.length) {
+        return null;
+      }
+      return previousRow[Math.min(columnIndex, previousRow.length - 1)] || previousRow[0];
     }
     if (direction === "down") {
       const nextRow = rows[rowIndex + 1];
-      if (!nextRow) {
+      if (!nextRow?.length) {
         return current;
       }
-      let bestNode = nextRow.nodes[0] || null;
-      let bestDistance = Number.POSITIVE_INFINITY;
-      nextRow.nodes.forEach((node) => {
-        const rect = node.getBoundingClientRect();
-        const centerX = rect.left + (rect.width / 2);
-        const distance = Math.abs(centerX - currentCenterX);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestNode = node;
-        }
-      });
-      return bestNode;
+      return nextRow[Math.min(columnIndex, nextRow.length - 1)] || nextRow[0];
     }
     return null;
   },

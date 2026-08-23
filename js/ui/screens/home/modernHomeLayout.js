@@ -78,7 +78,11 @@ export function renderModernHomeLayout({
     const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
     const isLoading = rowData?.result?.status === "loading";
     const rowItems = items.length ? items : (rowData.loadingItems || []);
-    if (!rowItems.length) {
+    const rowErrorMessage = String(rowData?.rowErrorMessage || "");
+    // An itemless row is normally not worth a slot. One that failed for a stated reason is:
+    // dropping it silently is indistinguishable from the screen being broken. Only callers
+    // that opt in by setting rowErrorMessage get this — home rows are unaffected.
+    if (!rowItems.length && !rowErrorMessage) {
       return;
     }
 
@@ -99,6 +103,26 @@ export function renderModernHomeLayout({
     const rowTitle = isCollectionRow
       ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
       : (rowData.rowTitle || formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix));
+
+    if (!rowItems.length) {
+      // Keep the track/track-inner shape every other row has so the scroll, truncation and
+      // navigation helpers keep working; the message carries no .focusable, so the focus
+      // engine skips straight past this row.
+      const sectionMarkup = `
+        <section class="home-row home-modern-row home-row-enter is-row-error" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
+          <div class="home-row-head">
+            <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
+          </div>
+          <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
+            <div class="home-track-inner"><p class="home-row-error">${escapeHtml(rowErrorMessage)}</p></div>
+          </div>
+        </section>
+      `;
+      sectionsMarkup.push(sectionMarkup);
+      rowKeys.push(rowKey);
+      rowMarkupByKey.set(rowKey, sectionMarkup);
+      return;
+    }
 
     if (eagerCount < eagerRowCount) {
       eagerCount++;

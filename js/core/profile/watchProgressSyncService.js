@@ -23,11 +23,7 @@ let lastFailedPushSignature = "";
 let lastFailedPushAt = 0;
 
 function progressKey(item = {}) {
-  const contentId = String(item.contentId || "").trim();
-  const videoId = String(item.videoId || "main").trim();
-  const season = item.season == null ? "" : String(Number(item.season));
-  const episode = item.episode == null ? "" : String(Number(item.episode));
-  return `${contentId}::${videoId}::${season}::${episode}`;
+  return toProgressKey(item);
 }
 
 function normalizeProgressItems(items = []) {
@@ -260,6 +256,17 @@ function toPositiveIntegerOrNull(value) {
   return Math.trunc(n);
 }
 
+// Season 0 is a real season (specials). Treating it as absent collapsed every
+// special onto the show's bare contentId, where they collided with each other and
+// with the movie-style key.
+function toNonNegativeIntegerOrNull(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    return null;
+  }
+  return Math.trunc(n);
+}
+
 function toRemoteVideoId(item = {}) {
   const explicitVideoId = String(item.videoId || "").trim();
   const contentId = String(item.contentId || "").trim();
@@ -279,7 +286,7 @@ function toRemoteVideoId(item = {}) {
 
 function toProgressKey(item = {}) {
   const contentId = String(item.contentId || "").trim();
-  const season = toPositiveIntegerOrNull(item.season);
+  const season = toNonNegativeIntegerOrNull(item.season);
   const episode = toPositiveIntegerOrNull(item.episode);
   if (contentId && season != null && episode != null) {
     return `${contentId}_s${season}e${episode}`;
@@ -287,14 +294,10 @@ function toProgressKey(item = {}) {
   return contentId;
 }
 
+// One identity for local dedupe, remote rows and delete keys alike. These used to
+// disagree, so an item could dedupe locally and still round-trip as two rows.
 function syncIdentityKey(item = {}) {
-  const contentId = String(item.contentId || "").trim();
-  const season = toPositiveIntegerOrNull(item.season);
-  const episode = toPositiveIntegerOrNull(item.episode);
-  if (contentId && season != null && episode != null) {
-    return `${contentId}:episode:${season}:${episode}`;
-  }
-  return `${contentId}:video:${toRemoteVideoId(item)}`;
+  return toProgressKey(item);
 }
 
 function dedupeSyncItems(items = []) {

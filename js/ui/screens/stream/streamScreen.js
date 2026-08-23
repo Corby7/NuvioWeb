@@ -15,6 +15,7 @@ import { DirectDebridStreamPreparer } from "../../../core/debrid/directDebridStr
 import { WebOsEngineFsResolver } from "../../../core/p2p/webosEngineFsResolver.js";
 import { TizenStreamingServerResolver } from "../../../core/p2p/tizenStreamingServerResolver.js";
 import { DebridSettingsStore } from "../../../data/local/debridSettingsStore.js";
+import { sizeBytesFromStreamText } from "../../../core/debrid/streamTextSizeParser.js";
 import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSettingsStore.js";
 import { LocalStore } from "../../../core/storage/localStore.js";
 import {
@@ -956,8 +957,19 @@ function fallbackPresentationFromText(stream = {}) {
     audioTags,
     audioChannels,
     languages: fallbackLanguagesFromText(text),
-    size: stream.behaviorHints?.videoSize || 0
+    size: resolveStreamSizeBytes(stream) || 0
   };
+}
+
+// Addons like Torrentio never set behaviorHints.videoSize and put the size in the
+// title/description text instead ("\u{1F4BE} 1.81 GB"). Without this fallback those
+// sources showed no size badge and sorted/filtered as if they had no size at all.
+function resolveStreamSizeBytes(stream = {}) {
+  const declared = Number(stream?.behaviorHints?.videoSize);
+  if (Number.isFinite(declared) && declared > 0) {
+    return declared;
+  }
+  return sizeBytesFromStreamText(stream);
 }
 
 function getStreamPresentation(stream = {}) {
@@ -979,7 +991,7 @@ function getStreamPresentation(stream = {}) {
     audioChannels: audioChannels.length ? audioChannels : fallback.audioChannels,
     languages: resolvedLanguages,
     languageEmojis: languageEmojis.length ? languageEmojis : resolvedLanguages.map(languageBadge).filter(Boolean),
-    size: presentation.size || stream.behaviorHints?.videoSize || fallback.size,
+    size: presentation.size || resolveStreamSizeBytes(stream) || fallback.size,
     cached: presentation.cached,
     serviceShortName: presentation.serviceShortName || ""
   };
@@ -1039,7 +1051,7 @@ function renderImageBadgeChip(badge = {}) {
 }
 
 function renderImportedStreamBadgeChips(stream = {}, badges = [], showFileSizeBadges = true) {
-  const sizeBytes = stream.behaviorHints?.videoSize;
+  const sizeBytes = resolveStreamSizeBytes(stream);
   const chips = [];
   if (showFileSizeBadges && sizeBytes != null) {
     chips.push(`<span class="stream-route-stream-badge size">${escapeHtml(t("streams_size", [formatBytes(sizeBytes)], `SIZE ${formatBytes(sizeBytes)}`))}</span>`);
@@ -1836,7 +1848,7 @@ export const StreamScreen = {
     const topBadges = badgePlacement === "TOP" ? badges : "";
     const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
     const descriptionLines = getStreamDescriptionLines(stream);
-    const sizeText = formatBytes(stream.behaviorHints?.videoSize);
+    const sizeText = formatBytes(resolveStreamSizeBytes(stream));
     const bitrateText = getStreamBitrate(stream);
     // Instant, size and bitrate are the row's facts; they belong in one strip,
     // rendered by the same rules as the player's sources panel. Both are pulled
@@ -2416,7 +2428,7 @@ export const StreamScreen = {
       streamId: stream.id,
       label: getStreamHeadline(stream) || stream.addonName || "stream",
       quality: getStreamQuality(stream),
-      sizeText: formatBytes(stream.behaviorHints?.videoSize),
+      sizeText: formatBytes(resolveStreamSizeBytes(stream)),
       totalSeconds: total,
       secondsLeft: total
     };

@@ -431,6 +431,57 @@ function resolveImdbRating(meta = {}) {
   return null;
 }
 
+function normalizeEpisodeImdbRating(value) {
+  const rating = Number(value);
+  return Number.isFinite(rating) && rating > 0 ? rating : null;
+}
+
+// Ratings the addon supplied on meta.videos[].rating, reshaped to match what the
+// episode-ratings service returns. resolveEpisodeImdbRating already falls back to
+// episode.imdbRating for the cards; this is what lets the Ratings panel, which
+// reads seriesRatingsBySeason directly, see them as well.
+function addonRatingsBySeason(episodes = []) {
+  const seasons = {};
+  (Array.isArray(episodes) ? episodes : []).forEach((episode) => {
+    const season = Number(episode?.season);
+    const number = Number(episode?.episode);
+    const normalizedRating = normalizeEpisodeImdbRating(episode?.imdbRating);
+    const rating = normalizedRating == null ? null : Number(normalizedRating.toFixed(1));
+    if (!Number.isFinite(season) || !Number.isFinite(number) || rating == null) {
+      return;
+    }
+    if (!Array.isArray(seasons[season])) {
+      seasons[season] = [];
+    }
+    seasons[season].push({ episode: number, rating });
+  });
+  Object.keys(seasons).forEach((season) => {
+    seasons[season].sort((left, right) => left.episode - right.episode);
+  });
+  return seasons;
+}
+
+// Service ratings win wherever they carry a usable value; the addon entry is kept
+// only where the service has nothing, so a sparse service response no longer wipes
+// out ratings the addon did supply.
+function mergeSeasonRatings(addon = {}, service = {}) {
+  const merged = {};
+  new Set([...Object.keys(addon || {}), ...Object.keys(service || {})]).forEach((season) => {
+    const byEpisode = new Map();
+    (addon?.[season] || []).forEach((entry) => byEpisode.set(Number(entry.episode), entry));
+    (service?.[season] || []).forEach((entry) => {
+      const episode = Number(entry?.episode);
+      const hasUsableRating = normalizeEpisodeImdbRating(entry?.rating) != null;
+      if (!hasUsableRating && byEpisode.has(episode)) {
+        return;
+      }
+      byEpisode.set(episode, entry);
+    });
+    merged[season] = [...byEpisode.values()].sort((left, right) => left.episode - right.episode);
+  });
+  return merged;
+}
+
 function resolveEpisodeImdbRating(episode = {}, seriesRatingsBySeason = {}) {
   const seasonRating = seriesRatingsBySeason?.[episode.season]
     ?.find((entry) => Number(entry?.episode || 0) === Number(episode.episode || 0))
@@ -1490,7 +1541,10 @@ export const MetaDetailsScreen = {
         return;
       }
       if (isSeriesDetailMeta(this.meta, this.episodes)) {
-        this.seriesRatingsBySeason = results[0] || {};
+        this.seriesRatingsBySeason = mergeSeasonRatings(
+          addonRatingsBySeason(this.episodes),
+          results[0] || {}
+        );
         if (this.meta?.ids?.trakt && results[1] instanceof Map) {
           this.enrichedWatchedState = results[1];
           this.buildEpisodeState(allProgressItems, allWatchedItems, this.enrichedWatchedState);

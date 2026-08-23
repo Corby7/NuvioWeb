@@ -5089,6 +5089,17 @@ img[data-lazy-src] {
   font-weight: 700;
 }
 
+/* A row whose source failed: title stays, the track carries the reason instead of
+   cards. Muted rather than alarming — one dead addon should read as a gap, not an
+   error state for the whole screen. */
+.home-row-error {
+  margin: 0;
+  padding: 18px 0 6px;
+  font-size: 19px;
+  font-weight: 500;
+  color: rgba(241, 247, 255, 0.52);
+}
+
 .home-row-see-all {
   height: 42px;
   padding: 0 16px;
@@ -11212,6 +11223,13 @@ img[data-lazy-src] {
   left: 50%;
   transform: translate(-50%, -50%);
   width: 84%;
+}
+/* ASS \pos / \move signs and karaoke lines. top/left/transform/width come from
+   the cue's own projected coordinates, so this only sets what is shared. */
+.player-subtitle-overlay-cue.is-positioned {
+  position: absolute;
+  max-width: 96%;
+  width: max-content;
 }
 
 .player-subtitle-overlay-text {
