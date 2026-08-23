@@ -51,6 +51,7 @@ import { matchStreamBadges } from "../../../core/streams/streamBadgeRules.js";
 import { metaRepository } from "../../../data/repository/metaRepository.js";
 import { I18n } from "../../../i18n/index.js";
 import { Environment } from "../../../platform/environment.js";
+import { DesktopMediaBridge } from "../../../platform/desktop/desktopMediaBridge.js";
 import { Router } from "../../navigation/router.js";
 import { DirectDebridResolver } from "../../../core/debrid/directDebridResolver.js";
 import { TraktScrobbleService } from "../../../data/repository/traktScrobbleService.js";
@@ -573,6 +574,29 @@ function normalizeTrackLanguageCode(value) {
     return "";
   }
   return [base, ...parts.slice(1)].join("-");
+}
+
+// Inverse of LANGUAGE_CODE_ALIASES: "en" -> ["en", "eng"]. Container metadata is written in
+// ISO 639-2 ("eng", "hun") while the app's preference is stored 639-1, so a consumer that only
+// sees the preference — the desktop shell picking an audio stream before playback — needs every
+// spelling of it, not just the normalized one.
+const LANGUAGE_CODE_EQUIVALENTS = (() => {
+  const equivalents = new Map();
+  Object.entries(LANGUAGE_CODE_ALIASES).forEach(([alias, base]) => {
+    const codes = equivalents.get(base) || [base];
+    codes.push(alias);
+    equivalents.set(base, codes);
+  });
+  return equivalents;
+})();
+
+function expandLanguageCode(value) {
+  const normalized = normalizeTrackLanguageCode(value);
+  if (!normalized) {
+    return [];
+  }
+  const base = normalized.split("-")[0];
+  return Array.from(new Set([normalized, base, ...(LANGUAGE_CODE_EQUIVALENTS.get(base) || [])]));
 }
 
 function normalizeLanguageNameText(value) {
@@ -2280,7 +2304,12 @@ export const PlayerScreen = {
       background: this.params.playerBackdropUrl || this.params.backdrop || this.params.poster || null,
       episodeTitle: this.params.episodeTitle || this.params.playerSubtitle || null,
       requestHeaders,
-      mediaSourceType
+      mediaSourceType,
+      // Desktop picks which embedded audio stream to mux before playback starts, so it needs
+      // the preference up front — by the time the track menu exists the choice is already made.
+      // Expanded to every code spelling because container tags are ISO 639-2, not 639-1.
+      preferredAudioLanguages: this.getStartupPreferredAudioLanguageTargets()
+        .flatMap((target) => expandLanguageCode(target))
     };
   },
 
@@ -3310,6 +3339,11 @@ export const PlayerScreen = {
     if (Environment.isTizen()) {
       return typeof PlayerController.isUsingAvPlay === "function" && PlayerController.isUsingAvPlay();
     }
+    // Desktop renders embedded subtitles itself: ffmpeg extracts the track to WebVTT and the
+    // cues go through the normal overlay, so no platform track selection is involved.
+    if (Environment.isDesktop()) {
+      return this.canExtractDesktopEmbeddedSubtitles();
+    }
     return Environment.isWebOS();
   },
 
@@ -3322,7 +3356,25 @@ export const PlayerScreen = {
     if (Environment.isTizen()) {
       return typeof PlayerController.isUsingAvPlay === "function" && PlayerController.isUsingAvPlay();
     }
+    // Desktop switches tracks by re-muxing through the local ffmpeg proxy rather than by
+    // asking the element, so it is a real implementation even though Chromium has none.
+    if (Environment.isDesktop()) {
+      return typeof PlayerController.canSwitchDesktopEmbeddedAudioTrack === "function"
+        && PlayerController.canSwitchDesktopEmbeddedAudioTrack();
+    }
     return Environment.isWebOS();
+  },
+
+  canExtractDesktopEmbeddedSubtitles() {
+    if (!Environment.isDesktop() || !DesktopMediaBridge.isAvailable()) {
+      return false;
+    }
+    const probeUrl = this.getTrackProbeUrl();
+    return Boolean(
+      probeUrl
+      && typeof PlayerController.isLikelyDirectFileUrl === "function"
+      && PlayerController.isLikelyDirectFileUrl(probeUrl)
+    );
   },
 
   normalizeEmbeddedSubtitleTracks(rawTracks = []) {
@@ -3414,14 +3466,21 @@ export const PlayerScreen = {
       ? PlayerController.isUsingAvPlay()
       : false;
     if (!usingAvPlay && this.isCurrentSourceLikelyMkv()) {
-      if (kind === "subtitle") {
-        return Environment.isWebOS()
+      if (Environment.isWebOS()) {
+        return kind === "subtitle"
           ? "No embedded subtitle tracks detected."
-          : "MKV internal subtitles are not exposed by the webOS web player.";
+          : "No embedded audio tracks detected.";
       }
-      return Environment.isWebOS()
-        ? "No embedded audio tracks detected."
-        : "MKV internal audio tracks are not exposed by the webOS web player.";
+      // The desktop shell reads the container with ffprobe, so an empty list here means the
+      // file genuinely has no such tracks — not that the platform hides them.
+      if (Environment.isDesktop()) {
+        return kind === "subtitle"
+          ? "No embedded subtitle tracks in this file."
+          : "No embedded audio tracks in this file.";
+      }
+      return kind === "subtitle"
+        ? "MKV internal subtitles are not exposed by this player."
+        : "MKV internal audio tracks are not exposed by this player.";
     }
     return kind === "subtitle"
       ? "No subtitle tracks available."
@@ -10381,6 +10440,13 @@ export const PlayerScreen = {
       this.subtitleOverlay?.clear();
     }
 
+    // Desktop reaches here only when the ffmpeg extraction above failed outright. There is no
+    // platform subtitle pipeline to hand the track back to, so report the failure rather than
+    // claim a selection that will never render.
+    if (Environment.isDesktop()) {
+      return false;
+    }
+
     let applied = false;
     if (Environment.isTizen() && typeof PlayerController.isUsingAvPlay === "function" && PlayerController.isUsingAvPlay()) {
       const nativeTrackIndex = Number(embeddedTrack?.nativeTrackIndex);
@@ -10702,7 +10768,12 @@ export const PlayerScreen = {
   },
 
   canRenderEmbeddedTextSubtitles() {
-    return Environment.isWebOS() && Boolean(this.subtitleOverlay);
+    if (!this.subtitleOverlay) {
+      return false;
+    }
+    // Desktop extracts the same windows with ffmpeg instead of the webOS companion service, so
+    // the whole windowing, prefetch and refresh-on-seek path below applies unchanged.
+    return Environment.isWebOS() || this.canExtractDesktopEmbeddedSubtitles();
   },
 
   // The service caps a window at 180s, so text cues are paged around the
@@ -11889,6 +11960,18 @@ export const PlayerScreen = {
 	        return;
 	      }
 	      const embeddedTrack = this.getEmbeddedAudioTrackByEmbeddedIndex(selectedEntry.embeddedAudioTrackIndex);
+      // Desktop re-muxes to switch tracks, so the swap is asynchronous. Reflect the choice
+      // immediately — the element keeps playing the old track for the moment it takes ffmpeg
+      // to respawn, and a menu that lagged behind the press would read as a failure.
+      if (Environment.isDesktop() && typeof PlayerController.setDesktopEmbeddedAudioTrack === "function") {
+        this.selectedEmbeddedAudioTrackIndex = selectedEntry.embeddedAudioTrackIndex;
+        this.selectedAudioTrackIndex = selectedEntry.embeddedAudioTrackIndex;
+        this.invalidateTrackDialogCaches();
+        this.renderControlButtons();
+        this.renderAudioDialog();
+        PlayerController.setDesktopEmbeddedAudioTrack(selectedEntry.embeddedAudioTrackIndex);
+        return;
+      }
 	      let applied = false;
 	      if (Environment.isTizen() && typeof PlayerController.isUsingAvPlay === "function" && PlayerController.isUsingAvPlay()) {
 	        const nativeTrackIndex = Number(embeddedTrack?.nativeTrackIndex);

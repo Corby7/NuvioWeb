@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { hasFfmpegSupport } from "./ffmpegBinaries.js";
 import {
   buildStreamUrl,
+  extractSubtitleWindow,
   probeMedia,
   resolveStreamStart,
   startMediaProxy,
@@ -96,7 +97,14 @@ function applyPermissiveCorsHeaders() {
 }
 
 async function registerMediaHandlers() {
-  if (!hasFfmpegSupport()) {
+  const ffmpegAvailable = hasFfmpegSupport();
+
+  // Always registered, so the renderer can tell "ffmpeg is missing" apart from "the probe
+  // found nothing". Without it a missing binary looks identical to a clean file, and Dolby/DTS
+  // streams fail with no explanation.
+  ipcMain.handle("nuvio:media-capabilities", () => ({ ffmpeg: ffmpegAvailable }));
+
+  if (!ffmpegAvailable) {
     console.warn("[nuvio] ffmpeg not found — Dolby/DTS streams will play without audio.");
     return;
   }
@@ -109,7 +117,7 @@ async function registerMediaHandlers() {
     } catch (error) {
       // A failed probe must never block playback — fall through to direct playback.
       console.warn("[nuvio] media probe failed:", error.message);
-      return { available: false, needsTranscode: false };
+      return { available: false };
     }
   });
 
@@ -122,6 +130,15 @@ async function registerMediaHandlers() {
       url: buildStreamUrl({ ...request, startSeconds }),
       startSeconds
     };
+  });
+
+  ipcMain.handle("nuvio:extract-subtitle-window", async (_event, options) => {
+    try {
+      return await extractSubtitleWindow(options || {});
+    } catch (error) {
+      console.warn("[nuvio] subtitle window extraction failed:", error.message);
+      return null;
+    }
   });
 }
 

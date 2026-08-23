@@ -41,6 +41,8 @@ export const PlayerController = {
   hlsInstance: null,
   dashInstance: null,
   desktopTranscodeSource: null,
+  desktopPreferredAudioLanguages: [],
+  desktopRemuxFallbackAttempts: new Set(),
   playbackEngine: "none",
   avplayActive: false,
   avplayUrl: "",
@@ -1789,6 +1791,56 @@ export const PlayerController = {
     return true;
   },
 
+  // Desktop safety net. The probe decides up front whether Chromium can handle a direct file,
+  // but that verdict is a prediction — a container quirk it refuses for some other reason still
+  // ends here. Rather than leave a dead player, re-run the source through the ffmpeg proxy,
+  // which normalizes it to fragmented MP4. Guarded per URL so a source that fails both ways
+  // cannot loop.
+  forceDesktopRemuxForCurrentSource(mediaErrorCode = 0) {
+    const code = Number(mediaErrorCode || 0);
+    // 3 = MEDIA_ERR_DECODE, 4 = MEDIA_ERR_SRC_NOT_SUPPORTED. A network error is not something
+    // a remux would fix — it would just fail again, more slowly.
+    if (code !== 3 && code !== 4) {
+      return false;
+    }
+    if (!DesktopMediaBridge.isAvailable() || this.desktopTranscodeSource) {
+      return false;
+    }
+    if (!this.isUsingNativePlayback()) {
+      return false;
+    }
+
+    const url = String(this.currentPlaybackUrl || "").trim();
+    if (!url || !this.isLikelyDirectFileUrl(url) || this.desktopRemuxFallbackAttempts.has(url)) {
+      return false;
+    }
+
+    this.desktopRemuxFallbackAttempts.add(url);
+    const resumeAtSeconds = Math.max(0, this.getCurrentTimeSeconds() || 0);
+    console.warn("Forcing desktop remux fallback:", { mediaErrorCode: code, url });
+
+    (async () => {
+      const context = await DesktopMediaBridge.resolvePlaybackSource(url, {
+        preferredLanguages: this.desktopPreferredAudioLanguages || [],
+        force: true
+      });
+      // Anything that moved on while ffmpeg was being set up wins over this retry.
+      if (!context || String(this.currentPlaybackUrl || "").trim() !== url) {
+        return;
+      }
+      this.desktopTranscodeSource = context;
+      if (!this.applyNativeSource(url, null, "native-file")) {
+        return;
+      }
+      if (resumeAtSeconds > 1) {
+        DesktopMediaBridge.seek(this.video, resumeAtSeconds);
+      }
+      this.attemptVideoPlay({ warningLabel: "Desktop remux fallback start rejected" });
+    })();
+
+    return true;
+  },
+
   getAttemptedPlaybackEngines(url = this.currentPlaybackUrl) {
     const normalizedUrl = String(url || "").trim();
     if (!normalizedUrl) {
@@ -2749,6 +2801,62 @@ export const PlayerController = {
     return true;
   },
 
+  // True whenever an embedded audio track can actually be switched on this desktop source.
+  // Selecting a track means re-muxing with a different -map, so it needs both the shell and a
+  // direct file the proxy can read.
+  canSwitchDesktopEmbeddedAudioTrack() {
+    return Boolean(
+      Platform.isDesktop()
+      && DesktopMediaBridge.isAvailable()
+      && this.video
+      && this.isUsingNativePlayback()
+      && this.isLikelyDirectFileUrl(this.currentPlaybackUrl)
+    );
+  },
+
+  // Chromium cannot select a container audio stream itself, so this restarts the ffmpeg proxy
+  // at the current position with the requested track mapped instead. When playback is still on
+  // the original URL the element has to be moved onto the proxy first.
+  async setDesktopEmbeddedAudioTrack(trackIndex) {
+    if (!this.canSwitchDesktopEmbeddedAudioTrack()) {
+      return false;
+    }
+    const index = Number(trackIndex);
+    if (!Number.isFinite(index) || index < 0) {
+      return false;
+    }
+
+    if (DesktopMediaBridge.isAttached(this.video)) {
+      await DesktopMediaBridge.setAudioTrack(this.video, index);
+      this.desktopTranscodeSource = DesktopMediaBridge.getAttachedContext(this.video);
+      return true;
+    }
+
+    const url = String(this.currentPlaybackUrl || "").trim();
+    const resumeAtSeconds = Math.max(0, this.getCurrentTimeSeconds() || 0);
+    const wasPlaying = !this.video.paused;
+    const context = await DesktopMediaBridge.resolvePlaybackSource(url, {
+      audioStreamIndex: index,
+      force: true
+    });
+    // The source moved on while ffmpeg was starting up.
+    if (!context || String(this.currentPlaybackUrl || "").trim() !== url) {
+      return false;
+    }
+
+    this.desktopTranscodeSource = context;
+    if (!this.applyNativeSource(url, null, "native-file")) {
+      return false;
+    }
+    if (resumeAtSeconds > 1) {
+      DesktopMediaBridge.seek(this.video, resumeAtSeconds);
+    }
+    if (wasPlaying) {
+      this.attemptVideoPlay({ warningLabel: "Audio track switch start rejected" });
+    }
+    return true;
+  },
+
   setWebOsEmbeddedAudioTrack(trackIndex, selectedTrackIndex = trackIndex) {
     if (!Platform.isWebOS() || !this.video || !this.isUsingNativePlayback()) {
       return false;
@@ -3038,6 +3146,7 @@ export const PlayerController = {
         currentSrc: this.video?.currentSrc || this.video?.src || "",
         playbackEngine: this.playbackEngine
       });
+      this.forceDesktopRemuxForCurrentSource(mediaErrorCode);
     });
 
     const syncNativeMediaId = () => {
@@ -3102,7 +3211,7 @@ export const PlayerController = {
     }
   },
 
-  async play(url, { itemId = null, itemType = "movie", videoId = null, season = null, episode = null, title = null, poster = null, background = null, episodeTitle = null, requestHeaders = {}, mediaSourceType = null, forceEngine = null } = {}) {
+  async play(url, { itemId = null, itemType = "movie", videoId = null, season = null, episode = null, title = null, poster = null, background = null, episodeTitle = null, requestHeaders = {}, mediaSourceType = null, forceEngine = null, preferredAudioLanguages = [] } = {}) {
     if (!this.video) return;
 
     await this.flushCurrentProgress({ allowCloudSync: false });
@@ -3125,13 +3234,18 @@ export const PlayerController = {
     const playToken = Number(this.playRequestToken || 0) + 1;
     this.playRequestToken = playToken;
 
-    // Desktop only: probe direct files for a codec Chromium cannot decode before an
-    // engine is chosen, so the native path can be pointed at the transcode proxy.
+    // Desktop only: describe direct files before an engine is chosen, so the native path can
+    // be pointed at the transcode proxy whenever Chromium could not play the track we want.
     // currentPlaybackUrl deliberately stays the original — progress, resume and engine
     // memory are all keyed on it.
     this.desktopTranscodeSource = null;
+    this.desktopPreferredAudioLanguages = Array.isArray(preferredAudioLanguages)
+      ? preferredAudioLanguages.slice()
+      : [];
     if (DesktopMediaBridge.isAvailable() && this.isLikelyDirectFileUrl(url)) {
-      const resolved = await DesktopMediaBridge.resolvePlaybackSource(url);
+      const resolved = await DesktopMediaBridge.resolvePlaybackSource(url, {
+        preferredLanguages: this.desktopPreferredAudioLanguages
+      });
       if (Number(this.playRequestToken || 0) !== playToken) {
         return;
       }
@@ -3401,6 +3515,7 @@ export const PlayerController = {
     this.playRequestToken = Number(this.playRequestToken || 0) + 1;
     this.clearPlaybackEngineAttempts();
     this.avplayFallbackAttempts.clear();
+    this.desktopRemuxFallbackAttempts.clear();
 
     if (this.progressSaveTimer) {
       clearInterval(this.progressSaveTimer);

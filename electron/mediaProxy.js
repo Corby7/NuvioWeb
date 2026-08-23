@@ -3,28 +3,35 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { getFfmpegPaths, hasFfmpegSupport } from "./ffmpegBinaries.js";
 
-// Chromium refuses every Dolby and DTS codec on desktop (measured: ac-3, ec-3, ac-4,
-// dtsc/dtsh/dtsx and mlpa all report "" from canPlayType and false from
-// MediaSource.isTypeSupported). Video is fine, so only the audio track is re-encoded.
-const UNSUPPORTED_AUDIO_CODECS = new Set([
-  "ac3",
-  "eac3",
-  "ac4",
-  "dts",
-  "dca",
-  "truehd",
-  "mlp"
-]);
-
-// Anything here decodes natively, so the stream is handed over untouched.
+// Anything here decodes natively; everything else needs re-encoding. Chromium refuses every
+// Dolby and DTS codec on desktop (measured: ac-3, ec-3, ac-4, dtsc/dtsh/dtsx and mlpa all
+// report "" from canPlayType and false from MediaSource.isTypeSupported). Video is fine, so
+// only the audio track ever costs CPU.
 const SUPPORTED_AUDIO_CODECS = new Set(["aac", "mp3", "flac", "opus", "vorbis", "pcm_s16le"]);
 
+// Codecs that survive a straight copy into MP4 and still decode in Chromium. Narrower than
+// SUPPORTED_AUDIO_CODECS on purpose: opus and vorbis are only reliable in WebM, and flac-in-MP4
+// support is patchy, so those get re-encoded rather than remuxed.
+const MP4_COPYABLE_AUDIO_CODECS = new Set(["aac", "mp3"]);
+
 const PROBE_TIMEOUT_MS = 20000;
+const PROBE_CACHE_TTL_MS = 5 * 60 * 1000;
+// A window is a bounded range request, but every invocation still reads the container header
+// and index before it can seek; measured at 11-25s per window over a debrid link, and longer
+// for a sparse track with no cues in range. Matches WINDOW_REQUEST_TIMEOUT_MS in
+// localMediaBitmapSubtitleRepository, which bounds the equivalent webOS call.
+const SUBTITLE_WINDOW_TIMEOUT_MS = 60000;
 
 let server = null;
 let serverPort = 0;
 const accessToken = randomBytes(24).toString("hex");
 const activeTranscodes = new Set();
+
+// Playback decisions, the track menus and subtitle extraction all describe the same file. One
+// ffprobe per URL serves all three; without this, opening the track dialog on a remote remux
+// would re-probe (and re-range-request) a file already described moments earlier.
+const probeCache = new Map();
+const inFlightProbes = new Map();
 
 function runFfprobe(sourceUrl) {
   const { ffprobe } = getFfmpegPaths();
@@ -81,39 +88,121 @@ function normalizeCodecName(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-export async function probeMedia(sourceUrl) {
-  if (!hasFfmpegSupport()) {
-    return { available: false, needsTranscode: false };
-  }
+function cleanTag(value) {
+  return String(value || "").trim();
+}
 
-  const probe = await runFfprobe(sourceUrl);
-  const streams = Array.isArray(probe?.streams) ? probe.streams : [];
-  const audioStreams = streams.filter((stream) => stream?.codec_type === "audio");
-  const videoStream = streams.find((stream) => stream?.codec_type === "video") || null;
-  const duration = Number(probe?.format?.duration || 0);
-
-  // Prefer an audio track Chromium can already play; only fall back to transcoding
-  // when every track is a codec it refuses.
-  const playableStream = audioStreams.find((stream) =>
-    SUPPORTED_AUDIO_CODECS.has(normalizeCodecName(stream?.codec_name))
-  );
-  const firstStream = audioStreams[0] || null;
-  const selectedStream = playableStream || firstStream;
-  const selectedCodec = normalizeCodecName(selectedStream?.codec_name);
-
+// The renderer feeds these straight into playerScreen's normalizeEmbeddedAudioTracks /
+// normalizeEmbeddedSubtitleTracks, which were written against the webOS Luna payload — so the
+// key names here have to match that shape rather than ffprobe's.
+function describeAudioStream(stream, index) {
+  const tags = stream?.tags || {};
+  const codec = normalizeCodecName(stream?.codec_name);
+  const channels = Number(stream?.channels || 0) || 0;
   return {
-    available: true,
-    needsTranscode: Boolean(selectedStream) && UNSUPPORTED_AUDIO_CODECS.has(selectedCodec),
-    duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
-    audioCodec: selectedCodec,
-    videoCodec: normalizeCodecName(videoStream?.codec_name),
-    // ffmpeg's -map uses the per-type index, not the absolute stream index.
-    audioStreamIndex: selectedStream ? audioStreams.indexOf(selectedStream) : 0,
-    audioTrackCount: audioStreams.length
+    type: "audio",
+    // Per-type index: what ffmpeg's -map 0:a:<i> expects, and what the menus select by.
+    id: index,
+    lang: cleanTag(tags.language),
+    codec,
+    audioCodec: codec,
+    title: cleanTag(tags.title),
+    label: cleanTag(tags.title),
+    channels,
+    channelCount: channels,
+    channelLayout: cleanTag(stream?.channel_layout),
+    sampleRate: Number(stream?.sample_rate || 0) || 0,
+    default: Boolean(stream?.disposition?.default),
+    playable: SUPPORTED_AUDIO_CODECS.has(codec)
   };
 }
 
-function buildFfmpegArgs({ sourceUrl, startSeconds, audioStreamIndex }) {
+function describeSubtitleStream(stream, index) {
+  const tags = stream?.tags || {};
+  return {
+    // "text" is what normalizeEmbeddedSubtitleTracks filters on; the codec below is what its
+    // isUnsupportedEmbeddedSubtitleTrack check uses to drop bitmap formats such as PGS.
+    type: "text",
+    // 1-based, matching the Matroska track numbers webOS reports: the renderer treats a
+    // sourceTrackId of 0 as "no track". Extraction subtracts one to get ffmpeg's -map index.
+    id: index + 1,
+    lang: cleanTag(tags.language),
+    codec: normalizeCodecName(stream?.codec_name),
+    title: cleanTag(tags.title),
+    label: cleanTag(tags.title),
+    forced: Boolean(stream?.disposition?.forced),
+    default: Boolean(stream?.disposition?.default)
+  };
+}
+
+// Pure description of the container. It deliberately makes no playback decision: which track to
+// use depends on the user's language preference, which lives in the renderer.
+async function describeMedia(sourceUrl) {
+  const probe = await runFfprobe(sourceUrl);
+  const streams = Array.isArray(probe?.streams) ? probe.streams : [];
+  const audioStreams = streams.filter((stream) => stream?.codec_type === "audio");
+  const subtitleStreams = streams.filter((stream) => stream?.codec_type === "subtitle");
+  const videoStream = streams.find((stream) => stream?.codec_type === "video") || null;
+  const duration = Number(probe?.format?.duration || 0);
+
+  return {
+    available: true,
+    duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
+    container: String(probe?.format?.format_name || ""),
+    videoCodec: normalizeCodecName(videoStream?.codec_name),
+    // Chromium's demuxer binds the container's *first* audio stream — it does not go looking
+    // for one it can decode. So this single flag, not "does a playable track exist anywhere",
+    // decides whether direct playback can work at all.
+    firstAudioPlayable: audioStreams.length > 0
+      && SUPPORTED_AUDIO_CODECS.has(normalizeCodecName(audioStreams[0]?.codec_name)),
+    audioTracks: audioStreams.map(describeAudioStream),
+    subtitleTracks: subtitleStreams.map(describeSubtitleStream)
+  };
+}
+
+export async function probeMedia(sourceUrl) {
+  if (!hasFfmpegSupport()) {
+    return { available: false };
+  }
+
+  const url = String(sourceUrl || "");
+  const cached = probeCache.get(url);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+  probeCache.delete(url);
+
+  const inFlight = inFlightProbes.get(url);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = describeMedia(url)
+    .then((value) => {
+      probeCache.set(url, { value, expiresAt: Date.now() + PROBE_CACHE_TTL_MS });
+      return value;
+    })
+    .finally(() => {
+      inFlightProbes.delete(url);
+    });
+
+  inFlightProbes.set(url, request);
+  return request;
+}
+
+// AAC needs more bits per channel pair than a stereo default allows; these keep a 5.1 bed from
+// sounding compressed without wasting bandwidth on a loopback connection.
+function audioBitrateForChannels(channels) {
+  if (channels >= 6) {
+    return "640k";
+  }
+  if (channels > 2) {
+    return "384k";
+  }
+  return "192k";
+}
+
+function buildFfmpegArgs({ sourceUrl, startSeconds, audioStreamIndex, audioCodec, audioChannels }) {
   const args = ["-hide_banner", "-loglevel", "error"];
 
   // -ss before -i is an input seek: ffmpeg range-requests the remote file and starts at
@@ -129,22 +218,38 @@ function buildFfmpegArgs({ sourceUrl, startSeconds, audioStreamIndex }) {
     "0:v:0",
     "-map",
     `0:a:${Math.max(0, Number(audioStreamIndex) || 0)}`,
-    // Video is already playable, so it is copied — only the audio costs CPU.
+    // Video is already playable, so it is copied — only the audio can cost CPU.
     "-c:v",
-    "copy",
-    "-c:a",
-    "aac",
-    "-b:a",
-    "256k",
-    // Desktop output is typically stereo speakers or headphones; letting ffmpeg do the
-    // downmix is better than shipping 5.1 that the OS folds down unpredictably.
-    "-ac",
-    "2",
-    // Pins audio to its own timestamps instead of letting the re-encoded stream free-run.
-    // Without this the copied video keeps its original (possibly irregular) timing while
-    // AAC gets clean regenerated timing, and the two drift apart over a long runtime.
-    "-af",
-    "aresample=async=1",
+    "copy"
+  );
+
+  // A non-first AAC/MP3 track still has to come through here — Chromium would otherwise bind
+  // stream 0 — but it only needs remuxing, not re-encoding. Skipping the encode keeps the
+  // original quality and costs almost nothing.
+  if (MP4_COPYABLE_AUDIO_CODECS.has(String(audioCodec || "").toLowerCase())) {
+    args.push("-c:a", "copy");
+  } else {
+    // Chromium decodes multichannel AAC, and macOS folds it down for whatever output device is
+    // attached — better than deciding here that everyone is on stereo speakers. 6 is the cap
+    // because AAC-LC beyond 5.1 is not reliably decoded.
+    const channels = Math.min(Math.max(Number(audioChannels) || 2, 1), 6);
+    args.push(
+      "-c:a",
+      "aac",
+      "-b:a",
+      audioBitrateForChannels(channels),
+      "-ac",
+      String(channels),
+      // Pins audio to its own timestamps instead of letting the re-encoded stream free-run.
+      // Without this the copied video keeps its original (possibly irregular) timing while
+      // AAC gets clean regenerated timing, and the two drift apart over a long runtime.
+      // Only valid on this branch: ffmpeg rejects a filter alongside -c:a copy.
+      "-af",
+      "aresample=async=1"
+    );
+  }
+
+  args.push(
     // Sync pair, and the order matters. -copyts keeps the source's relative stream
     // offsets, so a remux that carries a container audio delay stays aligned instead of
     // having both tracks flattened onto zero independently. make_zero then shifts every
@@ -169,7 +274,7 @@ function buildFfmpegArgs({ sourceUrl, startSeconds, audioStreamIndex }) {
   return args;
 }
 
-function handleStreamRequest(request, response, url) {
+async function handleStreamRequest(request, response, url) {
   const sourceUrl = url.searchParams.get("src") || "";
   const startSeconds = Math.max(0, Number(url.searchParams.get("start") || 0) || 0);
   const audioStreamIndex = Number(url.searchParams.get("audio") || 0) || 0;
@@ -179,8 +284,31 @@ function handleStreamRequest(request, response, url) {
     return;
   }
 
+  // Cached from the probe the renderer already ran, so this does not re-read the file. Whether
+  // the audio can be copied instead of re-encoded depends on the selected track's codec.
+  let selectedTrack = null;
+  try {
+    const probe = await probeMedia(sourceUrl);
+    selectedTrack = probe?.audioTracks?.[audioStreamIndex] || null;
+  } catch (error) {
+    // Falling through with no descriptor just means the audio gets re-encoded.
+    console.warn("[mediaProxy] probe for stream request failed:", error.message);
+  }
+  if (response.writableEnded || request.destroyed) {
+    return;
+  }
+
   const { ffmpeg } = getFfmpegPaths();
-  const child = spawn(ffmpeg, buildFfmpegArgs({ sourceUrl, startSeconds, audioStreamIndex }));
+  const child = spawn(
+    ffmpeg,
+    buildFfmpegArgs({
+      sourceUrl,
+      startSeconds,
+      audioStreamIndex,
+      audioCodec: selectedTrack?.codec || "",
+      audioChannels: selectedTrack?.channels || 0
+    })
+  );
   activeTranscodes.add(child);
 
   // The length is unknown up front. Node applies chunked encoding by itself when no
@@ -225,6 +353,79 @@ function handleStreamRequest(request, response, url) {
   response.on("close", cleanup);
 }
 
+// Matroska interleaves subtitle packets across the whole file, so extracting a track end to end
+// would download all of it. Instead this pulls the window around the playhead: -ss before -i is
+// an input seek, so ffmpeg uses the container index and range-requests only that region. The
+// webOS build does the same thing through its native service, which is why the renderer can
+// drive both from one code path.
+//
+// Output timestamps are rebased to the seek point (verified: two overlapping windows extracted
+// independently agree to 0.000s once the requested start is added back), so the caller offsets
+// by startSeconds rather than trying to keep absolute timestamps through ffmpeg.
+export function extractSubtitleWindow({ sourceUrl, trackIndex = 0, startSeconds = 0, durationSeconds = 0 }) {
+  if (!hasFfmpegSupport()) {
+    return Promise.reject(new Error("ffmpeg unavailable"));
+  }
+  const url = String(sourceUrl || "").trim();
+  if (!url) {
+    return Promise.reject(new Error("missing source url"));
+  }
+
+  const start = Math.max(0, Number(startSeconds) || 0);
+  const duration = Math.max(1, Number(durationSeconds) || 0);
+  const { ffmpeg } = getFfmpegPaths();
+  const args = ["-hide_banner", "-loglevel", "error"];
+  if (start > 0) {
+    args.push("-ss", String(start));
+  }
+  args.push(
+    "-i",
+    url,
+    "-t",
+    String(duration),
+    "-map",
+    `0:s:${Math.max(0, Number(trackIndex) || 0)}`,
+    "-c:s",
+    "webvtt",
+    "-f",
+    "webvtt",
+    "pipe:1"
+  );
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpeg, args);
+    activeTranscodes.add(child);
+
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("subtitle extraction timed out"));
+    }, SUBTITLE_WINDOW_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk).slice(0, 2000);
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      activeTranscodes.delete(child);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      activeTranscodes.delete(child);
+      if (code !== 0 && code !== null) {
+        reject(new Error(`subtitle ffmpeg exited ${code}: ${stderr.slice(0, 300)}`));
+        return;
+      }
+      resolve({ vtt: stdout, startSeconds: start, durationSeconds: duration });
+    });
+  });
+}
+
 export function startMediaProxy() {
   if (server || !hasFfmpegSupport()) {
     return Promise.resolve(Boolean(server));
@@ -247,7 +448,10 @@ export function startMediaProxy() {
     }
 
     if (url.pathname === "/stream") {
-      handleStreamRequest(request, response, url);
+      handleStreamRequest(request, response, url).catch((error) => {
+        console.error("[mediaProxy] stream request failed:", error.message);
+        response.destroy();
+      });
       return;
     }
 
@@ -356,6 +560,8 @@ export function stopMediaProxy() {
     child.kill("SIGKILL");
   }
   activeTranscodes.clear();
+  probeCache.clear();
+  inFlightProbes.clear();
   server?.close();
   server = null;
   serverPort = 0;

@@ -1,4 +1,5 @@
 import { Platform } from "../../platform/index.js";
+import { DesktopMediaBridge } from "../../platform/desktop/desktopMediaBridge.js";
 import {
   isWebOsCompanionServiceAvailable,
   requestWebOsCompanionService
@@ -166,6 +167,19 @@ export const localMediaTracksRepository = {
           expiresAt: Date.now() + Math.min(TRACK_CACHE_TTL_MS, 5000)
         });
         return [];
+      }
+
+      // Ahead of the browser branch: the desktop shell runs from file://, where the
+      // same-origin /tracks/ probe below can only ever fail, and the localhost fallback ports
+      // belong to the webOS media service, which does not exist here. ffprobe in the main
+      // process already describes the container.
+      if (Platform.isDesktop() && DesktopMediaBridge.isAvailable()) {
+        const tracks = await DesktopMediaBridge.getTracks(targetUrl);
+        tracksCache.set(targetUrl, {
+          tracks,
+          expiresAt: Date.now() + TRACK_CACHE_TTL_MS
+        });
+        return tracks;
       }
 
       if (Platform.isBrowser()) {
