@@ -1246,7 +1246,7 @@ export const StreamScreen = {
     }
     let meta = null;
     try {
-      const result = await metaRepository.getMetaFromAllAddons(itemType, itemId);
+      const result = await metaRepository.getMetaFromAllAddons(itemType, itemId, null, "foreground");
       meta = result?.status === "success" ? result.data : null;
     } catch (error) {
       console.warn("Stream meta hydration failed", error);

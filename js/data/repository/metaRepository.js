@@ -1,6 +1,22 @@
 import { safeApiCall } from "../../core/network/safeApiCall.js";
+import { createPriorityLane } from "../../core/network/priorityLane.js";
 import { addonRepository } from "./addonRepository.js";
 import { MetaApi } from "../remote/api/metaApi.js";
+
+// Every addon meta request goes through here, so one lane covers all of them:
+// screen-driven lookups run as "foreground", speculative enrichment fan-outs
+// (continue watching, library hydration, next-up) stay bounded behind them.
+const metaLane = createPriorityLane({ backgroundConcurrency: 3 });
+
+// A dropped connection or a 5xx is worth one more attempt; a 404 from an addon
+// that simply does not carry this title is not.
+function isTransientMetaFailure(result) {
+  if (!result || result.status === "success") {
+    return false;
+  }
+  const code = Number(result.code || 0);
+  return !code || code >= 500;
+}
 
 function normalizeDisplayText(value) {
   return String(value ?? "")
@@ -15,7 +31,7 @@ class MetaRepository {
     this.inFlightMetaAll = new Map();
   }
 
-  async getMeta(addonBaseUrl, type, id, signal) {
+  async getMeta(addonBaseUrl, type, id, signal, priority = "background", laneTicket = null) {
     const normalizedType = String(type || "").trim();
     const normalizedId = String(id || "").trim();
     const cacheKey = `${addonRepository.canonicalizeUrl(addonBaseUrl)}:${normalizedType}:${normalizedId}`;
@@ -24,16 +40,42 @@ class MetaRepository {
     }
 
     if (!signal && this.inFlightMeta.has(cacheKey)) {
-      return this.inFlightMeta.get(cacheKey);
+      const entry = this.inFlightMeta.get(cacheKey);
+      // Joining a background request that a screen is now waiting on: pull it
+      // out of the background queue instead of inheriting its wait.
+      if (priority === "foreground") {
+        metaLane.promote(entry.ticket);
+      }
+      return entry.request;
     }
 
     if (signal?.aborted) {
       return { status: "error", message: "aborted" };
     }
 
+    const ticket = laneTicket || metaLane.ticket(priority);
     const request = (async () => {
       const url = this.buildMetaUrl(addonBaseUrl, normalizedType, normalizedId);
-      const result = await safeApiCall(() => MetaApi.getMeta(url, signal));
+      let result = null;
+      // Addon hosts drop the occasional connection while boot has the socket
+      // pool saturated. Without a retry that transient failure is what every
+      // caller joined to this in-flight request gets — including a detail
+      // screen that opened while a prefetch for the same title was in the air,
+      // which then renders with no description and no episodes.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (signal?.aborted) {
+          return { status: "error", message: "aborted" };
+        }
+        const release = await metaLane.acquire(ticket);
+        try {
+          result = await safeApiCall(() => MetaApi.getMeta(url, signal));
+        } finally {
+          release();
+        }
+        if (result.status === "success" || !isTransientMetaFailure(result)) {
+          break;
+        }
+      }
       if (result.status !== "success") {
         return result;
       }
@@ -47,7 +89,7 @@ class MetaRepository {
       return { status: "success", data: meta };
     })();
 
-    this.inFlightMeta.set(cacheKey, request);
+    this.inFlightMeta.set(cacheKey, { request, ticket });
     try {
       return await request;
     } finally {
@@ -55,7 +97,7 @@ class MetaRepository {
     }
   }
 
-  async getMetaFromAllAddons(type, id, signal) {
+  async getMetaFromAllAddons(type, id, signal, priority = "background") {
     const requestedType = this.inferCanonicalType(String(type || "").trim(), id);
     const inferredType = requestedType;
     const cacheKey = `all:${requestedType}:${inferredType}:${String(id || "").trim()}`;
@@ -64,13 +106,20 @@ class MetaRepository {
     }
 
     if (!signal && this.inFlightMetaAll.has(cacheKey)) {
-      return this.inFlightMetaAll.get(cacheKey);
+      const entry = this.inFlightMetaAll.get(cacheKey);
+      if (priority === "foreground") {
+        metaLane.promote(entry.ticket);
+      }
+      return entry.request;
     }
 
     if (signal?.aborted) {
       return { status: "error", message: "aborted" };
     }
 
+    // One ticket for the whole fan-out, so promoting the shared request lifts
+    // whichever addon attempt is currently queued.
+    const ticket = metaLane.ticket(priority);
     const request = (async () => {
       const addons = await addonRepository.getInstalledAddons();
       const metaAddons = addons.filter((addon) =>
@@ -115,7 +164,7 @@ class MetaRepository {
 
       for (const { addon, type: candidateType } of candidates) {
         if (signal?.aborted) break;
-        const result = await this.getMeta(addon.baseUrl, candidateType, id, signal);
+        const result = await this.getMeta(addon.baseUrl, candidateType, id, signal, ticket.priority, ticket);
         if (signal?.aborted) break;
         if (result.status === "success") {
           this.metaCache.set(cacheKey, result.data);
@@ -126,7 +175,7 @@ class MetaRepository {
       return { status: "error", message: "Meta not found in installed addons", code: 404 };
     })();
 
-    this.inFlightMetaAll.set(cacheKey, request);
+    this.inFlightMetaAll.set(cacheKey, { request, ticket });
     try {
       return await request;
     } finally {

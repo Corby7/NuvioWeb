@@ -5338,7 +5338,7 @@ export const HomeScreen = {
       const result = cachedMeta !== undefined
         ? (cachedMeta ? { status: "success", data: cachedMeta } : { status: "error" })
         : await Promise.race([
-            metaRepository.getMetaFromAllAddons(itemType, itemId, heroEnrichAbortController.signal),
+            metaRepository.getMetaFromAllAddons(itemType, itemId, heroEnrichAbortController.signal, "foreground"),
             new Promise((_, reject) => {
               heroEnrichTimeoutId = setTimeout(() => {
                 heroEnrichAbortController.abort();
@@ -7031,7 +7031,7 @@ export const HomeScreen = {
         // Same call (and cache key) the detail screen issues on mount, so pressing
         // OK after a short dwell renders from the in-memory meta cache instead of
         // waiting on the network. The repository dedupes in-flight requests.
-        metaRepository.getMetaFromAllAddons(itemType, itemId).catch(() => {});
+        metaRepository.getMetaFromAllAddons(itemType, itemId, null, "foreground").catch(() => {});
         if (backdropSrc) {
           const warmImage = new Image();
           warmImage.src = optimizeBackdropUrl(backdropSrc);
@@ -9057,6 +9057,13 @@ export const HomeScreen = {
       this.clearFocusedPosterFlowState();
     }
     this.syncFocusedCollectionCardState();
+    // focusNode() warms the detail meta on every focus *move*, but the card
+    // focused by mount itself never passes through it — which made the first
+    // OK press after launch the one that always paid a cold meta round trip.
+    const mountedFocus = this.container?.querySelector(".home-main .focusable.focused");
+    if (mountedFocus && this.isMainNode(mountedFocus)) {
+      this.scheduleDetailMetaPrefetch(mountedFocus);
+    }
     if (!this.layoutPrefs?.modernSidebar && !RootSidebarController.expanded) {
       this.setSidebarExpanded(false);
     }
@@ -9256,7 +9263,7 @@ export const HomeScreen = {
     }
 
     const seenTypes = new Set();
-    const requests = [];
+    const lookups = [];
     for (const type of typeCandidates) {
       const normalizedCandidate = String(type || "").trim().toLowerCase();
       if (!normalizedCandidate || seenTypes.has(normalizedCandidate)) {
@@ -9270,18 +9277,24 @@ export const HomeScreen = {
           continue;
         }
         seenIds.add(normalizedId);
-        requests.push(withTimeout(
-          metaRepository.getMetaFromAllAddons(normalizedCandidate, normalizedId),
-          effectiveTimeoutMs,
-          { status: "error", message: "timeout" }
-        ).catch(() => ({ status: "error" })));
+        lookups.push({ type: normalizedCandidate, id: normalizedId });
       }
     }
 
-    const results = await Promise.all(requests);
-    const match = results.find((result) => result?.status === "success" && result?.data);
-    if (match) {
-      return match.data;
+    // Sequential with early exit. The parallel version issued every type/id
+    // permutation for every Continue Watching + Next Up candidate — 2-4
+    // requests each, ~100 in total against one addon host during boot — and
+    // then picked the first success *in candidate order* anyway, so stopping
+    // at the first hit returns the same meta for half the traffic.
+    for (const lookup of lookups) {
+      const result = await withTimeout(
+        metaRepository.getMetaFromAllAddons(lookup.type, lookup.id),
+        effectiveTimeoutMs,
+        { status: "error", message: "timeout" }
+      ).catch(() => ({ status: "error" }));
+      if (result?.status === "success" && result?.data) {
+        return result.data;
+      }
     }
 
     return null;

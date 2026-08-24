@@ -4568,7 +4568,7 @@ export const PlayerScreen = {
     this.pauseOverlayMetaRequestToken = requestToken;
 
     try {
-      const result = await metaRepository.getMetaFromAllAddons(itemType, itemId);
+      const result = await metaRepository.getMetaFromAllAddons(itemType, itemId, null, "foreground");
       if (requestToken !== this.pauseOverlayMetaRequestToken || result?.status !== "success" || !result?.data) {
         return;
       }

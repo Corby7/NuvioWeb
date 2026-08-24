@@ -1391,7 +1391,9 @@ export const MetaDetailsScreen = {
     }
 
     const metaPromise = withTimeout(
-      metaRepository.getMetaFromAllAddons(itemType, itemId),
+      // Foreground: this is the request the screen is blocked on, so it must
+      // not queue behind boot-time enrichment fan-outs.
+      metaRepository.getMetaFromAllAddons(itemType, itemId, null, "foreground"),
       4500,
       { status: "error", message: "timeout" }
     );

@@ -539,17 +539,18 @@ async function getRemotePersonalTabs() {
   return state.lists.map((entry) => buildPersonalListTab(entry)).slice(0, REMOTE_LIST_LIMIT);
 }
 
-async function getLocalEntries() {
+async function getLocalEntries({ hydrate = true } = {}) {
   const savedItems = await savedLibraryRepository.getAll(1000);
   const entriesMap = new Map();
   savedItems.forEach((item) => {
     const normalized = normalizeSavedItem(item);
     mergeItemIntoMap(entriesMap, "local", normalized, normalized.updatedAt, null);
   });
-  return hydrateEntries(Array.from(entriesMap.values()));
+  const entries = Array.from(entriesMap.values());
+  return hydrate ? hydrateEntries(entries) : entries;
 }
 
-async function getRemoteEntries() {
+async function getRemoteEntries({ hydrate = true } = {}) {
   const personalState = await readRemoteState();
   const entriesMap = new Map();
 
@@ -575,7 +576,10 @@ async function getRemoteEntries() {
     });
   });
 
-  return hydrateEntries(Array.from(entriesMap.values()));
+  const entries = Array.from(entriesMap.values());
+  // Membership answers ("is this in a list?") come from ids and listKeys
+  // alone; hydration only fills in name/poster/description for rendering.
+  return hydrate ? hydrateEntries(entries) : entries;
 }
 
 function membershipMapFromEntries(entries, listTabs) {
@@ -655,9 +659,12 @@ class LibraryRepository {
     ];
   }
 
-  async getItems() {
+  async getItems(options = {}) {
+    const hydrate = options?.hydrate !== false;
     const sourceMode = await this.getSourceMode();
-    return sourceMode === LibrarySourceMode.TRAKT ? getRemoteEntries() : getLocalEntries();
+    return sourceMode === LibrarySourceMode.TRAKT
+      ? getRemoteEntries({ hydrate })
+      : getLocalEntries({ hydrate });
   }
 
   // Adding or removing a watchlist item also changes what Trakt recommends
@@ -734,7 +741,15 @@ class LibraryRepository {
       const exists = await savedLibraryRepository.isSaved(item.itemId || item.id || "");
       return { listMembership: { local: exists } };
     }
-    const [entries, listTabs] = await Promise.all([this.getItems(), this.getListTabs()]);
+    // hydrate:false — this runs on the detail screen's first-paint path, and
+    // hydrateEntries fans out a meta lookup per watchlist entry (batches of
+    // six, ~100 requests on a large list). None of that artwork changes the
+    // membership answer, but waiting for it delayed the detail screen by
+    // several seconds on a cold launch, when nothing is cached yet.
+    const [entries, listTabs] = await Promise.all([
+      this.getItems({ hydrate: false }),
+      this.getListTabs()
+    ]);
     return membershipMapFromEntries(entries, listTabs)(item);
   }
 
