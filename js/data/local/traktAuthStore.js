@@ -2,7 +2,12 @@ import { LocalStore } from "../../core/storage/localStore.js";
 import { ProfileManager } from "../../core/profile/profileManager.js";
 
 const STORE_KEY = "traktAuthState";
-const TOKEN_MAX_LIFETIME_SECONDS = 86400;
+// Trakt issues 90-day tokens (expires_in: 7776000). Clamping to a day made the
+// app force-refresh a still-valid token every 24h, and because Trakt rotates the
+// refresh token on every refresh, whichever client refreshed first invalidated
+// the copy every other client held -> permanent 400 invalid_grant.
+const TOKEN_MAX_LIFETIME_SECONDS = 7776000;
+const TOKEN_FALLBACK_LIFETIME_SECONDS = 86400;
 
 function activeProfileId() {
   return String(ProfileManager.getActiveProfileId() || "1");
@@ -18,7 +23,7 @@ function clone(value) {
 function normalizeLifetimeSeconds(value) {
   const seconds = Number(value || 0);
   if (!Number.isFinite(seconds) || seconds <= 0) {
-    return TOKEN_MAX_LIFETIME_SECONDS;
+    return TOKEN_FALLBACK_LIFETIME_SECONDS;
   }
   return Math.min(TOKEN_MAX_LIFETIME_SECONDS, Math.trunc(seconds));
 }
@@ -112,7 +117,7 @@ export const TraktAuthStore = {
       tokenType: data.token_type || data.tokenType || "bearer",
       createdAt: Number(data.created_at || data.createdAt || Math.floor(Date.now() / 1000)),
       expiresIn: normalizeLifetimeSeconds(
-        data.expires_in || data.expiresIn || TOKEN_MAX_LIFETIME_SECONDS
+        data.expires_in || data.expiresIn || TOKEN_FALLBACK_LIFETIME_SECONDS
       ),
       deviceCode: null,
       userCode: null,

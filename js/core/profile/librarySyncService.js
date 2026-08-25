@@ -126,6 +126,24 @@ function applyPulledAddons(rows = []) {
   return urls;
 }
 
+// A read that succeeds but yields nothing is not authoritative. PostgREST
+// answers 200 [] both for a table that is genuinely empty and for one whose
+// rows RLS filtered out, and setAddonOrder/setAddonDisplayNameOverrides replace
+// wholesale with no empty guard of their own - so applying [] silently wipes
+// the local addon list and every custom name. Mirror of the empty-list guard in
+// push(): return null instead, and let the caller try the next source.
+async function applyPulledAddonsIfPresent(rows) {
+  if (!extractAddonEntries(rows).length) {
+    return null;
+  }
+  const urls = applyPulledAddons(rows);
+  if (!urls.length) {
+    return null;
+  }
+  await addonRepository.setAddonOrder(urls, { silent: true });
+  return urls;
+}
+
 export const LibrarySyncService = {
   getLastPullStatus() {
     return lastPullStatus;
@@ -141,7 +159,6 @@ export const LibrarySyncService = {
       const localUrls = addonRepository.getInstalledAddonUrls();
       const profileId = await resolveAddonProfileId();
       const ownerId = await AuthManager.getEffectiveUserId();
-      let addonTableMissing = false;
 
       try {
         const addonRows = await SupabaseApi.select(
@@ -149,52 +166,56 @@ export const LibrarySyncService = {
           `user_id=eq.${encodeURIComponent(ownerId)}&profile_id=eq.${profileId}&select=*&order=sort_order.asc`,
           true
         );
-        const addonUrls = applyPulledAddons(addonRows);
-        await addonRepository.setAddonOrder(addonUrls, { silent: true });
-        recordPullStatus("ok", { count: addonUrls.length });
-        return addonUrls;
+        const addonUrls = await applyPulledAddonsIfPresent(addonRows);
+        if (addonUrls) {
+          recordPullStatus("ok", { count: addonUrls.length });
+          return addonUrls;
+        }
       } catch (addonsTableError) {
-        addonTableMissing = isMissingResourceError(addonsTableError);
-        if (!addonTableMissing) {
+        if (!isMissingResourceError(addonsTableError)) {
           readError = addonsTableError;
         }
         console.warn("Addon sync pull addons-table read failed", addonsTableError);
       }
 
-      let tvTableMissing = false;
       try {
         const rows = await SupabaseApi.select(
           TABLE,
           `owner_id=eq.${encodeURIComponent(ownerId)}&select=*&order=position.asc`,
           true
         );
-        const urls = applyPulledAddons(rows);
-        await addonRepository.setAddonOrder(urls, { silent: true });
-        recordPullStatus("ok", { count: urls.length });
-        return urls;
+        const urls = await applyPulledAddonsIfPresent(rows);
+        if (urls) {
+          recordPullStatus("ok", { count: urls.length });
+          return urls;
+        }
       } catch (tvTableError) {
-        tvTableMissing = isMissingResourceError(tvTableError);
-        if (!tvTableMissing) {
+        if (!isMissingResourceError(tvTableError)) {
           readError = tvTableError;
         }
         console.warn("Addon sync pull tv-table read failed", tvTableError);
       }
 
-      if (addonTableMissing && tvTableMissing) {
-        try {
-          const rpcRows = await SupabaseApi.rpc(
-            "sync_pull_addons",
-            { p_profile_id: profileId },
-            true
-          );
-          const urls = applyPulledAddons(rpcRows);
-          await addonRepository.setAddonOrder(urls, { silent: true });
+      // Reached whenever neither table produced entries - including when they
+      // answered 200 [] rather than 404. On an RPC-backed deployment the tables
+      // read empty by design and this is the only source that has the addons,
+      // so gating it on both tables being *missing* meant it was never tried.
+      try {
+        const rpcRows = await SupabaseApi.rpc(
+          "sync_pull_addons",
+          { p_profile_id: profileId },
+          true
+        );
+        const urls = await applyPulledAddonsIfPresent(rpcRows);
+        if (urls) {
           recordPullStatus("ok", { count: urls.length });
           return urls;
-        } catch (rpcError) {
-          readError = rpcError;
-          console.warn("Addon sync pull RPC failed", rpcError);
         }
+      } catch (rpcError) {
+        if (!isMissingResourceError(rpcError)) {
+          readError = rpcError;
+        }
+        console.warn("Addon sync pull RPC failed", rpcError);
       }
 
       if (readError) {

@@ -7,6 +7,10 @@ const TRAKT_PROVIDER = "trakt";
 const PULL_RPC = "sync_pull_provider_credentials";
 const PUSH_RPC = "sync_push_provider_credentials";
 const DELETE_RPC = "sync_delete_provider_credentials";
+// Must match traktAuthStore: clamp only absurd values, never a real 90-day
+// Trakt lifetime, or a round-trip through sync re-introduces the daily
+// force-refresh that burns the rotating refresh token.
+const TOKEN_MAX_LIFETIME_SECONDS = 7776000;
 const TOKEN_FALLBACK_LIFETIME_SECONDS = 86400;
 
 let syncInFlight = Promise.resolve();
@@ -24,7 +28,7 @@ function normalizeLifetimeSeconds(value) {
   if (!Number.isFinite(seconds) || seconds <= 0) {
     return TOKEN_FALLBACK_LIFETIME_SECONDS;
   }
-  return Math.min(TOKEN_FALLBACK_LIFETIME_SECONDS, Math.trunc(seconds));
+  return Math.min(TOKEN_MAX_LIFETIME_SECONDS, Math.trunc(seconds));
 }
 
 function credentialJsonFromState(state = {}) {

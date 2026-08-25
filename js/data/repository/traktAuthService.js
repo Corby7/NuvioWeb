@@ -10,7 +10,10 @@ import { TraktCredentialSyncService } from "../../core/profile/traktCredentialSy
 
 const API_VERSION = "2";
 const DEFAULT_API_URL = "https://api.trakt.tv";
-const REFRESH_LEEWAY_SECONDS = 60;
+// Refresh once the token is within a week of its 90-day expiry, not in its last
+// minute: any launch in that window renews well ahead of the deadline, and a
+// token that actually expires may no longer be refreshable at all.
+const REFRESH_LEEWAY_SECONDS = 604800;
 
 function apiBaseUrl() {
   return String(TRAKT_API_URL || DEFAULT_API_URL).replace(/\/+$/, "");
@@ -61,6 +64,10 @@ export async function requestJson(
   return { response, payload };
 }
 
+function isDeadGrantStatus(status) {
+  return status === 400 || status === 401 || status === 403;
+}
+
 function isTokenExpiredOrExpiring(state) {
   const createdAt = Number(state.createdAt || 0);
   const expiresIn = Number(state.expiresIn || 0);
@@ -69,6 +76,45 @@ function isTokenExpiredOrExpiring(state) {
   }
   const expiresAt = createdAt + expiresIn;
   return Date.now() / 1000 >= expiresAt - REFRESH_LEEWAY_SECONDS;
+}
+
+let refreshInFlight = null;
+
+async function performTokenRefresh(state) {
+  const { response, payload } = await requestJson("/oauth/token", {
+    method: "POST",
+    body: {
+      refresh_token: state.refreshToken,
+      client_id: TRAKT_CLIENT_ID,
+      client_secret: TRAKT_CLIENT_SECRET,
+      redirect_uri: TRAKT_REDIRECT_URI || "urn:ietf:wg:oauth:2.0:oob",
+      grant_type: "refresh_token"
+    }
+  });
+
+  if (!response.ok || !payload) {
+    // Trakt answers a dead refresh_token grant with 400 invalid_grant, not 401.
+    // Leaving that case unhandled kept the burned token in storage, so every
+    // screen mount retried it and 400'd again forever with no way back.
+    if (isDeadGrantStatus(response.status)) {
+      // A concurrent refresh may have rotated the token out from under this
+      // request. Its result is the authoritative one - clearing here would
+      // throw away a token that actually works.
+      if (TraktAuthStore.get().refreshToken !== state.refreshToken) {
+        return TraktAuthStore.isAuthenticated();
+      }
+      const recovered = await TraktCredentialSyncService.pullFromRemote();
+      if (recovered && TraktAuthStore.get().refreshToken !== state.refreshToken) {
+        return performTokenRefresh(TraktAuthStore.get());
+      }
+      TraktAuthStore.clearAuth();
+    }
+    return false;
+  }
+  TraktAuthStore.saveToken(payload);
+  await fetchUserSettings();
+  await TraktCredentialSyncService.pushCurrentToRemote();
+  return true;
 }
 
 async function fetchUserSettings() {
@@ -206,32 +252,15 @@ export const TraktAuthService = {
     if (!force && !isTokenExpiredOrExpiring(state)) {
       return true;
     }
-
-    const { response, payload } = await requestJson("/oauth/token", {
-      method: "POST",
-      body: {
-        refresh_token: state.refreshToken,
-        client_id: TRAKT_CLIENT_ID,
-        client_secret: TRAKT_CLIENT_SECRET,
-        redirect_uri: TRAKT_REDIRECT_URI || "urn:ietf:wg:oauth:2.0:oob",
-        grant_type: "refresh_token"
-      }
-    });
-
-    if (!response.ok || !payload) {
-      if (response.status === 401 || response.status === 403) {
-        const recovered = await TraktCredentialSyncService.pullFromRemote();
-        if (recovered && TraktAuthStore.get().refreshToken !== state.refreshToken) {
-          return this.refreshTokenIfNeeded(true);
-        }
-        TraktAuthStore.clearAuth();
-      }
-      return false;
+    // Home mounts several Trakt rows at once and each asks for a token. Without
+    // this single-flight guard every one of them POSTs the same refresh_token,
+    // and since Trakt rotates on first use, all but the winner get 400.
+    if (!refreshInFlight) {
+      refreshInFlight = performTokenRefresh(state).finally(() => {
+        refreshInFlight = null;
+      });
     }
-    TraktAuthStore.saveToken(payload);
-    await fetchUserSettings();
-    await TraktCredentialSyncService.pushCurrentToRemote();
-    return true;
+    return refreshInFlight;
   },
 
   async getValidAccessToken() {
