@@ -1,12 +1,14 @@
 import { LocalStore } from "../storage/localStore.js";
 import { Environment } from "../../platform/environment.js";
 import { isWebOsImageProxyUrl, normalizeImageUrl } from "./imageProxy.js";
+import { mapWithConcurrency } from "../network/mapWithConcurrency.js";
 
 const failedAddonLogoUrls = new Set();
 const addonLogoCache = new Map();
 const ADDON_LOGO_CACHE_KEY = "nuvio.stream.addonLogoCache.v1";
 const ADDON_LOGO_CACHE_LIMIT = 36;
 const ADDON_LOGO_CACHE_MAX_LENGTH = 140000;
+const ADDON_LOGO_PRELOAD_CONCURRENCY = 4;
 
 let addonLogoCacheHydrated = false;
 let addonLogoCachePersistTimer = null;
@@ -123,7 +125,12 @@ export async function preloadAddonLogoImages(streams = [], lookup = {}) {
       urls.add(url);
     }
   });
-  await Promise.all(Array.from(urls).map((url) => warmAddonLogoPreview(url)));
+  // A busy title returns streams from a dozen addons; warming every logo in one
+  // unbounded batch queues them all against the TV's network stack at once, so
+  // the first logo to paint waits on the slowest.
+  await mapWithConcurrency(Array.from(urls), ADDON_LOGO_PRELOAD_CONCURRENCY, (url) =>
+    warmAddonLogoPreview(url)
+  );
 }
 
 export function requestAddonLogo(url = "", onSettled = null) {

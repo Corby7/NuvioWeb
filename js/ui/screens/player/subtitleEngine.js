@@ -8,60 +8,15 @@
 
 import { parseVttCueLayout } from "../../../core/player/subtitleCueLayout.js";
 import { isAssSubtitle, convertAssBodyToVtt } from "../../../core/player/assSubtitle.js";
+import { decodeSubtitleBytes } from "../../../core/player/subtitleCharsetDetector.js";
 
-// Subtitle files from addons are frequently not UTF-8 (SubDL and
-// OpenSubtitles serve plenty of Windows-125x content). Map the declared
-// subtitle language to the legacy codepage used when a strict UTF-8 decode
-// fails.
-const LANGUAGE_CODEPAGE_MAP = {
-  cs: "windows-1250", hu: "windows-1250", pl: "windows-1250", ro: "windows-1250",
-  sk: "windows-1250", sl: "windows-1250", hr: "windows-1250", bs: "windows-1250",
-  ru: "windows-1251", bg: "windows-1251", sr: "windows-1251", mk: "windows-1251",
-  uk: "windows-1251", be: "windows-1251",
-  el: "windows-1253",
-  tr: "windows-1254", az: "windows-1254",
-  he: "windows-1255",
-  ar: "windows-1256", fa: "windows-1256", ur: "windows-1256",
-  et: "windows-1257", lt: "windows-1257", lv: "windows-1257",
-  vi: "windows-1258",
-  th: "windows-874"
-};
-
-function decodeWith(buffer, encoding, options = {}) {
-  try {
-    return new TextDecoder(encoding, options).decode(buffer);
-  } catch (_) {
-    return null;
-  }
-}
-
-export function decodeSubtitleBuffer(arrayBuffer, { languageHint = "" } = {}) {
-  const bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
-  if (!bytes.length) {
-    return "";
-  }
-
-  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
-    return decodeWith(bytes.subarray(3), "utf-8") || "";
-  }
-  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
-    return decodeWith(bytes, "utf-16le") || "";
-  }
-  if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
-    return decodeWith(bytes, "utf-16be") || "";
-  }
-
-  const strictUtf8 = decodeWith(bytes, "utf-8", { fatal: true });
-  if (strictUtf8 !== null) {
-    return strictUtf8;
-  }
-
-  const language = String(languageHint || "").trim().toLowerCase().split(/[-_]/)[0];
-  const codepage = LANGUAGE_CODEPAGE_MAP[language] || "windows-1252";
-  return decodeWith(bytes, codepage)
-    || decodeWith(bytes, "windows-1252")
-    || decodeWith(bytes, "utf-8")
-    || "";
+// Charset selection lives in subtitleCharsetDetector: a language-hint codepage
+// map alone cannot tell Big5 from GB18030 or spot already-decoded mojibake, and
+// addon subtitles are frequently one of those. `contentType` is optional — pass
+// the response header through when the caller has it, since a declared charset
+// outranks any guess.
+export function decodeSubtitleBuffer(arrayBuffer, { languageHint = "", contentType = "" } = {}) {
+  return decodeSubtitleBytes(arrayBuffer, { languageHint, contentType });
 }
 
 function escapeCueHtml(value) {
@@ -278,7 +233,7 @@ export async function fetchSubtitleCues(url, { headers = {}, languageHint = "", 
     }
     const contentType = String(response.headers?.get?.("content-type") || "");
     const buffer = await response.arrayBuffer();
-    const text = decodeSubtitleBuffer(buffer, { languageHint });
+    const text = decodeSubtitleBuffer(buffer, { languageHint, contentType });
     return parseSubtitleText(text, { sourceUrl: target, contentType });
   } catch (_) {
     return [];

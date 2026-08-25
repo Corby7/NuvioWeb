@@ -10,6 +10,7 @@ import { TmdbService } from "../../../core/tmdb/tmdbService.js";
 import { TmdbSettingsStore } from "../../../data/local/tmdbSettingsStore.js";
 import { TmdbMetadataService } from "../../../core/tmdb/tmdbMetadataService.js";
 import { TMDB_API_KEY, TRAKT_API_URL, TRAKT_CLIENT_ID } from "../../../config.js";
+import { toTraktImageUrl } from "../../../core/trakt/traktImageUrl.js";
 import {
   HomeScreen,
   buildModernHomeSizingStyle,
@@ -564,10 +565,12 @@ function mapTraktEntity(entity = {}, type = "movie") {
     id,
     type: normalizedType,
     name: title,
-    poster: firstNonEmpty(entity?.images?.poster?.[0], entity?.images?.poster, entity?.images?.posters?.[0]),
-    background: firstNonEmpty(entity?.images?.fanart?.[0], entity?.images?.background, entity?.images?.backdrop?.[0]),
+    // Trakt list artwork comes back scheme-less ("media.trakt.tv/..."), which a
+    // packaged file:// build resolves as a local path — every poster 404s.
+    poster: toTraktImageUrl(firstNonEmpty(entity?.images?.poster?.[0], entity?.images?.poster, entity?.images?.posters?.[0])),
+    background: toTraktImageUrl(firstNonEmpty(entity?.images?.fanart?.[0], entity?.images?.background, entity?.images?.backdrop?.[0])),
     releaseInfo: String(entity?.year || entity?.released || entity?.first_aired || "").slice(0, 4),
-    logo: firstNonEmpty(entity?.images?.logo?.[0])
+    logo: toTraktImageUrl(firstNonEmpty(entity?.images?.logo?.[0]))
   }, normalizedType);
 }
 

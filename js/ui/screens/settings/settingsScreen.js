@@ -3125,6 +3125,14 @@ export const SettingsScreen = {
         hideUnreleasedContent: !LayoutPreferences.get().hideUnreleasedContent
       });
     });
+    this.actionMap.set("layout:imdbRatings", () => {
+      LayoutPreferences.set({
+        homeImdbRatingsVisibility:
+          LayoutPreferences.get().homeImdbRatingsVisibility === "HIDE_ALL"
+            ? "SHOW_ALL"
+            : "HIDE_ALL"
+      });
+    });
     this.actionMap.set("layout:useEpisodeThumbnailsInCw", () => {
       LayoutPreferences.set({
         useEpisodeThumbnailsInCw: !LayoutPreferences.get().useEpisodeThumbnailsInCw
@@ -3349,6 +3357,16 @@ export const SettingsScreen = {
           title: t("settings.layout.hideUnreleased.title"),
           subtitle: t("settings.layout.hideUnreleased.subtitle"),
           checked: Boolean(model.layout.hideUnreleasedContent)
+        })}
+        ${this.renderToggleRow({
+          focusKey: "layout:imdbRatings",
+          title: t("settings.layout.imdbRatings.title", {}, "Show IMDb ratings"),
+          subtitle: t(
+            "settings.layout.imdbRatings.subtitle",
+            {},
+            "Show the rating on the Home hero and detail pages"
+          ),
+          checked: model.layout.homeImdbRatingsVisibility !== "HIDE_ALL"
         })}
       </div>
     `;

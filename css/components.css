@@ -5834,14 +5834,59 @@ img[data-lazy-src] {
 }
 
 .home-screen-shell .home-continue-card {
+  position: relative;
   flex-basis: var(--home-continue-width);
   min-width: var(--home-continue-width);
   max-width: var(--home-continue-width);
   border-radius: 24px;
-  /* Override the inherited .home-content-card transition to drop box-shadow —
-     the focus pop-shadow should snap instantly (zero repaint cost) rather
-     than animate, matching every other card type. */
+  /* Override the inherited .home-content-card transition to drop box-shadow.
+     The focus shadow does not live on this element at all any more (see the
+     ::before below) — snapping it here still meant re-rastering a 30px blur at
+     a new size on every frame of the concurrent scale, which is exactly what
+     the poster cards avoid. */
   transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), border-color 160ms ease;
+}
+
+/* Pre-rasterized focus shadow, same idiom as .home-poster-card::before: the
+   blur is painted once at opacity 0 and only its opacity animates, which the
+   compositor handles with no per-frame repaint. The previous form put the blur
+   on the card itself, which was concurrently animating transform: scale(1.05) —
+   so the 30px blur re-rastered at a new size every frame. See isPromotableCard
+   in homeScreen.js for the on-device numbers; the two changes only pay off
+   together. */
+.home-screen-shell .home-continue-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  pointer-events: none;
+  /* Drop shadow AND the focus ring. The ring used to live on
+     .home-continue-media, which put it on the wrong element: that node carries
+     the artwork, the scrim and the copy behind a rounded overflow clip, and
+     .performance-constrained * arms a 140ms box-shadow/background-color
+     transition on every element — so gaining or losing the ring repainted the
+     whole 419x236 subtree once per frame for 140ms, on two cards per press.
+     Measured on the C3 with a scripted focus-class swap (8 swaps / 1.9s):
+     GPUTask 1300ms -> 620ms, dropped frames 70 -> 35. Both shadows ride this
+     element's opacity transition instead, which the compositor handles without
+     repainting anything. */
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    0 0 0 4px var(--focus-color);
+  opacity: 0;
+  transition: opacity 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: -1;
+}
+
+.home-screen-shell .home-continue-card.focused::before {
+  opacity: 1;
+}
+
+/* Paired with updateNeighborPromotions() in homeScreen.js — the focused card
+   and its neighbours keep a compositor layer so the focus scale is a pure
+   transform instead of a re-raster. */
+.home-screen-shell .home-continue-card.will-promote {
+  will-change: transform;
 }
 
 .home-screen-shell .home-continue-media {
@@ -5855,6 +5900,11 @@ img[data-lazy-src] {
     linear-gradient(145deg, #393939, #111);
   background-position: center;
   background-size: cover;
+  /* Only classic/grid still change these on focus (see the layout-scoped rule
+     further down). Do NOT put a modern focus treatment back on this element:
+     it clips artwork + scrim + copy behind a rounded overflow, so any animated
+     paint property here repaints that whole subtree every frame. The modern
+     ring and drop shadow live on .home-continue-card::before instead. */
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 
@@ -5879,15 +5929,10 @@ img[data-lazy-src] {
 .home-screen-shell .home-continue-card.focused,
 .home-screen-shell .home-continue-card.home-content-card.focused {
   border-color: transparent !important;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5) !important;
+  box-shadow: none !important;
   background: transparent !important;
   transform: scale(1.05) !important;
   transform-origin: top !important;
-}
-
-.home-screen-shell .home-continue-card.focused .home-continue-media {
-  box-shadow: 0 0 0 4px var(--focus-color);
-  background-color: var(--focus-bg);
 }
 
 /* Copy scrim. The old two-stop ramp left a visible hard edge and topped out too
@@ -6467,6 +6512,13 @@ img[data-lazy-src] {
 .home-screen-shell.home-layout-grid .home-continue-card.focused {
   background: transparent;
   box-shadow: none;
+}
+
+/* These layouts never carried the modern pop-shadow; the shadow moved to
+   .home-continue-card::before, so suppress it here too. */
+.home-screen-shell.home-layout-classic .home-continue-card::before,
+.home-screen-shell.home-layout-grid .home-continue-card::before {
+  content: none;
 }
 
 .home-screen-shell.home-layout-classic .home-continue-card.focused .home-continue-media,
@@ -19870,6 +19922,14 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
 .legacy-tizen .home-continue-card.focused,
 .legacy-tizen .series-episode-card.focused {
   box-shadow: none !important;
+}
+
+/* Same suppression for the ::before the shadow now lives on. Needs !important:
+   these selectors are less specific than .home-screen-shell .home-continue-card
+   .focused::before. */
+.legacy-webos .home-continue-card::before,
+.legacy-tizen .home-continue-card::before {
+  content: none !important;
 }
 
 .performance-constrained .home-screen-shell.home-layout-modern .home-poster-card,

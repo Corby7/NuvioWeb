@@ -3,6 +3,7 @@ import { AuthManager } from "../auth/authManager.js";
 import { SupabaseApi } from "../../data/remote/supabase/supabaseApi.js";
 import { ThemeStore } from "../../data/local/themeStore.js";
 import { LayoutPreferences } from "../../data/local/layoutPreferences.js";
+import { normalizeHomeImdbRatingsVisibility } from "../util/imdbRatingVisibility.js";
 import { HomeCatalogStore } from "../../data/local/homeCatalogStore.js";
 import { PlayerSettingsStore } from "../../data/local/playerSettingsStore.js";
 import { TmdbSettingsStore } from "../../data/local/tmdbSettingsStore.js";
@@ -626,6 +627,9 @@ const FEATURE_ADAPTERS = {
         ),
         detail_page_trailer_button_enabled: Boolean(layout.detailPageTrailerButtonEnabled),
         hide_unreleased_content: Boolean(layout.hideUnreleasedContent),
+        home_imdb_ratings_visibility: normalizeHomeImdbRatingsVisibility(
+          layout.homeImdbRatingsVisibility
+        ),
         use_episode_thumbnails_in_cw: layout.useEpisodeThumbnailsInCw !== false,
         blur_continue_watching_next_up: Boolean(layout.blurContinueWatchingNextUp),
         show_unaired_next_up: layout.showUnairedNextUp !== false,
@@ -691,6 +695,11 @@ const FEATURE_ADAPTERS = {
       if (stringOrNull(raw.continue_watching_sort_mode)) {
         projected.continue_watching_sort_mode = normalizeContinueWatchingSortModeForAndroid(
           raw.continue_watching_sort_mode
+        );
+      }
+      if (stringOrNull(raw.home_imdb_ratings_visibility)) {
+        projected.home_imdb_ratings_visibility = normalizeHomeImdbRatingsVisibility(
+          String(raw.home_imdb_ratings_visibility).trim().toUpperCase()
         );
       }
       if (numberOrNull(raw.poster_card_width_dp) != null) {
@@ -795,6 +804,11 @@ const FEATURE_ADAPTERS = {
       if (stringOrNull(raw.continue_watching_sort_mode)) {
         partial.continueWatchingSortMode = normalizeContinueWatchingSortModeForWeb(
           raw.continue_watching_sort_mode
+        );
+      }
+      if (stringOrNull(raw.home_imdb_ratings_visibility)) {
+        partial.homeImdbRatingsVisibility = normalizeHomeImdbRatingsVisibility(
+          String(raw.home_imdb_ratings_visibility).trim().toUpperCase()
         );
       }
       if (!Object.keys(partial).length) {

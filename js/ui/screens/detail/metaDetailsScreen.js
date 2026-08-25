@@ -24,6 +24,8 @@ import { TraktAuthService } from "../../../data/repository/traktAuthService.js";
 import { Environment } from "../../../platform/environment.js";
 import { Platform } from "../../../platform/index.js";
 import { TRAKT_API_URL, TRAKT_CLIENT_ID, YOUTUBE_PROXY_URL } from "../../../config.js";
+import { toTraktImageUrl } from "../../../core/trakt/traktImageUrl.js";
+import { showImdbRatings } from "../../../core/util/imdbRatingVisibility.js";
 import { I18n } from "../../../i18n/index.js";
 import { NuvioDialog } from "../../components/nuvioDialog.js";
 import { DIALOG_ICONS } from "../../components/dialogIcons.js";
@@ -171,7 +173,9 @@ function extractCast(meta = {}) {
     if (raw.startsWith("/")) {
       return `https://image.tmdb.org/t/p/w300${raw}`;
     }
-    return raw;
+    // Trakt cast headshots arrive scheme-less ("media.trakt.tv/..."); without a
+    // scheme the packaged file:// build resolves them as a local path.
+    return toTraktImageUrl(raw);
   };
   const normalizeCastValue = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
   const selectBetterCastEntry = (current, candidate) => {
@@ -2363,7 +2367,9 @@ export const MetaDetailsScreen = {
   renderHeroMetaRows(meta) {
     const genresText = normalizeGenreList(meta).join(" • ");
     const yearText = formatMovieReleaseDate(meta);
-    const imdbValue = resolveImdbRating(meta);
+    const imdbValue = showImdbRatings(LayoutPreferences.get()?.homeImdbRatingsVisibility)
+      ? resolveImdbRating(meta)
+      : null;
     const imdbText = imdbValue != null && String(imdbValue).trim() !== "" ? String(imdbValue).replace(",", ".") : "";
     const runtimeText = String(meta?.runtime || "").trim()
       || formatRuntimeMinutes(meta?.runtimeMinutes || resolveEpisodeRuntimeForSeason(this.episodes, this.selectedSeason));
@@ -4332,7 +4338,7 @@ export const MetaDetailsScreen = {
       if (value.startsWith("/")) {
         return `https://image.tmdb.org/t/p/w500${value}`;
       }
-      return value;
+      return toTraktImageUrl(value);
     };
     const companies = rawCompanies
       .map((entry) => ({

@@ -8,6 +8,7 @@ import { watchedItemsRepository } from "../../../data/repository/watchedItemsRep
 import { savedLibraryRepository } from "../../../data/repository/savedLibraryRepository.js";
 import { libraryRepository, LibrarySourceMode } from "../../../data/repository/libraryRepository.js";
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
+import { showImdbRatings } from "../../../core/util/imdbRatingVisibility.js";
 import { ContinueWatchingPreferences } from "../../../data/local/continueWatchingPreferences.js";
 import { HomeCatalogStore } from "../../../data/local/homeCatalogStore.js";
 import { CollectionsStore, buildCollectionHomeKey } from "../../../data/local/collectionsStore.js";
@@ -481,6 +482,23 @@ function updateTrackVirtualWindow(track, { targetScrollLeft = null } = {}) {
     card.style.height = `${height}px`;
     card.classList.add("is-row-stub");
   }
+}
+
+// Cards that get a compositor layer while focused (see updateNeighborPromotions
+// and the .will-promote rules in components.css). Continue-watching cards were
+// excluded until 2026-08-25: the focus scale is a 180ms transform on a 419x236
+// card, and with no pre-existing layer the C3 re-rastered the card (and its
+// focus shadow) at a new size every frame. Measured on-device over 4 paired
+// runs, one d-pad press: GPUTask 393ms -> 306ms and 8.3 -> 11.0 delivered
+// frames, together with the ::before shadow swap in components.css. That closes
+// roughly half the gap to the catalog rows (GPUTask 125-195ms, 16-20 frames);
+// the rest is still unexplained — the row's own translation is nearly free
+// (freezing it changes nothing) and the hero swap accounts for only ~50ms.
+// Module-level, not a method: HomeScreen methods are borrowed with
+// `this` = FolderDetailScreen.
+function isPromotableCard(card) {
+  const list = card?.classList;
+  return Boolean(list?.contains("home-poster-card") || list?.contains("home-continue-card"));
 }
 
 function uniqueById(items = []) {
@@ -1883,7 +1901,11 @@ function buildHeroDisplayModel(hero, layoutMode) {
     };
   }
   const year = extractYear(hero);
-  const imdb = resolveImdbRating(hero);
+  // Gate at the source: every meta layout below reads this one value, so the
+  // setting cannot be missed by a branch.
+  const imdb = showImdbRatings(LayoutPreferences.get()?.homeImdbRatingsVisibility)
+    ? resolveImdbRating(hero)
+    : null;
   const genres = Array.isArray(hero?.genres) ? hero.genres.filter(Boolean).slice(0, 3) : [];
   const typeLabel = toTitleCase(hero?.type || hero?.apiType || "movie") || "Movie";
   const isContinueWatchingHero = hero?.heroSource === "continueWatching";
@@ -5768,11 +5790,11 @@ export const HomeScreen = {
     }
     const next = [];
     this._promotedCards = next;
-    if (!node?.classList?.contains("home-poster-card")) {
+    if (!isPromotableCard(node)) {
       return;
     }
     const add = (card) => {
-      if (card?.classList?.contains("home-poster-card")) {
+      if (isPromotableCard(card)) {
         card.classList.add("will-promote");
         next.push(card);
       }
@@ -5795,7 +5817,7 @@ export const HomeScreen = {
       }
     } else {
       const track = node.closest(".home-track");
-      const siblings = track ? Array.from(track.querySelectorAll(".home-poster-card")) : [node];
+      const siblings = track ? Array.from(track.querySelectorAll(".home-poster-card, .home-continue-card")) : [node];
       const idx = siblings.indexOf(node);
       add(siblings[idx - 1]);
       add(node);

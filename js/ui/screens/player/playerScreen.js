@@ -9058,8 +9058,8 @@ export const PlayerScreen = {
       }
       // Decode from bytes so non-UTF-8 subtitle files (Windows-125x code
       // pages are common from addons) don't turn into mojibake.
-      const body = decodeSubtitleBuffer(await response.arrayBuffer(), { languageHint });
       const contentType = String(response.headers?.get("content-type") || "").toLowerCase();
+      const body = decodeSubtitleBuffer(await response.arrayBuffer(), { languageHint, contentType });
       const shouldConvertToVtt = this.isLikelySrtSubtitleUrl(original)
         || contentType.includes("subrip")
         || (!contentType.includes("vtt") && !/^\s*WEBVTT/i.test(body));

@@ -1,4 +1,5 @@
 import { createProfileScopedStore } from "./profileScopedStore.js";
+import { normalizeHomeImdbRatingsVisibility } from "../../core/util/imdbRatingVisibility.js";
 
 const KEY = "layoutPreferences";
 
@@ -22,6 +23,7 @@ const DEFAULTS = {
   modernSidebar: false,
   modernSidebarBlur: false,
   hideUnreleasedContent: false,
+  homeImdbRatingsVisibility: "SHOW_ALL",
   useEpisodeThumbnailsInCw: true,
   blurContinueWatchingNextUp: false,
   showUnairedNextUp: true,
@@ -75,6 +77,7 @@ function normalizeLayoutPreferences(value = {}) {
     posterCardWidthDp: Math.max(72, Number(merged.posterCardWidthDp ?? 126) || 126),
     posterCardCornerRadiusDp: Math.max(0, Number(merged.posterCardCornerRadiusDp ?? 12) || 12),
     detailPageTrailerButtonEnabled: Boolean(merged.detailPageTrailerButtonEnabled),
+    homeImdbRatingsVisibility: normalizeHomeImdbRatingsVisibility(merged.homeImdbRatingsVisibility),
     useEpisodeThumbnailsInCw: merged.useEpisodeThumbnailsInCw !== false,
     blurContinueWatchingNextUp: Boolean(merged.blurContinueWatchingNextUp),
     showUnairedNextUp: merged.showUnairedNextUp !== false,

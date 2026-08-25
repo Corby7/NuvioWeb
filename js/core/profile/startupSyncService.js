@@ -13,6 +13,13 @@ import { CollectionSyncService } from "./collectionSyncService.js";
 import { HomeCatalogSettingsSyncService } from "./homeCatalogSettingsSyncService.js";
 import { ThemeManager } from "../../ui/theme/themeManager.js";
 import { I18n } from "../../i18n/index.js";
+import {
+  getSyncBackoffRemainingMs,
+  isSyncBackoffActive,
+  isTransientSyncError,
+  recordSyncFailure,
+  resetSyncBackoff
+} from "../sync/syncBackoffPolicy.js";
 
 const SYNC_INTERVAL_MS = 120000;
 const ADDON_PUSH_DEBOUNCE_MS = 1000;
@@ -140,6 +147,7 @@ export const StartupSyncService = {
         await TraktCredentialSyncService.pullFromRemote(ProfileManager.getActiveProfileId());
         if (!includeProfileScoped) {
           this.hasPulledSuccessfully = true;
+          resetSyncBackoff();
           return { ok: true, didApplyProfileSettings };
         }
         await CollectionSyncService.pull();
@@ -150,9 +158,16 @@ export const StartupSyncService = {
         await WatchedItemsSyncService.pull();
         await WatchProgressSyncService.pull();
         this.hasPulledSuccessfully = true;
+        resetSyncBackoff();
         return { ok: true, didApplyProfileSettings };
       } catch (error) {
         console.warn(`Startup sync pull failed (attempt ${attempt}/${MAX_PULL_ATTEMPTS})`, error);
+        recordSyncFailure(error);
+        // A 4xx or a missing RPC is a definitive answer — the next two attempts
+        // would fail identically, so stop spending round trips on it.
+        if (!isTransientSyncError(error)) {
+          break;
+        }
         if (attempt < MAX_PULL_ATTEMPTS) {
           await sleep(3000);
         }
@@ -176,13 +191,25 @@ export const StartupSyncService = {
       await SavedLibrarySyncService.push();
       await WatchedItemsSyncService.push();
       await WatchProgressSyncService.push();
+      resetSyncBackoff();
     } catch (error) {
       console.warn("Startup sync push failed", error);
+      recordSyncFailure(error);
     }
   },
 
   async syncCycle() {
     if (!this.started || this.inFlight) {
+      return;
+    }
+    // A sustained outage would otherwise cost three failing pull attempts every
+    // SYNC_INTERVAL_MS for the life of the session. The cooldown only ever
+    // stretches the retry interval — it never suppresses a push on its own,
+    // because a push still requires a pull that actually succeeded.
+    if (isSyncBackoffActive()) {
+      console.warn(
+        `Startup sync: skipping cycle, backing off for ${Math.round(getSyncBackoffRemainingMs() / 1000)}s`
+      );
       return;
     }
     this.inFlight = true;
@@ -223,10 +250,18 @@ export const StartupSyncService = {
         console.warn("Addon auto push skipped: no successful pull yet this session");
         return;
       }
+      if (isSyncBackoffActive()) {
+        // The next successful cycle pushes the current list anyway, so dropping
+        // this one during an outage loses nothing.
+        console.warn("Addon auto push skipped: sync is backing off");
+        return;
+      }
       try {
         await LibrarySyncService.push();
+        resetSyncBackoff();
       } catch (error) {
         console.warn("Addon auto push failed", error);
+        recordSyncFailure(error);
       }
     }, ADDON_PUSH_DEBOUNCE_MS);
   }
