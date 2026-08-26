@@ -614,11 +614,25 @@ export function preloadImageSource(src) {
       settled = true;
       resolve(Boolean(loaded));
     };
-    image.onload = () => finish(true);
-    image.onerror = () => finish(false);
+    // A detached Image is not guaranteed to fire either event — when a previous
+    // fetch of the same URL was cancelled under it (an overlay removed
+    // mid-load), Chrome can leave it pending indefinitely. animateModernHeroLogoSwap
+    // gates its whole commit on this promise, so an unsettled preload left the
+    // hero logo on the previous item's artwork for good. Resolving false past
+    // the wait routes that caller down its direct-swap branch instead.
+    const watchdog = setTimeout(() => finish(false), MODERN_HOME_CONSTANTS.heroSwapPreloadTimeoutMs);
+    image.onload = () => {
+      clearTimeout(watchdog);
+      finish(true);
+    };
+    image.onerror = () => {
+      clearTimeout(watchdog);
+      finish(false);
+    };
     image.decoding = "async";
     image.src = normalized;
     if (image.complete) {
+      clearTimeout(watchdog);
       finish(Number(image.naturalWidth || 0) > 0);
     }
   });
@@ -779,9 +793,30 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
     onLoaded();
   };
 
+  // Neither load nor error is guaranteed here. A detached Image whose URL had a
+  // previous fetch cancelled under it (an overlay removed mid-load) can sit
+  // pending forever in Chrome, and this swap is the only thing that ever
+  // rewrites the backdrop src — so a lost preload stranded the hero on the
+  // previous item's artwork until some later swap happened to succeed. Commit
+  // the src directly once the wait is past: a late hard cut beats a wrong image.
+  const preloadWatchdog = setTimeout(() => {
+    if (preloadSettled || Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
+      return;
+    }
+    preloadSettled = true;
+    removeAllOverlays();
+    backdrop.setAttribute("src", normalizedSrc);
+    backdrop.setAttribute("alt", normalizedAlt);
+    backdrop.classList.remove("placeholder");
+  }, MODERN_HOME_CONSTANTS.heroSwapPreloadTimeoutMs);
+
   const preloadImg = new Image();
-  preloadImg.onload = doSetOverlaySrc;
+  preloadImg.onload = () => {
+    clearTimeout(preloadWatchdog);
+    doSetOverlaySrc();
+  };
   preloadImg.onerror = () => {
+    clearTimeout(preloadWatchdog);
     if (Number(backdrop.heroBackdropTransitionToken || 0) !== token) {
       return;
     }
@@ -792,6 +827,7 @@ function animateModernHeroBackdropSwap(backdrop, nextSrc, nextAlt = "") {
   };
   preloadImg.src = normalizedSrc;
   if (preloadImg.complete) {
+    clearTimeout(preloadWatchdog);
     doSetOverlaySrc();
   }
 }
@@ -3797,15 +3833,23 @@ export const HomeScreen = {
 
     if (backdrop && !skipBackdrop) {
       const src = display.backdrop || "";
-      // A scheduled swap's crossfade overlay may already be showing exactly
-      // this image, with its commit timer set to flip the main src — starting
+      // Any overlay already carrying the target src owns this swap, and starting
       // a duplicate two-layer transition here (e.g. from the enrichment pass)
-      // would only churn overlays and defer the cleanup.
-      const pendingOverlay = heroNode.querySelector(".home-hero-backdrop-transition-overlay.is-visible");
+      // would only churn overlays and defer the cleanup. That covers the visible
+      // overlay mid-crossfade and, equally, the pre-warm overlay that
+      // scheduleModernHeroUpdate appended and is still decoding. Restarting the
+      // swap over a *pending* overlay detached it mid-load (clearPendingOverlays
+      // spares only is-visible nodes), which cancelled the in-flight image
+      // fetch — the replacement `new Image()` preload then fired neither load
+      // nor error and the backdrop stayed on the previous hero permanently.
+      // Reproduced by holding right on a throttled connection: the enrichment
+      // commit lands inside the pre-warm decode window every few bursts, and the
+      // old `heroCrossfadeCommitTimer` term in this guard missed exactly then,
+      // because that timer is only armed once the decode has already resolved.
       const pendingOverlayOwnsSrc = Boolean(src)
-        && Boolean(pendingOverlay)
-        && String(pendingOverlay.getAttribute("src") || "") === src
-        && Boolean(this.heroCrossfadeCommitTimer);
+        && Array.from(heroNode.querySelectorAll(".home-hero-backdrop-transition-overlay"))
+          .some((node) => String(node.getAttribute("src") || "") === src
+            && !node.classList.contains("is-fading-out"));
       if (pendingOverlayOwnsSrc) {
         backdrop.setAttribute("alt", display.title || "featured");
       } else if (isHiding && backdrop instanceof HTMLImageElement) {

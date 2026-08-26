@@ -9,6 +9,11 @@ export const MODERN_HOME_CONSTANTS = {
   heroRapidSettleMs: 300,
   // Max wait for the new hero backdrop/logo decode before swapping anyway.
   heroSwapDecodeTimeoutMs: 800,
+  // Backstop for the backdrop swap's preload, which is not guaranteed to fire
+  // load or error (see animateModernHeroBackdropSwap). Well past a legitimate
+  // cold w1280 fetch on TV, short enough that a lost preload self-heals rather
+  // than leaving the previous hero's artwork up for good.
+  heroSwapPreloadTimeoutMs: 4000,
   // The hero copy is hidden (is-hero-meta-enriching) while the meta round trip
   // that supplies the logo is in flight. On a prefetch hit that clears within a
   // frame, but on a miss the backdrop crossfades in and the copy stays blank
