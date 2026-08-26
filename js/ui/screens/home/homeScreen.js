@@ -268,6 +268,10 @@ const TRACK_WINDOW_UPDATE_DELAY_MS = 80;
 // ~10MB GPU per recently-scrolled row for 6s.
 const TRACK_LAYER_DEMOTE_DELAY_MS = 6000;
 const TRACK_WINDOW_MIN_CARDS = 7;
+// Base duration of a row's horizontal scroll tween, and its easing. See
+// getTrackScrollDuration for why held-key navigation runs shorter than the base.
+const TRACK_SCROLL_DURATION_MS = 220;
+const TRACK_SCROLL_EASING = (t) => 1 - Math.pow(1 - t, 3);
 const DETAIL_PREFETCH_DWELL_MS = 300;
 const ROW_IMAGE_PREDECODE_DWELL_MS = 350;
 const HOME_SNAPSHOT_KEY_PREFIX = "nuvio.homeSnapshot.";
@@ -3438,6 +3442,29 @@ export const HomeScreen = {
       return Math.min(baseline, 90);
     }
     return baseline + 40;
+  },
+
+  // Horizontal row scroll duration, shortened while the row is being driven by a
+  // held (or rapidly tapped) direction key. The row tween is re-targeted on every
+  // key repeat — repeats arrive every keyRepeatThrottleMs (80ms) but the base
+  // tween runs 260ms, so it never finishes between presses: the row trails the
+  // focus ring by roughly half a card for the whole hold, then keeps sliding
+  // that distance out for another 260ms after the last press (reads as the row
+  // overshooting once the key is released). Collapsing the tween to the press
+  // interval lets it settle between presses, so the tail after release is a
+  // frame or two instead of a card. Isolated presses keep the full 220ms base.
+  getTrackScrollDuration(inputMeta = null) {
+    const now = Date.now();
+    const previousAt = Number(this.lastTrackScrollAt || 0);
+    this.lastTrackScrollAt = now;
+    const sincePrevious = previousAt > 0 ? now - previousAt : Number.POSITIVE_INFINITY;
+    const isBurst = Boolean(inputMeta?.repeat) || sincePrevious < TRACK_SCROLL_DURATION_MS;
+    if (!isBurst) {
+      return this.getScrollDuration(TRACK_SCROLL_DURATION_MS);
+    }
+    return this.getScrollDuration(
+      Math.max(60, Math.min(TRACK_SCROLL_DURATION_MS, sincePrevious))
+    );
   },
 
   getBackgroundRenderDelay() {
@@ -6922,7 +6949,7 @@ export const HomeScreen = {
     }
   },
 
-  ensureTrackHorizontalVisibility(target, direction = null, layoutAdjustment = 0) {
+  ensureTrackHorizontalVisibility(target, direction = null, layoutAdjustment = 0, inputMeta = null) {
     const track = target?.closest?.(".home-track, .home-grid-track");
     if (!track) {
       return;
@@ -6939,7 +6966,7 @@ export const HomeScreen = {
       if (this.isLegacyTvRuntime()) {
         this.applyTrackScrollLeft(next.container, Math.round(next.value));
       } else {
-        this.animateScroll(next.container, "x", next.value, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
+        this.animateScroll(next.container, "x", next.value, this.getTrackScrollDuration(inputMeta), { easing: TRACK_SCROLL_EASING });
       }
       return;
     }
@@ -6953,19 +6980,22 @@ export const HomeScreen = {
     const visibleLeft = effectiveScrollLeft + metrics.leftPadding;
     const visibleRight = effectiveScrollLeft + track.clientWidth - metrics.safeRightPadding;
 
+    // Resolve the destination before touching the animator: getTrackScrollDuration
+    // records the press interval, so the "already visible, nothing to do" case must
+    // not run through it.
+    let nextScrollLeft = null;
     if (targetLeft < visibleLeft) {
-      this.animateScroll(track, "x", targetLeft - metrics.leftPadding, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
-      return;
-    }
-    if (targetRight > visibleRight) {
-      this.animateScroll(track, "x", targetRight - track.clientWidth + metrics.safeRightPadding, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
-      return;
-    }
-    if (this.layoutMode !== "modern" && !direction) {
+      nextScrollLeft = targetLeft - metrics.leftPadding;
+    } else if (targetRight > visibleRight) {
+      nextScrollLeft = targetRight - track.clientWidth + metrics.safeRightPadding;
+    } else if (this.layoutMode !== "modern" && !direction) {
       const targetCenter = targetLeft + (target.offsetWidth / 2);
-      const centeredLeft = targetCenter - (track.clientWidth / 2);
-      this.animateScroll(track, "x", centeredLeft, this.getScrollDuration(220), { easing: (t) => 1 - Math.pow(1 - t, 3) });
+      nextScrollLeft = targetCenter - (track.clientWidth / 2);
     }
+    if (nextScrollLeft === null) {
+      return;
+    }
+    this.animateScroll(track, "x", nextScrollLeft, this.getTrackScrollDuration(inputMeta), { easing: TRACK_SCROLL_EASING });
   },
 
   focusNode(current, target, direction = null, inputMeta = null) {
@@ -6993,7 +7023,7 @@ export const HomeScreen = {
     if (this.isMainNode(target)) {
       this.lastMainFocus = target;
       this.rememberMainRowFocus(target);
-      this.ensureTrackHorizontalVisibility(target, direction, scrollAdjustments.horizontal);
+      this.ensureTrackHorizontalVisibility(target, direction, scrollAdjustments.horizontal, inputMeta);
       this.ensureMainVerticalVisibility(target, direction, current, scrollAdjustments.vertical);
       this.scheduleModernHeroUpdate(target);
       this.updateNeighborPromotions(target);

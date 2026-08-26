@@ -19025,6 +19025,21 @@ body:has(.detail-trailer-active) #root-nav-sidebar {
   transition: none !important;
 }
 
+/* Modern rows scroll by writing .home-track-inner's transform from JS, once per
+   animation frame (applyTrackTransformPx). The catch-all above arms an implicit
+   140ms transform transition on it, so CSS re-animates toward every one of those
+   per-frame writes and the rendered row trails the value JS just applied — 120
+   to 230px behind during held-key navigation on the C3. That lag then feeds back
+   into navigation: getModernTrackAlignedScrollTarget mixes a live
+   getBoundingClientRect (rendered, behind) with the applied scroll (ahead), so
+   the difference is added to the next scroll target and the row settles past the
+   focused card instead of aligned to it — measured 141px off, and it stays off
+   because nothing re-aligns after the row stops. The row has to land exactly
+   where JS puts it. */
+.performance-constrained .home-track-inner {
+  transition: none !important;
+}
+
 .performance-constrained .player-loading-identity {
   animation:
     playerLoadingIdentityFade 700ms linear 400ms forwards,
